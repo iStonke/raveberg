@@ -1,0 +1,20 @@
+[Unit]
+Description=RAVEBERG Display Kiosk
+After=graphical.target raveberg-stack.service
+Requires=raveberg-stack.service
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/raveberg
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+Environment=RAVEBERG_ENV_FILE=/opt/raveberg/ops/pi/env.appliance
+ExecStartPre=/bin/sleep 4
+ExecStart=/opt/raveberg/ops/pi/start-kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

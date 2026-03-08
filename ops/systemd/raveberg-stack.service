@@ -1,0 +1,17 @@
+[Unit]
+Description=RAVEBERG Docker Stack
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/raveberg
+Environment=RAVEBERG_ENV_FILE=/opt/raveberg/ops/pi/env.appliance
+ExecStart=/opt/raveberg/ops/pi/start-appliance-stack.sh
+ExecStop=/opt/raveberg/ops/pi/stop-appliance-stack.sh
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,34 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel
+
+
+UploadStatus = Literal["uploaded", "processed", "error"]
+UploadModerationStatus = Literal["pending", "approved", "rejected"]
+
+
+class UploadRead(BaseModel):
+    id: int
+    filename_original: str
+    filename_display: str | None
+    mime_type: str
+    size: int
+    created_at: datetime
+    status: UploadStatus
+    moderation_status: UploadModerationStatus
+    approved: bool
+    display_url: str | None
+    admin_display_url: str | None
+
+
+class UploadEvent(BaseModel):
+    id: int
+    status: UploadStatus
+    moderation_status: UploadModerationStatus
+    approved: bool
+    created_at: datetime
+
+
+class UploadDeletedEvent(BaseModel):
+    id: int

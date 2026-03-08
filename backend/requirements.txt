@@ -1,0 +1,9 @@
+alembic==1.15.2
+fastapi==0.115.11
+Pillow==11.2.1
+pillow-heif==0.22.0
+pydantic-settings==2.8.1
+psycopg[binary]==3.2.6
+python-multipart==0.0.20
+sqlalchemy==2.0.39
+uvicorn[standard]==0.34.0

@@ -1,0 +1,85 @@
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "${PROXY_HOST_PORT:-8085}:80"
+    volumes:
+      - ./proxy/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - raveberg
+
+  frontend:
+    build:
+      context: ./frontend
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      NODE_ENV: development
+      VITE_APP_NAME: RAVEBERG
+    ports:
+      - "${FRONTEND_HOST_PORT:-5180}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - raveberg
+
+  backend:
+    build:
+      context: ./backend
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-raveberg}:${POSTGRES_PASSWORD:-raveberg_dev}@db:5432/${POSTGRES_DB:-raveberg}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:8085,http://127.0.0.1:8085,http://localhost:5180,http://127.0.0.1:5180}
+      DEFAULT_APP_MODE: ${DEFAULT_APP_MODE:-visualizer}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin123}
+      APP_DATA_PATH: ${APP_DATA_PATH:-/app/data}
+      UPLOADS_PATH: ${UPLOADS_PATH:-/app/data/uploads}
+      DISPLAY_CACHE_PATH: ${DISPLAY_CACHE_PATH:-/app/data/display-cache}
+    ports:
+      - "${BACKEND_HOST_PORT:-8050}:8000"
+    volumes:
+      - ./backend:/app
+      - app_data:/app/data
+      - upload_data:/app/data/uploads
+      - display_cache:/app/data/display-cache
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - raveberg
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-raveberg}
+      POSTGRES_USER: ${POSTGRES_USER:-raveberg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-raveberg_dev}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5435}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raveberg} -d ${POSTGRES_DB:-raveberg}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - raveberg
+
+networks:
+  raveberg:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  app_data:
+  upload_data:
+  display_cache:
+  frontend_node_modules:
