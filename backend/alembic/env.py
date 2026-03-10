@@ -14,6 +14,8 @@ from app.models.display_status import DisplayStatus  # noqa: F401
 from app.models.selfie_state import SelfieState  # noqa: F401
 from app.models.setting import Setting  # noqa: F401
 from app.models.upload import Upload  # noqa: F401
+from app.models.video_asset import VideoAsset  # noqa: F401
+from app.models.video_state import VideoState  # noqa: F401
 from app.models.visualizer_state import VisualizerState  # noqa: F401
 
 config = context.config

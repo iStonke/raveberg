@@ -3,18 +3,27 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import type { SelfiePlaybackEvent } from '../../services/api'
 import { sendDisplayHeartbeat } from '../../services/api'
+import DisplayOverlay from '../../components/display/DisplayOverlay.vue'
 import { useAppModeStore } from '../../stores/appMode'
+import { usePublicRuntimeStore } from '../../stores/publicRuntime'
 import { useSelfieStore } from '../../stores/selfie'
+import { useVideoStore } from '../../stores/video'
 import { useVisualizerStore } from '../../stores/visualizer'
 import BlackoutRenderer from '../../components/display/BlackoutRenderer.vue'
 import IdleRenderer from '../../components/display/IdleRenderer.vue'
 import SelfieRenderer from '../../components/display/SelfieRenderer.vue'
+import StandbyRenderer from '../../components/display/StandbyRenderer.vue'
+import VideoRenderer from '../../components/display/VideoRenderer.vue'
 import VisualizerRenderer from '../../components/display/VisualizerRenderer.vue'
 
 const appModeStore = useAppModeStore()
+const publicRuntimeStore = usePublicRuntimeStore()
 const selfieStore = useSelfieStore()
+const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
 const uploadRefreshToken = ref(0)
+const idleReactionToken = ref(0)
+const visualizerReactionToken = ref(0)
 const selfiePlaybackCommand = ref<SelfiePlaybackEvent | null>(null)
 const hasInitialState = ref(false)
 const connectionState = ref<'connecting' | 'connected' | 'reconnecting'>('connecting')
@@ -26,11 +35,17 @@ let reconnectTimer: number | undefined
 let heartbeatTimer: number | undefined
 let disposed = false
 
+const heartbeatIntervalMs = Math.max(
+  5,
+  Number(import.meta.env.VITE_DISPLAY_HEARTBEAT_INTERVAL_SECONDS ?? '15'),
+) * 1000
+
 const activeRenderer = computed(() => {
-  if (!hasInitialState.value) return IdleRenderer
+  if (!hasInitialState.value) return StandbyRenderer
   if (appModeStore.mode === 'selfie') return SelfieRenderer
+  if (appModeStore.mode === 'video') return VideoRenderer
   if (appModeStore.mode === 'blackout') return BlackoutRenderer
-  if (appModeStore.mode === 'idle') return IdleRenderer
+  if (appModeStore.mode === 'idle') return StandbyRenderer
   return VisualizerRenderer
 })
 
@@ -43,11 +58,14 @@ const rendererProps = computed(() => {
     return {
       mode: appModeStore.mode,
       refreshToken: uploadRefreshToken.value,
+      standbyReactionToken: idleReactionToken.value,
       playbackCommand: selfiePlaybackCommand.value,
       settings: {
         slideshow_enabled: selfieStore.slideshowEnabled,
         slideshow_interval_seconds: selfieStore.slideshowIntervalSeconds,
+        slideshow_max_visible_photos: selfieStore.slideshowMaxVisiblePhotos,
         slideshow_shuffle: selfieStore.slideshowShuffle,
+        vintage_look_enabled: selfieStore.vintageLookEnabled,
         moderation_mode: selfieStore.moderationMode,
         slideshow_updated_at: selfieStore.slideshowUpdatedAt,
       },
@@ -66,11 +84,42 @@ const rendererProps = computed(() => {
         auto_cycle_interval_seconds: visualizerStore.autoCycleIntervalSeconds,
         updated_at: visualizerStore.updatedAt,
       },
+      eventToken: visualizerReactionToken.value,
+    }
+  }
+
+  if (appModeStore.mode === 'video') {
+    return {
+      settings: {
+        playlist_enabled: videoStore.playlistEnabled,
+        loop_enabled: videoStore.loopEnabled,
+        playback_order: videoStore.playbackOrder,
+        vintage_filter_enabled: videoStore.vintageFilterEnabled,
+        object_fit: videoStore.objectFit,
+        transition: videoStore.transition,
+        active_video_id: videoStore.activeVideoId,
+        updated_at: videoStore.updatedAt,
+      },
+      assets: videoStore.assets,
+    }
+  }
+
+  if (appModeStore.mode === 'idle') {
+    return {
+      reactionToken: idleReactionToken.value,
     }
   }
 
   return {}
 })
+
+const showDisplayOverlay = computed(
+  () =>
+    publicRuntimeStore.displayOverlayEnabled &&
+    hasInitialState.value &&
+    appModeStore.mode === 'visualizer' &&
+    visualizerStore.logoOverlayEnabled,
+)
 
 const connectionMessage = computed(() => {
   if (connectionState.value === 'connected') {
@@ -105,7 +154,18 @@ onBeforeUnmount(() => {
 
 async function loadInitialState() {
   try {
-    await Promise.all([appModeStore.refresh(), selfieStore.refresh(), visualizerStore.refresh()])
+    await Promise.all([
+      appModeStore.refresh(),
+      selfieStore.refresh(),
+      videoStore.refreshState(),
+      videoStore.refreshPublicLibrary(),
+      visualizerStore.refresh(),
+    ])
+    if (!publicRuntimeStore.isLoaded) {
+      void publicRuntimeStore.refresh().catch(() => {
+        // Overlay branding is optional; renderer state should still boot without it.
+      })
+    }
     hasInitialState.value = true
     markStateSync()
   } catch {
@@ -165,16 +225,46 @@ function connectEvents() {
     selfiePlaybackCommand.value = payload as SelfiePlaybackEvent
     markStateSync()
   })
+  source.addEventListener('video_snapshot', (event) => {
+    hasInitialState.value = true
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    videoStore.applyState(payload)
+    markStateSync()
+  })
+  source.addEventListener('video_settings_updated', (event) => {
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    videoStore.applyState(payload)
+    markStateSync()
+  })
+  source.addEventListener('video_library_snapshot', (event) => {
+    hasInitialState.value = true
+    const payload = parseEventPayload(event)
+    if (!payload || !Array.isArray(payload)) return
+    videoStore.applyLibrary(payload)
+    markStateSync()
+  })
+  source.addEventListener('video_library_updated', (event) => {
+    const payload = parseEventPayload(event)
+    if (!payload || !Array.isArray(payload)) return
+    videoStore.applyLibrary(payload)
+    markStateSync()
+  })
   source.addEventListener('upload_created', (event) => {
     const payload = parseEventPayload(event)
     if (!payload) return
     if (payload.approved) {
       uploadRefreshToken.value += 1
+      idleReactionToken.value += 1
+      visualizerReactionToken.value += 1
     }
     markStateSync()
   })
   source.addEventListener('upload_approved', () => {
     uploadRefreshToken.value += 1
+    idleReactionToken.value += 1
+    visualizerReactionToken.value += 1
     markStateSync()
   })
   source.addEventListener('upload_rejected', () => {
@@ -237,7 +327,7 @@ function startHeartbeatLoop() {
   }
   heartbeatTimer = window.setInterval(() => {
     void postHeartbeat(connectionState.value === 'connected')
-  }, 15000)
+  }, heartbeatIntervalMs)
 }
 
 function closeEventSource() {
@@ -263,6 +353,7 @@ function markStateSync() {
 function currentRendererLabel() {
   if (!hasInitialState.value) return 'Idle Renderer'
   if (appModeStore.mode === 'selfie') return 'Selfie Renderer'
+  if (appModeStore.mode === 'video') return 'Video Renderer'
   if (appModeStore.mode === 'blackout') return 'Blackout Renderer'
   if (appModeStore.mode === 'idle') return 'Idle Renderer'
   return 'Visualizer Renderer'
@@ -285,6 +376,9 @@ async function postHeartbeat(isConnected: boolean) {
 <template>
   <div class="display-surface">
     <component :is="activeRenderer" v-bind="rendererProps" />
+    <DisplayOverlay
+      v-if="showDisplayOverlay"
+    />
     <div v-if="connectionState !== 'connected'" class="display-connection">
       {{ connectionMessage }}
     </div>
@@ -294,8 +388,10 @@ async function postHeartbeat(isConnected: boolean) {
 <style scoped>
 .display-surface {
   position: relative;
-  min-height: 100vh;
   width: 100vw;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
   background: #020304;
 }
 

@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-VisualizerPreset = Literal["tunnel", "particles", "waves", "kaleidoscope"]
+VisualizerPreset = Literal["tunnel", "particles", "waves", "kaleidoscope", "warehouse", "swarm_collision"]
 ColorScheme = Literal["mono", "acid", "ultraviolet", "redline"]
 
 
@@ -14,6 +14,7 @@ class VisualizerStateRead(BaseModel):
     speed: int
     brightness: int
     color_scheme: ColorScheme
+    logo_overlay_enabled: bool
     auto_cycle_enabled: bool
     auto_cycle_interval_seconds: int
     updated_at: datetime | None
@@ -25,6 +26,7 @@ class VisualizerStateUpdate(BaseModel):
     speed: int = Field(ge=0, le=100)
     brightness: int = Field(ge=0, le=100)
     color_scheme: ColorScheme
+    logo_overlay_enabled: bool
     auto_cycle_enabled: bool
     auto_cycle_interval_seconds: int = Field(ge=15, le=600)
 

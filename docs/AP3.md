@@ -26,6 +26,7 @@ Fuer den eigentlichen Visualizer existiert ein eigener Zustand:
 - `speed`
 - `brightness`
 - `color_scheme`
+- `logo_overlay_enabled`
 - `updated_at`
 
 Dieser Zustand ist serverseitig die Quelle der Wahrheit und bleibt nach Neustarts erhalten.
@@ -40,6 +41,7 @@ Tabelle: `visualizer_state`
 - `speed`
 - `brightness`
 - `color_scheme`
+- `logo_overlay_enabled`
 - `updated_at`
 
 AP3 arbeitet bewusst mit genau einem aktiven Datensatz. Das haelt den Steuerpfad einfach, ohne spaetere Erweiterungen auf mehrere Visualizer-Profile zu verbauen.
@@ -69,6 +71,7 @@ In AP3 umgesetzt:
 - `particles`
 - `waves`
 - `kaleidoscope`
+- `warehouse`
 
 Die Namen sind stabil und serverseitig validiert. Neue Presets werden spaeter ueber drei Schritte ergaenzt:
 

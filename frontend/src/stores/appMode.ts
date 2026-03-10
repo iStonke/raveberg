@@ -58,5 +58,11 @@ export const useAppModeStore = defineStore('appMode', () => {
 })
 
 function isModeType(value: unknown): value is AppMode {
-  return value === 'visualizer' || value === 'selfie' || value === 'blackout' || value === 'idle'
+  return (
+    value === 'visualizer' ||
+    value === 'selfie' ||
+    value === 'video' ||
+    value === 'blackout' ||
+    value === 'idle'
+  )
 }

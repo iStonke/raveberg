@@ -9,9 +9,11 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.auth_service import AuthService
+from app.services.display_status_service import DisplayStatusService
 from app.services.event_service import event_service
 from app.services.mode_service import ModeService
 from app.services.selfie_service import SelfieService
+from app.services.video_service import VideoService
 from app.services.visualizer_service import VisualizerService
 
 async def visualizer_auto_cycle_loop() -> None:
@@ -30,13 +32,16 @@ async def lifespan(_: FastAPI):
     Path(settings.uploads_path).mkdir(parents=True, exist_ok=True)
     Path(settings.uploads_original_path).mkdir(parents=True, exist_ok=True)
     Path(settings.uploads_display_path).mkdir(parents=True, exist_ok=True)
+    Path(settings.videos_path).mkdir(parents=True, exist_ok=True)
     Path(settings.display_cache_path).mkdir(parents=True, exist_ok=True)
 
     with SessionLocal() as session:
         AuthService(session).ensure_initial_admin()
         ModeService(session).ensure_state()
         SelfieService(session).ensure_state()
+        VideoService(session).ensure_state()
         VisualizerService(session).ensure_state()
+        DisplayStatusService(session).ensure_status()
     auto_cycle_task = asyncio.create_task(visualizer_auto_cycle_loop())
     try:
         yield

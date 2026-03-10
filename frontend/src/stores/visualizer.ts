@@ -19,6 +19,7 @@ export const useVisualizerStore = defineStore('visualizer', () => {
   const speed = ref(55)
   const brightness = ref(70)
   const colorScheme = ref<ColorScheme>('acid')
+  const logoOverlayEnabled = ref(true)
   const autoCycleEnabled = ref(false)
   const autoCycleIntervalSeconds = ref(45)
   const updatedAt = ref<string | null>(null)
@@ -50,6 +51,7 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     speed.value = state.speed
     brightness.value = state.brightness
     colorScheme.value = state.color_scheme
+    logoOverlayEnabled.value = state.logo_overlay_enabled
     autoCycleEnabled.value = state.auto_cycle_enabled
     autoCycleIntervalSeconds.value = state.auto_cycle_interval_seconds
     updatedAt.value = state.updated_at
@@ -61,6 +63,7 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     speed,
     brightness,
     colorScheme,
+    logoOverlayEnabled,
     autoCycleEnabled,
     autoCycleIntervalSeconds,
     updatedAt,

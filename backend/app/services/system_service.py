@@ -1,5 +1,10 @@
+import os
+import re
+import shlex
+import subprocess
 from pathlib import Path
-from shutil import disk_usage
+from shutil import disk_usage, which
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -12,13 +17,17 @@ from app.schemas.system import (
     ApplianceNetwork,
     ApplianceStorage,
     ApplianceUrls,
+    PublicRuntimeInfoResponse,
     StoragePaths,
+    SystemActionResponse,
     SystemInfoResponse,
     SystemStatus,
+    SystemTelemetry,
 )
 from app.services.mode_service import ModeService
 from app.services.runtime_service import runtime_service
 from app.services.selfie_service import SelfieService
+from app.services.video_service import VideoService
 from app.services.visualizer_service import VisualizerService
 
 
@@ -47,22 +56,35 @@ class SystemService:
 
         current_mode = ModeService(self.db).get_mode().mode
         selfie_state = SelfieService(self.db).get_state()
+        video_state = VideoService(self.db).get_state()
         visualizer_state = VisualizerService(self.db).get_state()
         display_status = DisplayStatusService(self.db).get_status()
         runtime_diagnostics = runtime_service.diagnostics()
+        telemetry = self._read_telemetry()
+        display_state_stale = self._is_display_state_stale(display_status.last_heartbeat_at)
+        display_live_connected = bool(display_status.sse_connected and not display_state_stale)
+        display_target = (
+            display_status.renderer_label
+            if display_live_connected and display_status.renderer_label
+            else self._display_target_label(current_mode)
+        )
 
         return SystemInfoResponse(
             app_name=settings.app_name,
             environment=settings.app_env,
             default_mode=settings.default_app_mode,
+            video_upload_max_bytes=settings.video_upload_max_bytes,
             status=SystemStatus(
                 backend_reachable=True,
                 db_reachable=db_reachable,
                 upload_count=upload_count,
                 current_mode=current_mode,
                 moderation_mode=selfie_state.moderation_mode,
-                display_target=self._display_target_label(current_mode),
+                display_target=display_target,
+                display_live_connected=display_live_connected,
+                display_state_stale=display_state_stale,
                 slideshow_enabled=selfie_state.slideshow_enabled,
+                video_playlist_enabled=video_state.playlist_enabled,
                 visualizer_auto_cycle_enabled=visualizer_state.auto_cycle_enabled,
                 rate_limit_trigger_count=int(runtime_diagnostics["rate_limit_trigger_count"] or 0),
                 last_rate_limit_at=runtime_diagnostics["last_rate_limit_at"],
@@ -71,6 +93,7 @@ class SystemService:
                 last_display_heartbeat_at=display_status.last_heartbeat_at,
                 last_display_state_sync_at=display_status.last_state_sync_at,
             ),
+            telemetry=telemetry,
             storage=StoragePaths(
                 app_data_path=settings.app_data_path,
                 uploads_path=settings.uploads_path,
@@ -78,6 +101,8 @@ class SystemService:
             ),
             appliance=ApplianceInfo(
                 event_name=settings.event_name,
+                event_tagline=settings.event_tagline,
+                display_overlay_enabled=settings.display_overlay_enabled,
                 urls=ApplianceUrls(
                     base_url=settings.normalized_public_base_url,
                     guest_upload_url=settings.guest_upload_url,
@@ -99,12 +124,144 @@ class SystemService:
             ),
         )
 
+    def get_public_info(self) -> PublicRuntimeInfoResponse:
+        selfie_state = SelfieService(self.db).get_state()
+        return PublicRuntimeInfoResponse(
+            app_name=settings.app_name,
+            event_name=settings.event_name,
+            event_tagline=settings.event_tagline,
+            display_overlay_enabled=settings.display_overlay_enabled,
+            moderation_mode=selfie_state.moderation_mode,
+            upload_max_bytes=settings.upload_max_bytes,
+            video_upload_max_bytes=settings.video_upload_max_bytes,
+            urls=ApplianceUrls(
+                base_url=settings.normalized_public_base_url,
+                guest_upload_url=settings.guest_upload_url,
+                admin_url=settings.admin_url,
+                display_url=settings.display_url,
+                kiosk_start_url=settings.resolved_kiosk_start_url,
+            ),
+            network=ApplianceNetwork(
+                appliance_mode=settings.appliance_mode,
+                ap_enabled=settings.ap_enabled,
+                ap_ssid=settings.ap_ssid,
+                ap_address=settings.ap_address,
+                local_hostname=settings.local_hostname,
+            ),
+        )
+
+    @staticmethod
+    def schedule_shutdown() -> None:
+        command = SystemService._resolve_shutdown_command()
+        shell_command = f"sleep 1; exec {shlex.quote(command[0])}"
+        if len(command) > 1:
+            shell_command += f" {' '.join(shlex.quote(part) for part in command[1:])}"
+        subprocess.Popen(
+            ["/bin/sh", "-c", shell_command],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    @staticmethod
+    def shutdown_response() -> SystemActionResponse:
+        return SystemActionResponse(message="Ausschalten wurde angefordert.")
+
     @staticmethod
     def _display_target_label(mode: str) -> str:
         if mode == "visualizer":
             return "Visualizer Renderer"
         if mode == "selfie":
             return "Selfie Renderer"
+        if mode == "video":
+            return "Video Renderer"
         if mode == "blackout":
             return "Blackout Renderer"
         return "Idle Renderer"
+
+    @staticmethod
+    def _is_display_state_stale(last_heartbeat_at) -> bool:
+        if last_heartbeat_at is None:
+            return True
+        now = datetime.now(timezone.utc)
+        return (now - last_heartbeat_at).total_seconds() > settings.display_heartbeat_stale_seconds
+
+    @staticmethod
+    def _read_telemetry() -> SystemTelemetry:
+        memory_used_bytes, memory_total_bytes, memory_percent = SystemService._read_memory_usage()
+        return SystemTelemetry(
+            cpu_load_percent=SystemService._read_cpu_load_percent(),
+            memory_used_bytes=memory_used_bytes,
+            memory_total_bytes=memory_total_bytes,
+            memory_percent=memory_percent,
+            cpu_temperature_celsius=SystemService._read_cpu_temperature(),
+        )
+
+    @staticmethod
+    def _read_cpu_load_percent() -> float | None:
+        try:
+            load_1m = os.getloadavg()[0]
+            cpu_count = max(os.cpu_count() or 1, 1)
+            return round((load_1m / cpu_count) * 100, 1)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _read_memory_usage() -> tuple[int | None, int | None, float | None]:
+        try:
+            values: dict[str, int] = {}
+            with open("/proc/meminfo", encoding="utf-8") as handle:
+                for line in handle:
+                    key, raw_value = line.split(":", maxsplit=1)
+                    match = re.search(r"(\d+)", raw_value)
+                    if match:
+                        values[key] = int(match.group(1)) * 1024
+            total = values.get("MemTotal")
+            available = values.get("MemAvailable")
+            if total is None or available is None or total <= 0:
+                return (None, None, None)
+            used = max(total - available, 0)
+            percent = round((used / total) * 100, 1)
+            return (used, total, percent)
+        except Exception:
+            return (None, None, None)
+
+    @staticmethod
+    def _read_cpu_temperature() -> float | None:
+        thermal_zone = Path("/sys/class/thermal/thermal_zone0/temp")
+        try:
+            if thermal_zone.exists():
+                return round(int(thermal_zone.read_text(encoding="utf-8").strip()) / 1000, 1)
+        except Exception:
+            return None
+
+        vcgencmd = which("vcgencmd")
+        if not vcgencmd:
+            return None
+
+        try:
+            result = subprocess.run(
+                [vcgencmd, "measure_temp"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            match = re.search(r"temp=([0-9]+(?:\.[0-9]+)?)", result.stdout)
+            if not match:
+                return None
+            return round(float(match.group(1)), 1)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_shutdown_command() -> list[str]:
+        for candidate in (
+            ["systemctl", "poweroff"],
+            ["shutdown", "-h", "now"],
+            ["poweroff"],
+        ):
+            executable = which(candidate[0])
+            if executable:
+                return [executable, *candidate[1:]]
+        raise RuntimeError("No shutdown command available")

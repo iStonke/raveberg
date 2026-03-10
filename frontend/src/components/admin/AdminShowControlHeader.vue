@@ -1,0 +1,359 @@
+<script setup lang="ts">
+import type { AppMode } from '../../services/api'
+
+type ModeOption = {
+  label: string
+  value: AppMode
+}
+
+type ContextAction = {
+  id: string
+  label: string
+  color: 'primary' | 'secondary'
+  loading: boolean
+  disabled: boolean
+}
+
+const props = defineProps<{
+  currentMode: AppMode
+  modeOptions: ModeOption[]
+  contextActions: ContextAction[]
+  isBooting: boolean
+  isSwitchingMode: boolean
+}>()
+
+const emit = defineEmits<{
+  'switch-mode': [mode: AppMode]
+  'run-action': [actionId: string]
+}>()
+
+function handleModeChange(value: AppMode | null) {
+  if (!value) {
+    return
+  }
+  emit('switch-mode', value)
+}
+
+function actionIcon(actionId: string) {
+  if (actionId === 'selfie:toggle') return 'mdi-pause-circle-outline'
+  if (actionId === 'selfie:next') return 'mdi-skip-next-circle-outline'
+  if (actionId === 'selfie:reload_pool') return 'mdi-refresh-circle'
+  if (actionId === 'selfie:shuffle') return 'mdi-shuffle-variant'
+  if (actionId === 'selfie:vintage') return 'mdi-image-filter-vintage'
+  if (actionId === 'video:upload') return 'mdi-video-plus-outline'
+  if (actionId === 'visualizer:next-preset') return 'mdi-palette-swatch-outline'
+  if (actionId === 'visualizer:auto-cycle') return 'mdi-autorenew'
+  if (actionId === 'visualizer:logo-overlay') return 'mdi-image-filter-center-focus-weak'
+  return 'mdi-lightning-bolt-outline'
+}
+
+function modeIcon(mode: AppMode) {
+  if (mode === 'blackout') return 'mdi-lightbulb-off-outline'
+  if (mode === 'idle') return 'mdi-power-sleep'
+  if (mode === 'visualizer') return 'mdi-chart-bubble'
+  if (mode === 'selfie') return 'mdi-image-multiple-outline'
+  return 'mdi-play-box-outline'
+}
+</script>
+
+<template>
+  <section class="show-control-header">
+    <div class="mode-block">
+      <div class="mode-block__title">Modus</div>
+      <div class="mode-grid" role="group" aria-label="Modusauswahl">
+        <v-btn
+          v-for="mode in modeOptions"
+          :key="mode.value"
+          :disabled="isBooting || isSwitchingMode"
+          class="mode-grid__btn"
+          :class="[
+            `mode-grid__btn--${mode.value}`,
+            { 'mode-grid__btn--active': currentMode === mode.value },
+          ]"
+          :variant="currentMode === mode.value ? 'flat' : 'text'"
+          @click="handleModeChange(mode.value)"
+        >
+          <span class="mode-grid__content">
+            <v-icon :icon="modeIcon(mode.value)" size="16" />
+            <span>{{ mode.label }}</span>
+          </span>
+        </v-btn>
+      </div>
+    </div>
+
+    <div
+      v-if="contextActions.length"
+      class="context-actions-row"
+      :class="`context-actions-row--${currentMode}`"
+    >
+      <div class="context-actions-title">Aktionen</div>
+      <div class="context-actions-list">
+        <v-btn
+          v-for="action in contextActions"
+          :key="action.id"
+          variant="text"
+          class="context-action-btn"
+          :class="`context-action-btn--${currentMode}`"
+          :prepend-icon="actionIcon(action.id)"
+          :loading="action.loading"
+          :disabled="action.disabled"
+          @click="emit('run-action', action.id)"
+        >
+          {{ action.label }}
+        </v-btn>
+      </div>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.show-control-header {
+  display: grid;
+  gap: 1.1rem;
+  margin-bottom: 0.7rem;
+  padding: 1rem 1rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 12px 26px rgba(4, 10, 18, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+.mode-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  gap: 0.7rem;
+}
+
+.mode-block__title,
+.context-actions-title {
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mode-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.68rem;
+}
+
+.mode-grid__btn:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.mode-grid__btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 3.45rem;
+  padding-inline: 1rem;
+  border-radius: 16px !important;
+  color: rgba(221, 232, 242, 0.64);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.018),
+    0 1px 0 rgba(255, 255, 255, 0.012);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 180ms ease,
+    color 160ms ease;
+}
+
+.mode-grid__content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.52rem;
+  width: 100%;
+  min-height: 100%;
+  line-height: 1;
+}
+
+.mode-grid__btn:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mode-grid__btn:active {
+  transform: scale(0.985);
+}
+
+.mode-grid__btn--active {
+  color: #f8fbff;
+  box-shadow:
+    0 10px 20px rgba(6, 17, 26, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.025),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.mode-grid__btn--blackout.mode-grid__btn--active {
+  border-color: rgba(215, 106, 106, 0.22);
+  background: linear-gradient(180deg, rgba(108, 50, 55, 0.94), rgba(79, 36, 40, 0.94));
+}
+
+.mode-grid__btn--idle.mode-grid__btn--active {
+  border-color: rgba(138, 153, 171, 0.2);
+  background: linear-gradient(180deg, rgba(66, 79, 94, 0.94), rgba(49, 61, 74, 0.94));
+}
+
+.mode-grid__btn--visualizer.mode-grid__btn--active {
+  border-color: rgba(105, 170, 230, 0.24);
+  background: linear-gradient(180deg, rgba(69, 108, 149, 0.82), rgba(42, 70, 102, 0.82));
+}
+
+.mode-grid__btn--selfie.mode-grid__btn--active {
+  border-color: rgba(84, 196, 175, 0.24);
+  background: linear-gradient(180deg, rgba(52, 126, 116, 0.82), rgba(31, 91, 83, 0.82));
+}
+
+.mode-grid__btn--video.mode-grid__btn--active {
+  border-color: rgba(214, 157, 104, 0.22);
+  background: linear-gradient(180deg, rgba(164, 118, 72, 0.84), rgba(126, 82, 44, 0.84));
+}
+
+.context-actions-row {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.context-actions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.context-action-btn {
+  min-height: 2.8rem;
+  padding-inline: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(156, 183, 214, 0.08);
+  text-transform: none;
+  font-weight: 650;
+  font-size: 0.76rem;
+  letter-spacing: 0.01em;
+  flex: 0 0 auto;
+  color: rgba(231, 239, 246, 0.9);
+  background: rgba(18, 28, 40, 0.16);
+  transition:
+    transform 150ms ease,
+    box-shadow 180ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.context-action-btn:hover {
+  box-shadow: 0 6px 12px rgba(6, 17, 26, 0.1);
+}
+
+.context-action-btn:active {
+  transform: scale(0.985);
+}
+
+.context-actions-row--visualizer .context-actions-title {
+  color: rgba(137, 189, 255, 0.84);
+}
+
+.context-actions-row--selfie .context-actions-title {
+  color: rgba(108, 231, 206, 0.84);
+}
+
+.context-actions-row--video .context-actions-title {
+  color: rgba(255, 191, 122, 0.84);
+}
+
+.context-actions-row--idle .context-actions-title {
+  color: rgba(197, 208, 220, 0.74);
+}
+
+.context-actions-row--blackout .context-actions-title {
+  color: rgba(255, 156, 156, 0.84);
+}
+
+.context-action-btn--visualizer {
+  color: rgba(219, 233, 251, 0.96);
+  background: rgba(41, 89, 159, 0.16);
+  border-color: rgba(86, 162, 255, 0.16);
+}
+
+.context-action-btn--visualizer:hover {
+  background: rgba(49, 101, 178, 0.22);
+  border-color: rgba(106, 178, 255, 0.24);
+}
+
+.context-action-btn--selfie {
+  color: rgba(224, 248, 243, 0.96);
+  background: rgba(27, 124, 108, 0.16);
+  border-color: rgba(62, 214, 183, 0.16);
+}
+
+.context-action-btn--selfie:hover {
+  background: rgba(31, 144, 125, 0.22);
+  border-color: rgba(84, 228, 199, 0.24);
+}
+
+.context-action-btn--video {
+  color: rgba(248, 232, 216, 0.96);
+  background: rgba(154, 82, 24, 0.16);
+  border-color: rgba(255, 165, 86, 0.16);
+}
+
+.context-action-btn--video:hover {
+  background: rgba(178, 95, 28, 0.22);
+  border-color: rgba(255, 180, 108, 0.24);
+}
+
+.context-action-btn--idle {
+  color: rgba(232, 239, 246, 0.96);
+  background: rgba(82, 96, 113, 0.16);
+  border-color: rgba(144, 159, 178, 0.14);
+}
+
+.context-action-btn--idle:hover {
+  background: rgba(94, 109, 127, 0.22);
+  border-color: rgba(162, 176, 194, 0.22);
+}
+
+.context-action-btn--blackout {
+  color: rgba(255, 228, 228, 0.98);
+  background: rgba(149, 49, 49, 0.18);
+  border-color: rgba(236, 106, 106, 0.16);
+}
+
+.context-action-btn--blackout:hover {
+  background: rgba(171, 57, 57, 0.24);
+  border-color: rgba(244, 128, 128, 0.22);
+}
+
+@media (max-width: 720px) {
+  .mode-grid {
+    gap: 0.65rem;
+  }
+
+  .mode-grid__btn {
+    min-height: 3.3rem;
+    border-radius: 15px !important;
+    font-size: 0.92rem;
+  }
+
+  .show-control-header {
+    gap: 0.9rem;
+    padding: 0.95rem 0.9rem 0.9rem;
+  }
+}
+</style>

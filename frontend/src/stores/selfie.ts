@@ -7,7 +7,9 @@ import { fetchSelfieState, updateSelfieState } from '../services/api'
 export const useSelfieStore = defineStore('selfie', () => {
   const slideshowEnabled = ref(true)
   const slideshowIntervalSeconds = ref(6)
+  const slideshowMaxVisiblePhotos = ref(4)
   const slideshowShuffle = ref(true)
+  const vintageLookEnabled = ref(false)
   const moderationMode = ref<SelfieState['moderation_mode']>('auto_approve')
   const slideshowUpdatedAt = ref<string | null>(null)
 
@@ -27,7 +29,9 @@ export const useSelfieStore = defineStore('selfie', () => {
   function applyState(state: SelfieState) {
     slideshowEnabled.value = state.slideshow_enabled
     slideshowIntervalSeconds.value = state.slideshow_interval_seconds
+    slideshowMaxVisiblePhotos.value = state.slideshow_max_visible_photos
     slideshowShuffle.value = state.slideshow_shuffle
+    vintageLookEnabled.value = state.vintage_look_enabled
     moderationMode.value = state.moderation_mode
     slideshowUpdatedAt.value = state.slideshow_updated_at
   }
@@ -35,7 +39,9 @@ export const useSelfieStore = defineStore('selfie', () => {
   return {
     slideshowEnabled,
     slideshowIntervalSeconds,
+    slideshowMaxVisiblePhotos,
     slideshowShuffle,
+    vintageLookEnabled,
     moderationMode,
     slideshowUpdatedAt,
     refresh,

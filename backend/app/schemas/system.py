@@ -19,7 +19,10 @@ class SystemStatus(BaseModel):
     current_mode: ModeType
     moderation_mode: ModerationMode
     display_target: str
+    display_live_connected: bool
+    display_state_stale: bool
     slideshow_enabled: bool
+    video_playlist_enabled: bool
     visualizer_auto_cycle_enabled: bool
     rate_limit_trigger_count: int
     last_rate_limit_at: datetime | None
@@ -29,11 +32,21 @@ class SystemStatus(BaseModel):
     last_display_state_sync_at: datetime | None
 
 
+class SystemTelemetry(BaseModel):
+    cpu_load_percent: float | None
+    memory_used_bytes: int | None
+    memory_total_bytes: int | None
+    memory_percent: float | None
+    cpu_temperature_celsius: float | None
+
+
 class SystemInfoResponse(BaseModel):
     app_name: str
     environment: str
     default_mode: ModeType
+    video_upload_max_bytes: int
     status: SystemStatus
+    telemetry: SystemTelemetry
     storage: StoragePaths
     appliance: "ApplianceInfo"
 
@@ -61,6 +74,24 @@ class ApplianceStorage(BaseModel):
 
 class ApplianceInfo(BaseModel):
     event_name: str
+    event_tagline: str
+    display_overlay_enabled: bool
     urls: ApplianceUrls
     network: ApplianceNetwork
     storage: ApplianceStorage
+
+
+class PublicRuntimeInfoResponse(BaseModel):
+    app_name: str
+    event_name: str
+    event_tagline: str
+    display_overlay_enabled: bool
+    moderation_mode: ModerationMode
+    upload_max_bytes: int
+    video_upload_max_bytes: int
+    urls: ApplianceUrls
+    network: ApplianceNetwork
+
+
+class SystemActionResponse(BaseModel):
+    message: str

@@ -1,7 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -51,6 +51,20 @@ def list_admin_uploads(
     _: SessionUser = Depends(require_admin_user),
 ) -> list[UploadRead]:
     return UploadService(db).list_admin_uploads(limit=limit)
+
+
+@router.get("/uploads/admin/archive")
+def download_admin_upload_archive(
+    ids: list[int] = Query(default=[]),
+    db: Session = Depends(get_db),
+    _: SessionUser = Depends(require_admin_user),
+) -> StreamingResponse:
+    archive_bytes = UploadService(db).build_admin_archive(ids)
+    return StreamingResponse(
+        iter([archive_bytes]),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="uploads.zip"'},
+    )
 
 
 @router.get("/uploads/{upload_id}/display")

@@ -10,13 +10,17 @@ ModerationMode = Literal["auto_approve", "manual_approve"]
 class SelfieStateRead(BaseModel):
     slideshow_enabled: bool
     slideshow_interval_seconds: int
+    slideshow_max_visible_photos: int
     slideshow_shuffle: bool
+    vintage_look_enabled: bool
     moderation_mode: ModerationMode
     slideshow_updated_at: datetime | None
 
 
 class SelfieStateUpdate(BaseModel):
     slideshow_enabled: bool
-    slideshow_interval_seconds: int = Field(ge=3, le=30)
+    slideshow_interval_seconds: int = Field(ge=2, le=20)
+    slideshow_max_visible_photos: int = Field(ge=1, le=10)
     slideshow_shuffle: bool
+    vintage_look_enabled: bool
     moderation_mode: ModerationMode

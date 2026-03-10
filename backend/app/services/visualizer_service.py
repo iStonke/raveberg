@@ -16,7 +16,7 @@ from app.schemas.visualizer import (
     VisualizerStateUpdate,
 )
 
-PRESETS: list[VisualizerPreset] = ["tunnel", "particles", "waves", "kaleidoscope"]
+PRESETS: list[VisualizerPreset] = ["tunnel", "particles", "waves", "kaleidoscope", "warehouse", "swarm_collision"]
 COLOR_SCHEMES: list[ColorScheme] = ["mono", "acid", "ultraviolet", "redline"]
 
 
@@ -41,6 +41,7 @@ class VisualizerService:
                 speed=55,
                 brightness=70,
                 color_scheme="acid",
+                logo_overlay_enabled=True,
                 auto_cycle_enabled=settings.default_visualizer_auto_cycle_enabled,
                 auto_cycle_interval_seconds=settings.default_visualizer_auto_cycle_interval_seconds,
             )
@@ -66,6 +67,7 @@ class VisualizerService:
         state.speed = payload.speed
         state.brightness = payload.brightness
         state.color_scheme = payload.color_scheme
+        state.logo_overlay_enabled = payload.logo_overlay_enabled
         state.auto_cycle_enabled = payload.auto_cycle_enabled
         state.auto_cycle_interval_seconds = payload.auto_cycle_interval_seconds
         state.updated_at = datetime.now(timezone.utc)

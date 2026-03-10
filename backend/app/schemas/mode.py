@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-ModeType = Literal["visualizer", "selfie", "blackout", "idle"]
+ModeType = Literal["visualizer", "selfie", "video", "blackout", "idle"]
 
 
 class ModeRead(BaseModel):

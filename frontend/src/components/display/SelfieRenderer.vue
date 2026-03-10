@@ -1,39 +1,41 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import type { AppMode, ModerationMode, SelfiePlaybackEvent, UploadItem } from '../../services/api'
 import { fetchPublicUploads } from '../../services/api'
+import { usePublicRuntimeStore } from '../../stores/publicRuntime'
+import IdleRenderer from './IdleRenderer.vue'
+import SelfiePolaroidStage from './selfie/SelfiePolaroidStage.vue'
 
 const props = defineProps<{
   mode: AppMode
   refreshToken: number
+  standbyReactionToken: number
   settings: {
     slideshow_enabled: boolean
     slideshow_interval_seconds: number
+    slideshow_max_visible_photos: number
     slideshow_shuffle: boolean
+    vintage_look_enabled: boolean
     moderation_mode: ModerationMode
     slideshow_updated_at: string | null
   }
   playbackCommand: SelfiePlaybackEvent | null
 }>()
 
+const publicRuntimeStore = usePublicRuntimeStore()
 const uploads = ref<UploadItem[]>([])
-const currentIndex = ref(0)
 const isLoading = ref(true)
-
-let rotationTimer: number | undefined
 let lastPlaybackSequence = 0
-
-const currentUpload = computed(() => uploads.value[currentIndex.value] ?? null)
+const manualAdvanceToken = ref(0)
 const isPaused = computed(() => !props.settings.slideshow_enabled)
+const eligibleUploadCount = computed(() => uploads.value.filter((upload) => Boolean(upload.display_url)).length)
+const shouldShowStandby = computed(
+  () => props.settings.slideshow_enabled && eligibleUploadCount.value < 3,
+)
 
 onMounted(async () => {
   await reloadUploads()
-  syncRotation()
-})
-
-onBeforeUnmount(() => {
-  stopRotation()
 })
 
 watch(
@@ -52,7 +54,7 @@ watch(
 
     lastPlaybackSequence = command.sequence
     if (command.action === 'next') {
-      advanceNow()
+      manualAdvanceToken.value += 1
       return
     }
 
@@ -62,13 +64,10 @@ watch(
 
 watch(
   () => [
-    props.settings.slideshow_enabled,
-    props.settings.slideshow_interval_seconds,
     props.settings.slideshow_shuffle,
-    uploads.value.length,
   ],
   () => {
-    syncRotation()
+    void reloadUploads()
   },
 )
 
@@ -77,38 +76,10 @@ async function reloadUploads() {
   try {
     const latestUploads = await fetchPublicUploads(100)
     uploads.value = props.settings.slideshow_shuffle ? shuffle(latestUploads) : latestUploads
-    currentIndex.value = Math.min(currentIndex.value, Math.max(uploads.value.length - 1, 0))
   } catch {
-    // Keep the current slideshow pool when a transient reload fails.
+    // Keep the current feed when a transient reload fails.
   } finally {
     isLoading.value = false
-    syncRotation()
-  }
-}
-
-function advanceNow() {
-  if (uploads.value.length <= 1) {
-    return
-  }
-  currentIndex.value = (currentIndex.value + 1) % uploads.value.length
-  syncRotation()
-}
-
-function syncRotation() {
-  stopRotation()
-  if (isPaused.value || uploads.value.length <= 1) {
-    return
-  }
-
-  rotationTimer = window.setTimeout(() => {
-    advanceNow()
-  }, props.settings.slideshow_interval_seconds * 1000)
-}
-
-function stopRotation() {
-  if (rotationTimer) {
-    window.clearTimeout(rotationTimer)
-    rotationTimer = undefined
   }
 }
 
@@ -123,72 +94,22 @@ function shuffle(items: UploadItem[]) {
 </script>
 
 <template>
-  <div>
-    <h1 class="display-headline">Selfie Mode aktiv</h1>
-    <p v-if="isLoading" class="display-copy">
-      Bilder werden geladen.
-    </p>
-    <p v-else-if="isPaused" class="display-copy">
-      Slideshow ist pausiert. Neue freigegebene Bilder bleiben gespeichert und werden nach dem
-      Aktivieren wieder angezeigt.
-    </p>
-    <p v-else-if="!currentUpload" class="display-copy">
-      Noch keine freigegebenen Uploads vorhanden.
-    </p>
-    <div v-else class="slideshow-frame">
-      <transition name="fade" mode="out-in">
-        <img
-          :key="currentUpload.id"
-          class="slideshow-image"
-          :src="currentUpload.display_url ?? ''"
-          :alt="currentUpload.filename_original"
-        />
-      </transition>
-      <p class="display-copy mt-6">
-        {{ props.settings.slideshow_shuffle ? 'Shuffle aktiv' : 'Chronologische Reihenfolge aktiv' }}
-        · Intervall {{ props.settings.slideshow_interval_seconds }}s · Eingehender Globalmodus:
-        {{ mode }}.
-      </p>
-    </div>
-  </div>
+  <IdleRenderer
+    v-if="shouldShowStandby"
+    :event-name="publicRuntimeStore.eventName"
+    :event-tagline="publicRuntimeStore.eventTagline"
+    :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
+    :reaction-token="props.standbyReactionToken"
+  />
+  <SelfiePolaroidStage
+    v-else
+    :uploads="uploads"
+    :loading="isLoading"
+    :paused="isPaused"
+    :interval-seconds="props.settings.slideshow_interval_seconds"
+    :max-visible-photos="props.settings.slideshow_max_visible_photos"
+    :vintage-look-enabled="props.settings.vintage_look_enabled"
+    :moderation-mode="props.settings.moderation_mode"
+    :manual-advance-token="manualAdvanceToken"
+  />
 </template>
-
-<style scoped>
-.display-headline {
-  font-size: clamp(2.5rem, 8vw, 6rem);
-  line-height: 0.96;
-  margin: 0 0 1.5rem;
-}
-
-.display-copy {
-  margin: 0 auto;
-  max-width: 40rem;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 1.125rem;
-}
-
-.slideshow-frame {
-  display: grid;
-  gap: 1rem;
-}
-
-.slideshow-image {
-  display: block;
-  width: min(100%, 56rem);
-  max-height: 68vh;
-  margin: 0 auto;
-  object-fit: contain;
-  border-radius: 24px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.9s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>

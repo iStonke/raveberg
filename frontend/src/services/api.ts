@@ -1,7 +1,10 @@
-export type AppMode = 'visualizer' | 'selfie' | 'blackout' | 'idle'
+export type AppMode = 'visualizer' | 'selfie' | 'video' | 'blackout' | 'idle'
 export type UserRole = 'admin' | 'guest'
 export type ModerationMode = 'auto_approve' | 'manual_approve'
 export type UploadModerationStatus = 'pending' | 'approved' | 'rejected'
+export type VideoPlaybackOrder = 'upload_order' | 'random'
+export type VideoObjectFit = 'contain' | 'cover'
+export type VideoTransition = 'none' | 'fade'
 
 export interface SessionUser {
   id: number
@@ -25,6 +28,7 @@ export interface SystemInfoResponse {
   app_name: string
   environment: string
   default_mode: AppMode
+  video_upload_max_bytes: number
   status: {
     backend_reachable: boolean
     db_reachable: boolean
@@ -32,7 +36,10 @@ export interface SystemInfoResponse {
     current_mode: AppMode
     moderation_mode: ModerationMode
     display_target: string
+    display_live_connected: boolean
+    display_state_stale: boolean
     slideshow_enabled: boolean
+    video_playlist_enabled: boolean
     visualizer_auto_cycle_enabled: boolean
     rate_limit_trigger_count: number
     last_rate_limit_at: string | null
@@ -41,6 +48,13 @@ export interface SystemInfoResponse {
     last_display_heartbeat_at: string | null
     last_display_state_sync_at: string | null
   }
+  telemetry: {
+    cpu_load_percent: number | null
+    memory_used_bytes: number | null
+    memory_total_bytes: number | null
+    memory_percent: number | null
+    cpu_temperature_celsius: number | null
+  }
   storage: {
     app_data_path: string
     uploads_path: string
@@ -48,6 +62,8 @@ export interface SystemInfoResponse {
   }
   appliance: {
     event_name: string
+    event_tagline: string
+    display_overlay_enabled: boolean
     urls: {
       base_url: string
       guest_upload_url: string
@@ -67,6 +83,34 @@ export interface SystemInfoResponse {
       total_bytes: number | null
     }
   }
+}
+
+export interface PublicRuntimeInfoResponse {
+  app_name: string
+  event_name: string
+  event_tagline: string
+  display_overlay_enabled: boolean
+  moderation_mode: ModerationMode
+  upload_max_bytes: number
+  video_upload_max_bytes: number
+  urls: {
+    base_url: string
+    guest_upload_url: string
+    admin_url: string
+    display_url: string
+    kiosk_start_url: string
+  }
+  network: {
+    appliance_mode: boolean
+    ap_enabled: boolean
+    ap_ssid: string
+    ap_address: string
+    local_hostname: string
+  }
+}
+
+export interface SystemActionResponse {
+  message: string
 }
 
 export interface SelfiePlaybackEvent {
@@ -98,12 +142,41 @@ export interface UploadItem {
 export interface SelfieState {
   slideshow_enabled: boolean
   slideshow_interval_seconds: number
+  slideshow_max_visible_photos: number
   slideshow_shuffle: boolean
+  vintage_look_enabled: boolean
   moderation_mode: ModerationMode
   slideshow_updated_at: string | null
 }
 
-export type VisualizerPreset = 'tunnel' | 'particles' | 'waves' | 'kaleidoscope'
+export interface VideoAsset {
+  id: number
+  filename_original: string
+  mime_type: string
+  size: number
+  position: number
+  created_at: string
+  stream_url: string
+}
+
+export interface VideoState {
+  playlist_enabled: boolean
+  loop_enabled: boolean
+  playback_order: VideoPlaybackOrder
+  vintage_filter_enabled: boolean
+  object_fit: VideoObjectFit
+  transition: VideoTransition
+  active_video_id: number | null
+  updated_at: string | null
+}
+
+export type VisualizerPreset =
+  | 'tunnel'
+  | 'particles'
+  | 'waves'
+  | 'kaleidoscope'
+  | 'warehouse'
+  | 'swarm_collision'
 export type ColorScheme = 'mono' | 'acid' | 'ultraviolet' | 'redline'
 
 export interface VisualizerState {
@@ -112,6 +185,7 @@ export interface VisualizerState {
   speed: number
   brightness: number
   color_scheme: ColorScheme
+  logo_overlay_enabled: boolean
   auto_cycle_enabled: boolean
   auto_cycle_interval_seconds: number
   updated_at: string | null
@@ -239,6 +313,17 @@ export function fetchSystemInfo(token: string) {
   })
 }
 
+export function triggerSystemShutdown(token: string) {
+  return request<SystemActionResponse>('/api/system/shutdown', {
+    method: 'POST',
+    headers: withAuth(token),
+  })
+}
+
+export function fetchPublicRuntimeInfo() {
+  return request<PublicRuntimeInfoResponse>('/api/public-info')
+}
+
 export function loginAdmin(username: string, password: string) {
   return request<LoginResponse>('/api/auth/login', {
     method: 'POST',
@@ -265,6 +350,34 @@ export function fetchPublicUploads(limit = 100) {
 
 export function fetchAdminUploads(token: string, limit = 20) {
   return request<UploadItem[]>(`/api/uploads/admin?limit=${limit}`, {
+    headers: withAuth(token),
+  })
+}
+
+export async function downloadAdminUploadArchive(uploadIds: number[], token: string) {
+  const params = new URLSearchParams()
+  uploadIds.forEach((id) => {
+    params.append('ids', String(id))
+  })
+
+  const response = await fetch(`/api/uploads/admin/archive?${params.toString()}`, {
+    headers: withAuth(token),
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(parseErrorMessage(body, response.status))
+  }
+
+  return response.blob()
+}
+
+export function fetchPublicVideos() {
+  return request<VideoAsset[]>('/api/videos')
+}
+
+export function fetchAdminVideos(token: string) {
+  return request<VideoAsset[]>('/api/videos/admin', {
     headers: withAuth(token),
   })
 }
@@ -345,6 +458,10 @@ export function fetchSelfieState() {
   return request<SelfieState>('/api/selfie')
 }
 
+export function fetchVideoState() {
+  return request<VideoState>('/api/video')
+}
+
 export function sendDisplayHeartbeat(payload: {
   current_mode: AppMode
   renderer_label: string
@@ -366,6 +483,63 @@ export function updateSelfieState(payload: Omit<SelfieState, 'slideshow_updated_
     method: 'PUT',
     headers: withAuth(token),
     body: JSON.stringify(payload),
+  })
+}
+
+export function updateVideoState(payload: Omit<VideoState, 'updated_at'>, token: string) {
+  return request<VideoState>('/api/video', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
+  })
+}
+
+export function reorderVideoAssets(ids: number[], token: string) {
+  return request<VideoAsset[]>('/api/videos/reorder', {
+    method: 'POST',
+    headers: withAuth(token),
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function deleteVideoAsset(videoId: number, token: string) {
+  return request<void>(`/api/videos/${videoId}`, {
+    method: 'DELETE',
+    headers: withAuth(token),
+  })
+}
+
+export function uploadAdminVideo(file: File, token: string, onProgress?: (progress: number) => void) {
+  return new Promise<VideoAsset>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const formData = new FormData()
+    formData.append('file', file)
+
+    xhr.open('POST', '/api/videos')
+    xhr.responseType = 'text'
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        return
+      }
+      onProgress?.(Math.round((event.loaded / event.total) * 100))
+    }
+
+    xhr.onload = () => {
+      const body = xhr.responseText || ''
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(body) as VideoAsset)
+        return
+      }
+      reject(new Error(parseErrorMessage(body, xhr.status)))
+    }
+
+    xhr.onerror = () => {
+      reject(new Error('Video-Upload fehlgeschlagen'))
+    }
+
+    xhr.send(formData)
   })
 }
 

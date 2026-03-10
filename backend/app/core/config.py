@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     default_admin_password: str = Field(default="admin123", alias="DEFAULT_ADMIN_PASSWORD")
     session_ttl_hours: int = Field(default=24, alias="SESSION_TTL_HOURS")
     upload_max_bytes: int = Field(default=15 * 1024 * 1024, alias="UPLOAD_MAX_BYTES")
+    video_upload_max_bytes: int = Field(default=120 * 1024 * 1024, alias="VIDEO_UPLOAD_MAX_BYTES")
     appliance_mode: bool = Field(default=False, alias="APPLIANCE_MODE")
     public_base_url: str = Field(default="http://localhost:8085", alias="PUBLIC_BASE_URL")
     guest_upload_path: str = Field(default="/guest/upload", alias="GUEST_UPLOAD_PATH")
@@ -32,6 +33,8 @@ class Settings(BaseSettings):
     display_path: str = Field(default="/display", alias="DISPLAY_PATH")
     kiosk_start_url: str | None = Field(default=None, alias="KIOSK_START_URL")
     event_name: str = Field(default="RAVEBERG", alias="EVENT_NAME")
+    event_tagline: str = Field(default="Lokaler Foto- und Visualizer-Feed", alias="EVENT_TAGLINE")
+    display_overlay_enabled: bool = Field(default=True, alias="DISPLAY_OVERLAY_ENABLED")
     ap_enabled: bool = Field(default=False, alias="AP_ENABLED")
     ap_ssid: str = Field(default="RAVEBERG", alias="AP_SSID")
     ap_address: str = Field(default="10.77.0.1", alias="AP_ADDRESS")
@@ -44,8 +47,17 @@ class Settings(BaseSettings):
     default_slideshow_interval_seconds: int = Field(
         default=6,
         alias="DEFAULT_SLIDESHOW_INTERVAL_SECONDS",
+        ge=2,
+        le=20,
+    )
+    default_slideshow_max_visible_photos: int = Field(
+        default=4,
+        alias="DEFAULT_SLIDESHOW_MAX_VISIBLE_PHOTOS",
+        ge=1,
+        le=10,
     )
     default_slideshow_shuffle: bool = Field(default=True, alias="DEFAULT_SLIDESHOW_SHUFFLE")
+    default_vintage_look_enabled: bool = Field(default=False, alias="DEFAULT_VINTAGE_LOOK_ENABLED")
     default_visualizer_auto_cycle_enabled: bool = Field(
         default=False,
         alias="DEFAULT_VISUALIZER_AUTO_CYCLE_ENABLED",
@@ -76,6 +88,10 @@ class Settings(BaseSettings):
     @property
     def uploads_display_path(self) -> str:
         return f"{self.uploads_path}/display"
+
+    @property
+    def videos_path(self) -> str:
+        return f"{self.app_data_path}/videos"
 
     @property
     def normalized_public_base_url(self) -> str:

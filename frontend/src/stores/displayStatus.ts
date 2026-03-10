@@ -9,8 +9,9 @@ export const useDisplayStatusStore = defineStore('displayStatus', () => {
   const rendererLabel = computed(() => {
     if (appModeStore.mode === 'visualizer') return 'Visualizer Renderer'
     if (appModeStore.mode === 'selfie') return 'Selfie Renderer'
+    if (appModeStore.mode === 'video') return 'Video Renderer'
     if (appModeStore.mode === 'blackout') return 'Blackout Placeholder'
-    return 'Idle Placeholder'
+    return 'Standby Renderer'
   })
 
   return {

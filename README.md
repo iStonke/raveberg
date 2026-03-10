@@ -1,6 +1,6 @@
-# RAVEBERG AP5
+# RAVEBERG AP7
 
-AP5 erweitert das AP4-System in Richtung Raspberry-Pi-Appliance: vorbereiteter Kiosk-Betrieb, Pi-spezifische Runtime-Struktur, Access-Point-Konzept und robusterer Display-Dauerbetrieb. Das Repository enthaelt weiterhin einen containerisierten Entwicklungsstack mit Vue 3 + Vuetify, FastAPI, PostgreSQL und einem Reverse Proxy mit konfliktfreier Host-Portbelegung.
+AP7 verfeinert das AP6-System fuer den sichtbaren Eventeinsatz: konsistentes Branding ueber Guest, Admin und Display, eventtauglichere Guest-Kommunikation, Event-/QR-Zugangsinfos im Dashboard, dezente Display-Overlays und ruhigerer Display-Feinschliff. Die technische Basis aus Vue 3 + Vuetify, FastAPI, PostgreSQL, SSE und Reverse Proxy bleibt unveraendert.
 
 ## Host-Ports
 
@@ -15,11 +15,11 @@ Nicht verwendet werden die im Projektbrief ausgeschlossenen Standardports wie `5
 
 ## Projektstruktur
 
-- `frontend/`: Vue-Client mit Vuetify, Pinia, Auth-Guards, Guest-Upload, Moderations-Dashboard und Display-Renderern
-- `backend/`: FastAPI-API mit Konfiguration, Datenbankschicht, Auth, Upload-Pipeline, Moderation, Visualizer-State, Selfie-State, SSE, Appliance-Metadaten und Alembic
+- `frontend/`: Vue-Client mit Vuetify, Pinia, Auth-Guards, Guest-Upload, Event-Branding, Live-Dashboard, Quick Controls, Display-Overlays und Display-Renderern
+- `backend/`: FastAPI-API mit Konfiguration, Datenbankschicht, Auth, Upload-Pipeline, Moderation, Visualizer-State, Selfie-State, Runtime-Limits, Heartbeat, SSE, Appliance-Metadaten und Alembic
 - `proxy/`: Nginx-Konfiguration fuer den gebuendelten Einstiegspunkt
 - `ops/`: Pi-/Appliance-Skripte, systemd-Units und AP-Beispielkonfigurationen
-- `docs/`: technische Orientierung fuer AP0 bis AP5
+- `docs/`: technische Orientierung fuer AP0 bis AP7
 
 ## Start
 
@@ -69,9 +69,13 @@ docker compose --env-file ops/pi/env.appliance up -d --build
 - `DELETE /api/uploads/{id}`
 - `GET /api/selfie`
 - `PUT /api/selfie`
+- `POST /api/selfie/actions/next`
+- `POST /api/selfie/actions/reload`
 - `GET /api/visualizer`
 - `PUT /api/visualizer`
 - `GET /api/visualizer/presets`
+- `POST /api/display/heartbeat`
+- `GET /api/public-info`
 
 ## Rollenmodell
 
@@ -97,7 +101,7 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `tunnel`, `particles`, `waves`, `kaleidoscope` und `warehouse`.
 
 ## Moderations-Flow
 
@@ -107,6 +111,34 @@ Fuer den Selfie-Pfad existiert ein eigener persistenter `selfie_state` mit `slid
 - `manual_approve`: neue verarbeitete Uploads bleiben `pending`, bis ein Admin sie freigibt
 
 Ein Wechsel des Moderationsmodus wirkt in AP4 nur auf neue Uploads. Bereits vorhandene `approved`, `pending` oder `rejected` Uploads werden nicht still umgeschrieben.
+
+## Event-Branding AP7
+
+AP7 fuehrt die Runtime-Branding-Werte sichtbar ein:
+
+- `EVENT_NAME` steuert die sichtbare Event-Bezeichnung
+- `EVENT_TAGLINE` ergaenzt einen ruhigen Untertitel fuer Guest, Admin und Display
+- `DISPLAY_OVERLAY_ENABLED` steuert das dezente Branding-Overlay auf Selfie- und Visualizer-Screens
+- `GET /api/public-info` liefert diese Branding- und Zugangsinfos ohne Admin-Session fuer Guest- und Display-Clients
+
+## Event-UX AP7
+
+AP7 schaerft die sichtbaren Event-Flows:
+
+- Guest-Upload kommuniziert Moderationsmodus, Limit und Fehler verstaendlicher
+- Admin-Dashboard zeigt Event-, Guest-, Admin- und Display-Zugangsinfos plus QR-Hinweise direkt im UI
+- Idle ist als sichtbarer Standby-Screen ausgebaut
+- Blackout bleibt bewusst dunkel und minimal
+- Selfie- und Visualizer-Renderer wirken im Betrieb ruhiger und runder
+
+## Display-Recovery
+
+Die Display-Seite laedt ihren Startzustand weiterhin aus dem Backend und haelt danach nur eine SSE-Verbindung. AP6 erweitert diesen Pfad um:
+
+- defensives Parsen fehlerhafter Event-Payloads
+- Backoff-Reconnect fuer SSE
+- periodischen Heartbeat mit Renderer- und Sync-Status
+- stabilen Wechsel zwischen `visualizer`, `selfie`, `idle` und `blackout`, ohne alte Timer oder Animation-Loops weiterlaufen zu lassen
 
 ## Appliance-Flow
 
@@ -120,8 +152,8 @@ AP5 etabliert einen separaten Zielbetrieb fuer den Raspberry Pi:
 
 Die vorbereiteten Dateien liegen unter [ops/README.md](ops/README.md), [env.appliance.example](ops/pi/env.appliance.example), [start-kiosk.sh](ops/pi/start-kiosk.sh), [raveberg-stack.service](ops/systemd/raveberg-stack.service) und [raveberg-kiosk.service](ops/systemd/raveberg-kiosk.service).
 
-## AP5-Grenzen
+## AP7-Grenzen
 
-AP5 implementiert bewusst noch keine vollautomatische AP-Einrichtung fuer beliebige Distributionen, kein Captive Portal, keine Cloud-Anbindung und kein OTA-Update-System. Die vorbereiteten Ops-Dateien definieren einen klaren empfohlenen Weg fuer Raspberry Pi OS, ohne Host-Setups magisch wegzuabstrahieren.
+AP7 implementiert bewusst keinen kompletten Theme-Editor, keine Logo-/Video-Uploads, kein i18n-System und kein umfassendes grafisches Rebranding des gesamten Projekts. Die sichtbaren Verbesserungen bleiben absichtlich leichtgewichtig und bauen auf der bestehenden Struktur auf.
 
-Weitere technische Details stehen in [docs/AP0.md](docs/AP0.md), [docs/AP1.md](docs/AP1.md), [docs/AP2.md](docs/AP2.md), [docs/AP3.md](docs/AP3.md), [docs/AP4.md](docs/AP4.md) und [docs/AP5.md](docs/AP5.md).
+Weitere technische Details stehen in [docs/AP0.md](docs/AP0.md), [docs/AP1.md](docs/AP1.md), [docs/AP2.md](docs/AP2.md), [docs/AP3.md](docs/AP3.md), [docs/AP4.md](docs/AP4.md), [docs/AP5.md](docs/AP5.md), [docs/AP6.md](docs/AP6.md) und [docs/AP7.md](docs/AP7.md).

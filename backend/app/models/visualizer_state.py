@@ -15,6 +15,7 @@ class VisualizerState(Base):
     speed: Mapped[int] = mapped_column(Integer, default=55)
     brightness: Mapped[int] = mapped_column(Integer, default=70)
     color_scheme: Mapped[str] = mapped_column(String(64), default="acid")
+    logo_overlay_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_cycle_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_cycle_interval_seconds: Mapped[int] = mapped_column(Integer, default=45)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

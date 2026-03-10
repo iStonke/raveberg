@@ -9,6 +9,7 @@ from app.schemas.mode import ModeRead
 from app.schemas.runtime import CleanupCompletedEvent, RateLimitTriggeredEvent, SelfiePlaybackEvent
 from app.schemas.selfie import SelfieStateRead
 from app.schemas.upload import UploadDeletedEvent, UploadEvent
+from app.schemas.video import VideoAssetRead, VideoStateRead
 from app.schemas.visualizer import VisualizerStateRead
 
 
@@ -16,7 +17,7 @@ class EventService:
     def __init__(self) -> None:
         self._subscribers: set[asyncio.Queue[str]] = set()
 
-    async def publish(self, event_name: str, payload: dict) -> None:
+    async def publish(self, event_name: str, payload: dict | list[dict]) -> None:
         message = self._format_event(event_name, payload)
         for queue in list(self._subscribers):
             await queue.put(message)
@@ -63,6 +64,15 @@ class EventService:
     async def publish_selfie_playback(self, payload: SelfiePlaybackEvent) -> None:
         await self.publish("selfie_playback_updated", payload.model_dump(mode="json"))
 
+    async def publish_video_settings(self, payload: VideoStateRead) -> None:
+        await self.publish("video_settings_updated", payload.model_dump(mode="json"))
+
+    async def publish_video_library(self, payload: list[VideoAssetRead]) -> None:
+        await self.publish(
+            "video_library_updated",
+            [asset.model_dump(mode="json") for asset in payload],
+        )
+
     async def publish_heartbeat_updated(self, payload: DisplayStatusRead) -> None:
         await self.publish("heartbeat_updated", payload.model_dump(mode="json"))
 
@@ -79,7 +89,7 @@ class EventService:
             self._subscribers.discard(queue)
 
     @staticmethod
-    def _format_event(event_name: str, payload: dict) -> str:
+    def _format_event(event_name: str, payload: dict | list[dict]) -> str:
         return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
 
 

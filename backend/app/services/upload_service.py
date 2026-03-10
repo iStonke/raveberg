@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 from collections.abc import Callable
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -141,6 +142,46 @@ class UploadService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Display file missing")
         return path
 
+    def build_admin_archive(self, upload_ids: list[int]) -> bytes:
+        ordered_ids: list[int] = []
+        seen_ids: set[int] = set()
+        for upload_id in upload_ids:
+            if upload_id in seen_ids:
+                continue
+            seen_ids.add(upload_id)
+            ordered_ids.append(upload_id)
+
+        if not ordered_ids:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No uploads selected")
+
+        archive_buffer = BytesIO()
+        written_entries = 0
+
+        with ZipFile(archive_buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+            for index, upload_id in enumerate(ordered_ids, start=1):
+                upload = self.db.get(Upload, upload_id)
+                if upload is None:
+                    continue
+
+                source_path = self._get_archive_source_path(upload)
+                if source_path is None:
+                    continue
+
+                archive.write(
+                    source_path,
+                    arcname=self._build_archive_entry_name(upload, index=index, suffix=source_path.suffix.lower()),
+                )
+                written_entries += 1
+
+        if written_entries == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No upload files available for download",
+            )
+
+        archive_buffer.seek(0)
+        return archive_buffer.getvalue()
+
     def approve_upload(self, upload_id: int) -> tuple[UploadRead, UploadEvent]:
         upload = self._get_upload(upload_id)
         if upload.status != "processed":
@@ -233,6 +274,24 @@ class UploadService:
         safe_stem = "".join(ch for ch in safe_stem if ch.isalnum() or ch in {"-", "_"})
         safe_stem = safe_stem[:40] or "upload"
         return f"{uuid4().hex}_{safe_stem}{extension}"
+
+    def _get_archive_source_path(self, upload: Upload) -> Path | None:
+        if upload.filename_display and upload.status == "processed":
+            display_path = self.display_dir / upload.filename_display
+            if display_path.exists():
+                return display_path
+
+        original_path = self.original_dir / upload.filename_original
+        if original_path.exists():
+            return original_path
+
+        return None
+
+    @staticmethod
+    def _build_archive_entry_name(upload: Upload, *, index: int, suffix: str) -> str:
+        created_stamp = upload.created_at.strftime("%Y%m%d_%H%M%S")
+        safe_suffix = suffix if suffix.startswith(".") else f".{suffix}" if suffix else ""
+        return f"{index:02d}_{created_stamp}_upload-{upload.id}{safe_suffix}"
 
     def _process_image(self, payload: bytes) -> str:
         try:
