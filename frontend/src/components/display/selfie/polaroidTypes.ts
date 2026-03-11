@@ -33,6 +33,7 @@ export interface ActivePolaroid {
   uploadId: number
   src: string
   alt: string
+  caption: string | null
   enteredAt: number
   entryActivatedAt: number | null
   timings: PolaroidTimings

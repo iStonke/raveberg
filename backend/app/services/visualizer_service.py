@@ -16,7 +16,18 @@ from app.schemas.visualizer import (
     VisualizerStateUpdate,
 )
 
-PRESETS: list[VisualizerPreset] = ["tunnel", "particles", "waves", "kaleidoscope", "warehouse", "swarm_collision"]
+PRESETS: list[VisualizerPreset] = [
+    "tunnel",
+    "particles",
+    "waves",
+    "kaleidoscope",
+    "warehouse",
+    "swarm_collision",
+    "vanta_fog",
+    "vanta_halo",
+    "hydra_rave",
+    "particle_swarm",
+]
 COLOR_SCHEMES: list[ColorScheme] = ["mono", "acid", "ultraviolet", "redline"]
 
 
@@ -45,6 +56,12 @@ class VisualizerService:
                 auto_cycle_enabled=settings.default_visualizer_auto_cycle_enabled,
                 auto_cycle_interval_seconds=settings.default_visualizer_auto_cycle_interval_seconds,
             )
+            self.db.add(state)
+            self.db.commit()
+            self.db.refresh(state)
+        elif state.active_preset not in PRESETS:
+            state.active_preset = "warehouse"
+            state.updated_at = datetime.now(timezone.utc)
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)

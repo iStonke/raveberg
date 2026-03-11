@@ -9,14 +9,21 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
+    "@babel/runtime": "^7.28.6",
     "@mdi/font": "^7.4.47",
+    "@tsparticles/engine": "^3.9.1",
+    "hydra-synth": "^1.4.0",
     "pinia": "^2.1.7",
+    "three": "^0.183.2",
+    "tsparticles": "^3.9.1",
+    "vanta": "^0.5.24",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "vuetify": "^3.7.6"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/three": "^0.183.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "sass": "^1.86.0",
     "typescript": "^5.8.2",

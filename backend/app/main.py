@@ -13,6 +13,7 @@ from app.services.display_status_service import DisplayStatusService
 from app.services.event_service import event_service
 from app.services.mode_service import ModeService
 from app.services.selfie_service import SelfieService
+from app.services.standby_service import StandbyService
 from app.services.video_service import VideoService
 from app.services.visualizer_service import VisualizerService
 
@@ -39,6 +40,7 @@ async def lifespan(_: FastAPI):
         AuthService(session).ensure_initial_admin()
         ModeService(session).ensure_state()
         SelfieService(session).ensure_state()
+        StandbyService(session).ensure_state()
         VideoService(session).ensure_state()
         VisualizerService(session).ensure_state()
         DisplayStatusService(session).ensure_status()

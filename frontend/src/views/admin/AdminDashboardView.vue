@@ -30,6 +30,7 @@ import AdminShowControlHeader from '../../components/admin/AdminShowControlHeade
 import { useAppModeStore } from '../../stores/appMode'
 import { useAuthStore } from '../../stores/auth'
 import { useSelfieStore } from '../../stores/selfie'
+import { useStandbyStore } from '../../stores/standby'
 import { useSystemStatusStore } from '../../stores/systemStatus'
 import { useVideoStore } from '../../stores/video'
 import { useVisualizerStore } from '../../stores/visualizer'
@@ -38,6 +39,7 @@ const route = useRoute()
 const authStore = useAuthStore()
 const appModeStore = useAppModeStore()
 const selfieStore = useSelfieStore()
+const standbyStore = useStandbyStore()
 const systemStatusStore = useSystemStatusStore()
 const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
@@ -52,6 +54,7 @@ type RecentEventEntry = {
 const errorMessage = ref('')
 const visualizerError = ref('')
 const selfieError = ref('')
+const standbyError = ref('')
 const videoError = ref('')
 const uploadError = ref('')
 const systemActionError = ref('')
@@ -60,6 +63,7 @@ const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const isSavingVisualizer = ref(false)
 const isSavingSelfie = ref(false)
+const isSavingStandby = ref(false)
 const isSavingVideo = ref(false)
 const isUploadingVideos = ref(false)
 const isShuttingDown = ref(false)
@@ -73,6 +77,7 @@ const reconnectTimer = ref<number>()
 const reconnectAttempt = ref(0)
 const isHydratingVisualizerDraft = ref(true)
 const isHydratingSelfieDraft = ref(true)
+const isHydratingStandbyDraft = ref(true)
 const isHydratingVideoDraft = ref(true)
 const isRefreshingOperationalState = ref(false)
 const pendingOperationalRefresh = ref(false)
@@ -107,16 +112,30 @@ const selfieDraft = reactive<{
   slideshow_enabled: boolean
   slideshow_interval_seconds: number
   slideshow_max_visible_photos: number
+  slideshow_min_uploads_to_start: number
   slideshow_shuffle: boolean
+  logo_overlay_enabled: boolean
   vintage_look_enabled: boolean
   moderation_mode: ModerationMode
 }>({
   slideshow_enabled: true,
   slideshow_interval_seconds: 6,
   slideshow_max_visible_photos: 4,
+  slideshow_min_uploads_to_start: 3,
   slideshow_shuffle: true,
+  logo_overlay_enabled: true,
   vintage_look_enabled: false,
   moderation_mode: 'auto_approve',
+})
+
+const standbyDraft = reactive<{
+  headline: string
+  subheadline: string
+  hue_shift_degrees: number
+}>({
+  headline: 'Unterm Berg beginnt die Nacht',
+  subheadline: 'Willkommen im Auberg-Keller',
+  hue_shift_degrees: 0,
 })
 
 const videoDraft = reactive<{
@@ -124,6 +143,7 @@ const videoDraft = reactive<{
   loop_enabled: boolean
   playback_order: VideoPlaybackOrder
   vintage_filter_enabled: boolean
+  logo_overlay_enabled: boolean
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
@@ -132,6 +152,7 @@ const videoDraft = reactive<{
   loop_enabled: true,
   playback_order: 'upload_order',
   vintage_filter_enabled: false,
+  logo_overlay_enabled: true,
   object_fit: 'contain',
   transition: 'none',
   active_video_id: null,
@@ -145,11 +166,6 @@ const modeButtons: Array<{ label: string; value: AppMode }> = [
   { label: 'Blackout', value: 'blackout' },
 ]
 
-const moderationItems = [
-  { title: 'Automatische Freigabe', value: 'auto_approve' },
-  { title: 'Manuelle Freigabe', value: 'manual_approve' },
-] as const
-
 const videoOrderItems = [
   { title: 'Hochladereihenfolge', value: 'upload_order' },
   { title: 'Zufällig', value: 'random' },
@@ -160,13 +176,22 @@ const videoFitItems = [
   { title: 'Zuschneiden', value: 'cover' },
 ] as const
 
-const videoTransitionItems = [
-  { title: 'Kein Übergang', value: 'none' },
-  { title: 'Überblendung', value: 'fade' },
-] as const
+const visualizerPresetLabels: Record<VisualizerPreset, string> = {
+  tunnel: 'Tunnel',
+  particles: 'Particles',
+  waves: 'Waves',
+  kaleidoscope: 'Kaleidoscope',
+  warehouse: 'Warehouse',
+  swarm_collision: 'Swarm Collision',
+  vanta_fog: 'Vanta FOG',
+  vanta_halo: 'Vanta HALO',
+  hydra_rave: 'Hydra Rave',
+  particle_swarm: 'Particle Swarm',
+}
 
 let visualizerPersistTimer: number | undefined
 let selfiePersistTimer: number | undefined
+let standbyPersistTimer: number | undefined
 let videoPersistTimer: number | undefined
 
 const slideshowRunningLabel = computed(() =>
@@ -256,7 +281,7 @@ const uploadEmptyState = computed(() => {
   }
   if (uploadGalleryFilter.value === 'latest') {
     return {
-      icon: 'mdi-image-clock-outline',
+      icon: 'mdi-clock-outline',
       title: 'Kein letzter Upload',
       description: 'Der zuletzt hochgeladene Inhalt erscheint hier, sobald Uploads vorhanden sind.',
     }
@@ -335,6 +360,8 @@ const activeWorkspaceSection = computed<AdminWorkspaceSection>(() => {
   return 'modus'
 })
 
+const activeModePanelKey = computed(() => appModeStore.mode)
+
 const dashboardStatusChip = computed(() => {
   if (dashboardLiveActive.value) {
     return {
@@ -378,10 +405,11 @@ const contextActions = computed(() => {
     return [
       {
         id: 'selfie:toggle',
-        label: selfieDraft.slideshow_enabled ? 'Slideshow pausieren' : 'Slideshow fortsetzen',
+        label: selfieDraft.slideshow_enabled ? 'Slideshow aktiv' : 'Slideshow pausiert',
         color: 'primary' as const,
         loading: isBusy('selfie:toggle'),
         disabled: isBooting.value,
+        active: selfieDraft.slideshow_enabled,
       },
       {
         id: 'selfie:next',
@@ -398,18 +426,36 @@ const contextActions = computed(() => {
         disabled: isBooting.value,
       },
       {
+        id: 'selfie:moderation',
+        label: selfieDraft.moderation_mode === 'auto_approve' ? 'Freigabe auto' : 'Freigabe manuell',
+        color: 'primary' as const,
+        loading: isBusy('selfie:moderation'),
+        disabled: isBooting.value,
+        active: selfieDraft.moderation_mode === 'manual_approve',
+      },
+      {
         id: 'selfie:shuffle',
-        label: selfieDraft.slideshow_shuffle ? 'Shuffle aus' : 'Shuffle an',
+        label: selfieDraft.slideshow_shuffle ? 'Shuffle an' : 'Shuffle aus',
         color: 'primary' as const,
         loading: isBusy('selfie:shuffle'),
         disabled: isBooting.value,
+        active: selfieDraft.slideshow_shuffle,
       },
       {
         id: 'selfie:vintage',
-        label: selfieDraft.vintage_look_enabled ? 'Vintage aus' : 'Vintage an',
+        label: selfieDraft.vintage_look_enabled ? 'Vintage an' : 'Vintage aus',
         color: 'primary' as const,
         loading: isBusy('selfie:vintage'),
         disabled: isBooting.value,
+        active: selfieDraft.vintage_look_enabled,
+      },
+      {
+        id: 'selfie:logo-overlay',
+        label: selfieDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
+        color: 'primary' as const,
+        loading: isBusy('selfie:logo-overlay'),
+        disabled: isBooting.value,
+        active: selfieDraft.logo_overlay_enabled,
       },
     ]
   }
@@ -425,17 +471,19 @@ const contextActions = computed(() => {
       },
       {
         id: 'visualizer:auto-cycle',
-        label: visualizerDraft.auto_cycle_enabled ? 'Automatikwechsel pausieren' : 'Automatikwechsel starten',
+        label: visualizerDraft.auto_cycle_enabled ? 'Automatikwechsel an' : 'Automatikwechsel aus',
         color: 'secondary' as const,
         loading: isBusy('visualizer:auto-cycle'),
         disabled: isBooting.value,
+        active: visualizerDraft.auto_cycle_enabled,
       },
       {
         id: 'visualizer:logo-overlay',
-        label: visualizerDraft.logo_overlay_enabled ? 'Logo-Overlay aus' : 'Logo-Overlay an',
+        label: visualizerDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
         color: 'secondary' as const,
         loading: isBusy('visualizer:logo-overlay'),
         disabled: isBooting.value,
+        active: visualizerDraft.logo_overlay_enabled,
       },
     ]
   }
@@ -448,6 +496,30 @@ const contextActions = computed(() => {
         color: 'primary' as const,
         loading: isUploadingVideos.value || isSavingVideo.value,
         disabled: isBooting.value,
+      },
+      {
+        id: 'video:vintage',
+        label: videoDraft.vintage_filter_enabled ? 'Vintage ein' : 'Vintage aus',
+        color: 'primary' as const,
+        loading: false,
+        disabled: isBooting.value,
+        active: videoDraft.vintage_filter_enabled,
+      },
+      {
+        id: 'video:transition',
+        label: videoDraft.transition === 'fade' ? 'Übergang ein' : 'Übergang aus',
+        color: 'primary' as const,
+        loading: false,
+        disabled: isBooting.value,
+        active: videoDraft.transition === 'fade',
+      },
+      {
+        id: 'video:logo-overlay',
+        label: videoDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
+        color: 'primary' as const,
+        loading: isBusy('video:logo-overlay'),
+        disabled: isBooting.value,
+        active: videoDraft.logo_overlay_enabled,
       },
     ]
   }
@@ -472,6 +544,17 @@ const visualizerTelemetryLabel = computed(
     `T ${visualizerStore.speed} / I ${visualizerStore.intensity} / H ${visualizerStore.brightness}`,
 )
 
+const visualizerPresetItems = computed(() => {
+  const presets: VisualizerPreset[] = visualizerStore.presets.length
+    ? [...visualizerStore.presets]
+    : ['tunnel', 'particles', 'waves', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
+
+  return presets.map((preset) => ({
+    title: visualizerPresetLabels[preset] ?? preset,
+    value: preset,
+  }))
+})
+
 const isBlackoutMode = computed(() => appModeStore.mode === 'blackout')
 
 const isStandbyMode = computed(() => appModeStore.mode === 'idle')
@@ -492,7 +575,7 @@ const videoSizeLimitLabel = computed(() =>
 
 const latestUploadLabel = computed(() => {
   if (!latestUpload.value) {
-    return 'noch keine Uploads'
+    return 'Keine Uploads'
   }
   return formatDate(latestUpload.value.created_at)
 })
@@ -537,6 +620,7 @@ onMounted(async () => {
       fetchAdminUploads(adminToken, 50),
       appModeStore.refresh(),
       selfieStore.refresh(),
+      standbyStore.refresh(),
       videoStore.refreshState(),
       videoStore.refreshAdminLibrary(adminToken),
       systemStatusStore.refresh(adminToken),
@@ -548,6 +632,7 @@ onMounted(async () => {
     await Promise.all([
       syncVisualizerDraftFromStore(),
       syncSelfieDraftFromStore(),
+      syncStandbyDraftFromStore(),
       syncVideoDraftFromStore(),
     ])
     await loadAdminThumbnails(latestUploads)
@@ -567,6 +652,9 @@ onBeforeUnmount(() => {
   }
   if (selfiePersistTimer) {
     window.clearTimeout(selfiePersistTimer)
+  }
+  if (standbyPersistTimer) {
+    window.clearTimeout(standbyPersistTimer)
   }
   if (videoPersistTimer) {
     window.clearTimeout(videoPersistTimer)
@@ -598,10 +686,25 @@ watch(
 
 watch(
   () => [
+    standbyDraft.headline,
+    standbyDraft.subheadline,
+    standbyDraft.hue_shift_degrees,
+  ],
+  () => {
+    if (!isHydratingStandbyDraft.value) {
+      scheduleStandbyPersist()
+    }
+  },
+)
+
+watch(
+  () => [
     selfieDraft.slideshow_enabled,
     selfieDraft.slideshow_interval_seconds,
     selfieDraft.slideshow_max_visible_photos,
+    selfieDraft.slideshow_min_uploads_to_start,
     selfieDraft.slideshow_shuffle,
+    selfieDraft.logo_overlay_enabled,
     selfieDraft.vintage_look_enabled,
     selfieDraft.moderation_mode,
   ],
@@ -618,6 +721,7 @@ watch(
     videoDraft.loop_enabled,
     videoDraft.playback_order,
     videoDraft.vintage_filter_enabled,
+    videoDraft.logo_overlay_enabled,
     videoDraft.object_fit,
     videoDraft.transition,
     videoDraft.active_video_id,
@@ -661,11 +765,22 @@ async function syncSelfieDraftFromStore() {
   selfieDraft.slideshow_enabled = selfieStore.slideshowEnabled
   selfieDraft.slideshow_interval_seconds = selfieStore.slideshowIntervalSeconds
   selfieDraft.slideshow_max_visible_photos = selfieStore.slideshowMaxVisiblePhotos
+  selfieDraft.slideshow_min_uploads_to_start = selfieStore.slideshowMinUploadsToStart
   selfieDraft.slideshow_shuffle = selfieStore.slideshowShuffle
+  selfieDraft.logo_overlay_enabled = selfieStore.logoOverlayEnabled
   selfieDraft.vintage_look_enabled = selfieStore.vintageLookEnabled
   selfieDraft.moderation_mode = selfieStore.moderationMode
   await nextTick()
   isHydratingSelfieDraft.value = false
+}
+
+async function syncStandbyDraftFromStore() {
+  isHydratingStandbyDraft.value = true
+  standbyDraft.headline = standbyStore.headline
+  standbyDraft.subheadline = standbyStore.subheadline
+  standbyDraft.hue_shift_degrees = standbyStore.hueShiftDegrees
+  await nextTick()
+  isHydratingStandbyDraft.value = false
 }
 
 async function syncVideoDraftFromStore() {
@@ -674,6 +789,7 @@ async function syncVideoDraftFromStore() {
   videoDraft.loop_enabled = videoStore.loopEnabled
   videoDraft.playback_order = videoStore.playbackOrder
   videoDraft.vintage_filter_enabled = videoStore.vintageFilterEnabled
+  videoDraft.logo_overlay_enabled = videoStore.logoOverlayEnabled
   videoDraft.object_fit = videoStore.objectFit
   videoDraft.transition = videoStore.transition
   videoDraft.active_video_id = videoStore.activeVideoId
@@ -699,6 +815,16 @@ function scheduleSelfiePersist() {
   selfiePersistTimer = window.setTimeout(() => {
     void saveSelfieDraft()
   }, 180)
+}
+
+function scheduleStandbyPersist() {
+  if (standbyPersistTimer) {
+    window.clearTimeout(standbyPersistTimer)
+  }
+
+  standbyPersistTimer = window.setTimeout(() => {
+    void saveStandbyDraft()
+  }, 200)
 }
 
 function scheduleVideoPersist() {
@@ -742,7 +868,9 @@ async function saveSelfieDraft() {
       slideshow_enabled: selfieDraft.slideshow_enabled,
       slideshow_interval_seconds: selfieDraft.slideshow_interval_seconds,
       slideshow_max_visible_photos: selfieDraft.slideshow_max_visible_photos,
+      slideshow_min_uploads_to_start: selfieDraft.slideshow_min_uploads_to_start,
       slideshow_shuffle: selfieDraft.slideshow_shuffle,
+      logo_overlay_enabled: selfieDraft.logo_overlay_enabled,
       vintage_look_enabled: selfieDraft.vintage_look_enabled,
       moderation_mode: selfieDraft.moderation_mode,
     })
@@ -755,6 +883,24 @@ async function saveSelfieDraft() {
   }
 }
 
+async function saveStandbyDraft() {
+  standbyError.value = ''
+  isSavingStandby.value = true
+  try {
+    await standbyStore.save({
+      headline: standbyDraft.headline,
+      subheadline: standbyDraft.subheadline,
+      hue_shift_degrees: standbyDraft.hue_shift_degrees,
+    })
+    await refreshSystemOnly()
+  } catch (error) {
+    standbyError.value =
+      error instanceof Error ? error.message : 'Standby-Texte konnten nicht gespeichert werden'
+  } finally {
+    isSavingStandby.value = false
+  }
+}
+
 async function saveVideoDraft() {
   videoError.value = ''
   isSavingVideo.value = true
@@ -764,6 +910,7 @@ async function saveVideoDraft() {
       loop_enabled: videoDraft.loop_enabled,
       playback_order: videoDraft.playback_order,
       vintage_filter_enabled: videoDraft.vintage_filter_enabled,
+      logo_overlay_enabled: videoDraft.logo_overlay_enabled,
       object_fit: videoDraft.object_fit,
       transition: videoDraft.transition,
       active_video_id: videoDraft.active_video_id,
@@ -954,7 +1101,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['tunnel', 'particles', 'waves', 'kaleidoscope', 'warehouse', 'swarm_collision']
+      : ['tunnel', 'particles', 'waves', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]
@@ -983,8 +1130,8 @@ async function toggleAutoCycleQuick() {
   }
 }
 
-async function toggleVisualizerLogoOverlayQuick() {
-  const key = 'visualizer:logo-overlay'
+async function toggleVisualizerLogoOverlayQuick(actionKey = 'visualizer:logo-overlay') {
+  const key = actionKey
   setBusy(key, true)
   try {
     if (visualizerPersistTimer) {
@@ -995,6 +1142,40 @@ async function toggleVisualizerLogoOverlayQuick() {
     await nextTick()
     isHydratingVisualizerDraft.value = false
     await saveVisualizerDraft()
+  } finally {
+    setBusy(key, false)
+  }
+}
+
+async function toggleSelfieLogoOverlayQuick() {
+  const key = 'selfie:logo-overlay'
+  setBusy(key, true)
+  try {
+    if (selfiePersistTimer) {
+      window.clearTimeout(selfiePersistTimer)
+    }
+    isHydratingSelfieDraft.value = true
+    selfieDraft.logo_overlay_enabled = !selfieDraft.logo_overlay_enabled
+    await nextTick()
+    isHydratingSelfieDraft.value = false
+    await saveSelfieDraft()
+  } finally {
+    setBusy(key, false)
+  }
+}
+
+async function toggleVideoLogoOverlayQuick() {
+  const key = 'video:logo-overlay'
+  setBusy(key, true)
+  try {
+    if (videoPersistTimer) {
+      window.clearTimeout(videoPersistTimer)
+    }
+    isHydratingVideoDraft.value = true
+    videoDraft.logo_overlay_enabled = !videoDraft.logo_overlay_enabled
+    await nextTick()
+    isHydratingVideoDraft.value = false
+    await saveVideoDraft()
   } finally {
     setBusy(key, false)
   }
@@ -1013,12 +1194,27 @@ async function runHeaderAction(actionId: string) {
     await runSelfieQuickAction('reload_pool')
     return
   }
+  if (actionId === 'selfie:moderation') {
+    const key = 'selfie:moderation'
+    setBusy(key, true)
+    try {
+      toggleSelfieModerationMode()
+      await saveSelfieDraft()
+    } finally {
+      setBusy(key, false)
+    }
+    return
+  }
   if (actionId === 'selfie:shuffle') {
     await toggleSelfieSettingQuick('slideshow_shuffle')
     return
   }
   if (actionId === 'selfie:vintage') {
     await toggleSelfieSettingQuick('vintage_look_enabled')
+    return
+  }
+  if (actionId === 'selfie:logo-overlay') {
+    await toggleSelfieLogoOverlayQuick()
     return
   }
   if (actionId === 'visualizer:next-preset') {
@@ -1031,6 +1227,18 @@ async function runHeaderAction(actionId: string) {
   }
   if (actionId === 'visualizer:logo-overlay') {
     await toggleVisualizerLogoOverlayQuick()
+    return
+  }
+  if (actionId === 'video:vintage') {
+    toggleVideoVintageFilter()
+    return
+  }
+  if (actionId === 'video:transition') {
+    toggleVideoTransition()
+    return
+  }
+  if (actionId === 'video:logo-overlay') {
+    await toggleVideoLogoOverlayQuick()
     return
   }
   if (actionId === 'video:upload') {
@@ -1237,6 +1445,25 @@ function connectLiveEvents() {
     if (!payload) return
     selfieStore.applyState(payload)
     await syncSelfieDraftFromStore()
+    await refreshSystemOnly()
+  })
+
+  source.addEventListener('standby_snapshot', async (event) => {
+    dashboardLiveActive.value = true
+    pushRecentEvent('standby_snapshot')
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    standbyStore.applyState(payload)
+    await syncStandbyDraftFromStore()
+    await refreshSystemOnly()
+  })
+
+  source.addEventListener('standby_settings_updated', async (event) => {
+    pushRecentEvent('standby_settings_updated')
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    standbyStore.applyState(payload)
+    await syncStandbyDraftFromStore()
     await refreshSystemOnly()
   })
 
@@ -1525,6 +1752,26 @@ function approveLabel(upload: UploadItem) {
   return upload.moderation_status === 'approved' ? 'Freigegeben' : 'Freigeben'
 }
 
+function toggleSelfieModerationMode() {
+  selfieDraft.moderation_mode =
+    selfieDraft.moderation_mode === 'auto_approve' ? 'manual_approve' : 'auto_approve'
+}
+
+function toggleVideoVintageFilter() {
+  videoDraft.vintage_filter_enabled = !videoDraft.vintage_filter_enabled
+}
+
+function toggleVideoTransition() {
+  videoDraft.transition = videoDraft.transition === 'fade' ? 'none' : 'fade'
+}
+
+function formatUploadCardStatusLabel(upload: UploadItem) {
+  if (upload.status === 'error') return 'Fehler'
+  if (upload.moderation_status === 'pending') return 'Freigabe ausstehend'
+  if (upload.moderation_status === 'approved') return 'Genehmigt'
+  return 'Abgelehnt'
+}
+
 function formatModerationStatusLabel(status: UploadItem['moderation_status']) {
   if (status === 'pending') return 'Ausstehend'
   if (status === 'approved') return 'Genehmigt'
@@ -1670,291 +1917,311 @@ function formatModeLabel(mode: AppMode) {
         />
       </v-col>
 
-      <v-col v-if="isBlackoutMode || isStandbyMode" cols="12">
-        <section class="settings-section">
-          <div class="settings-group">
-            <div class="inline-note settings-copy">
-              {{
-                isBlackoutMode
-                  ? 'Der Bildschirm ist derzeit komplett abgeschaltet. Einstellungen für Slideshow und Visualizer stehen wieder zur Verfügung, sobald du in einen dieser Modi wechselst.'
-                  : 'Der Bildschirm ist im Standby und zeigt derzeit keinen aktiven Inhalt. Einstellungen für Slideshow oder Visualizer erscheinen wieder, sobald du in den jeweiligen Modus wechselst.'
-              }}
-            </div>
-          </div>
-        </section>
-      </v-col>
-
-      <v-col v-if="isVideoMode" cols="12">
-        <section class="settings-section">
-          <input
-            ref="videoFileInput"
-            type="file"
-            class="sr-only"
-            accept="video/mp4,video/webm,.mp4,.webm"
-            multiple
-            @change="handleVideoFileSelection"
-          />
-
-          <div class="settings-group">
-            <div class="settings-group__label">Videos</div>
-            <div v-if="isUploadingVideos" class="video-upload-status">
-              <v-progress-linear indeterminate color="primary" rounded />
-              <div class="inline-note">{{ videoUploadLabel || 'Videos werden hochgeladen …' }}</div>
-            </div>
-
-            <div v-if="orderedVideoAssets.length" class="video-library-list">
-              <div
-                v-for="(asset, index) in orderedVideoAssets"
-                :key="asset.id"
-                class="video-library-item"
-                :class="{ 'video-library-item--active': videoDraft.active_video_id === asset.id }"
-                @click="setActiveVideo(asset)"
-              >
-                <div class="video-library-item__thumb">
-                  <div class="video-library-item__order">{{ index + 1 }}</div>
-                  <div class="video-library-item__placeholder">
-                    <v-icon icon="mdi-play-circle-outline" size="24" />
+      <v-col cols="12">
+        <Transition name="mode-panel" mode="out-in">
+          <div :key="activeModePanelKey" class="mode-panel-stage">
+            <section v-if="isBlackoutMode" class="settings-section">
+              <div class="settings-group">
+                <div class="settings-explainer">
+                  <div class="settings-explainer__icon-shell" aria-hidden="true">
+                    <v-icon
+                      icon="mdi-lightbulb-off-outline"
+                      size="20"
+                      class="settings-explainer__icon"
+                    />
                   </div>
-                </div>
-                <div class="video-library-item__body">
-                  <div class="video-library-item__content">
-                    <div class="video-library-item__title-row">
-                      <div class="video-library-item__title">{{ asset.filename_original }}</div>
-                    </div>
-                    <div class="video-library-item__meta">
-                      <span>{{ videoDurations[asset.id] || (videoMetadataLoading[asset.id] ? 'Wird gelesen' : 'Unbekannt') }}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{{ formatBytes(asset.size) }}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{{ formatVideoMimeLabel(asset.mime_type) }}</span>
-                    </div>
-                  </div>
-                  <div class="video-library-item__actions">
-                    <v-btn
-                      size="small"
-                      variant="text"
-                      class="video-library-action"
-                      icon="mdi-arrow-up"
-                      :disabled="index === 0"
-                      :loading="isBusy(`video:move:${asset.id}`)"
-                      @click.stop="moveVideo(asset, -1)"
-                    />
-                    <v-btn
-                      size="small"
-                      variant="text"
-                      class="video-library-action"
-                      icon="mdi-arrow-down"
-                      :disabled="index === orderedVideoAssets.length - 1"
-                      :loading="isBusy(`video:move:${asset.id}`)"
-                      @click.stop="moveVideo(asset, 1)"
-                    />
-                    <v-btn
-                      size="small"
-                      color="error"
-                      variant="text"
-                      class="video-library-action video-library-action--danger"
-                      icon="mdi-trash-can-outline"
-                      :loading="isBusy(`video:delete:${asset.id}`)"
-                      @click.stop="removeVideo(asset)"
-                    />
+                  <div class="settings-explainer__copy inline-note settings-copy">
+                    Der Bildschirm ist derzeit komplett abgeschaltet. Einstellungen für Slideshow und
+                    Visualizer stehen wieder zur Verfügung, sobald du in einen dieser Modi wechselst.
                   </div>
                 </div>
               </div>
-            </div>
-            <div v-else class="inline-note">Noch keine Videos vorhanden.</div>
-          </div>
+            </section>
 
-          <div class="settings-divider" />
+            <section v-else-if="isStandbyMode" class="settings-section">
+              <div class="settings-group">
+                <div class="settings-control">
+                  <div class="settings-control__label">Headline</div>
+                  <v-text-field
+                    v-model="standbyDraft.headline"
+                    class="admin-text-input"
+                    :disabled="isBooting || isSavingStandby"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
 
-          <div class="settings-group">
-            <div class="settings-group__label">Wiedergabe</div>
-            <v-switch
-              v-model="videoDraft.playlist_enabled"
-              color="primary"
-              inset
-              label="Videos nacheinander abspielen"
-              hide-details
-            />
-            <v-switch
-              v-model="videoDraft.loop_enabled"
-              color="primary"
-              inset
-              label="Endlosschleife"
-              hide-details
-            />
-            <div class="settings-control">
-              <div class="settings-control__label">Reihenfolge</div>
-              <v-select
-                v-model="videoDraft.playback_order"
-                class="admin-select"
-                :items="videoOrderItems"
-                item-title="title"
-                item-value="value"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-            <div v-if="!videoDraft.playlist_enabled" class="inline-note">
-              Wenn die Playlist deaktiviert ist, wird das oben markierte Einzelvideo abgespielt.
-            </div>
-          </div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Subline</div>
+                  <v-text-field
+                    v-model="standbyDraft.subheadline"
+                    class="admin-text-input"
+                    :disabled="isBooting || isSavingStandby"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
 
-          <div class="settings-divider" />
-
-          <div class="settings-group">
-            <div class="settings-group__label">Darstellung</div>
-            <v-switch
-              v-model="videoDraft.vintage_filter_enabled"
-              color="primary"
-              inset
-              label="Vintage-Look"
-              hide-details
-            />
-            <div class="settings-control">
-              <div class="settings-control__label">Bildfüllung</div>
-              <v-select
-                v-model="videoDraft.object_fit"
-                class="admin-select"
-                :items="videoFitItems"
-                item-title="title"
-                item-value="value"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-            <div class="settings-control">
-              <div class="settings-control__label">Übergang</div>
-              <v-select
-                v-model="videoDraft.transition"
-                class="admin-select"
-                :items="videoTransitionItems"
-                item-title="title"
-                item-value="value"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-          </div>
-
-          <v-alert v-if="videoError" type="error" variant="tonal" class="mt-4">
-            {{ videoError }}
-          </v-alert>
-        </section>
-      </v-col>
-
-      <v-col v-if="isSlideshowMode" cols="12">
-        <section class="settings-section">
-          <div class="settings-section__header">
-            <div class="settings-section__label">Slideshow</div>
-          </div>
-          <div class="settings-group">
-            <div class="settings-control">
-              <div class="settings-control__label">Moderationsmodus</div>
-              <v-select
-                v-model="selfieDraft.moderation_mode"
-                class="admin-select"
-                :items="moderationItems"
-                item-title="title"
-                item-value="value"
-                :disabled="isBooting"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-          </div>
-
-          <div class="settings-divider" />
-
-          <div class="settings-group">
-            <div class="settings-group__label">Animation</div>
-            <div class="settings-slider-row">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Einblend-Intervall</div>
-                <div class="settings-slider-row__value">{{ selfieDraft.slideshow_interval_seconds }}s</div>
+                <div class="settings-slider-row settings-slider-row--wide settings-slider-row--spaced">
+                  <div class="settings-slider-row__header">
+                    <div class="settings-slider-row__label">Farbton</div>
+                    <div class="settings-slider-row__value">{{ standbyDraft.hue_shift_degrees }}°</div>
+                  </div>
+                  <v-slider
+                    v-model="standbyDraft.hue_shift_degrees"
+                    min="-180"
+                    max="180"
+                    step="1"
+                    hide-details
+                  />
+                </div>
               </div>
-              <v-slider
-                v-model="selfieDraft.slideshow_interval_seconds"
-                min="2"
-                max="20"
-                step="1"
-                hide-details
+              <v-alert v-if="standbyError" type="error" variant="tonal" class="mt-4">
+                {{ standbyError }}
+              </v-alert>
+            </section>
+
+            <section v-else-if="isVideoMode" class="settings-section">
+              <input
+                ref="videoFileInput"
+                type="file"
+                class="sr-only"
+                accept="video/mp4,video/webm,.mp4,.webm"
+                multiple
+                @change="handleVideoFileSelection"
               />
-            </div>
-            <div class="settings-slider-row">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Sichtbare Bilder</div>
-                <div class="settings-slider-row__value">{{ selfieDraft.slideshow_max_visible_photos }}</div>
+
+              <div class="settings-group">
+                <div class="settings-group__label">Videos</div>
+                <div v-if="isUploadingVideos" class="video-upload-status">
+                  <v-progress-linear indeterminate color="primary" rounded />
+                  <div class="inline-note">{{ videoUploadLabel || 'Videos werden hochgeladen …' }}</div>
+                </div>
+
+                <div v-if="orderedVideoAssets.length" class="video-library-list">
+                  <div
+                    v-for="(asset, index) in orderedVideoAssets"
+                    :key="asset.id"
+                    class="video-library-item"
+                    :class="{ 'video-library-item--active': videoDraft.active_video_id === asset.id }"
+                    @click="setActiveVideo(asset)"
+                  >
+                    <div class="video-library-item__thumb">
+                      <div class="video-library-item__order">{{ index + 1 }}</div>
+                      <div class="video-library-item__placeholder">
+                        <v-icon icon="mdi-play-circle-outline" size="24" />
+                      </div>
+                    </div>
+                    <div class="video-library-item__body">
+                      <div class="video-library-item__content">
+                        <div class="video-library-item__title-row">
+                          <div class="video-library-item__title">{{ asset.filename_original }}</div>
+                        </div>
+                        <div class="video-library-item__meta">
+                          <span>{{ videoDurations[asset.id] || (videoMetadataLoading[asset.id] ? 'Wird gelesen' : 'Unbekannt') }}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{{ formatBytes(asset.size) }}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{{ formatVideoMimeLabel(asset.mime_type) }}</span>
+                        </div>
+                      </div>
+                      <div class="video-library-item__actions">
+                        <v-btn
+                          size="small"
+                          variant="text"
+                          class="video-library-action"
+                          icon="mdi-arrow-up"
+                          :disabled="index === 0"
+                          :loading="isBusy(`video:move:${asset.id}`)"
+                          @click.stop="moveVideo(asset, -1)"
+                        />
+                        <v-btn
+                          size="small"
+                          variant="text"
+                          class="video-library-action"
+                          icon="mdi-arrow-down"
+                          :disabled="index === orderedVideoAssets.length - 1"
+                          :loading="isBusy(`video:move:${asset.id}`)"
+                          @click.stop="moveVideo(asset, 1)"
+                        />
+                        <v-btn
+                          size="small"
+                          color="error"
+                          variant="text"
+                          class="video-library-action video-library-action--danger"
+                          icon="mdi-trash-can-outline"
+                          :loading="isBusy(`video:delete:${asset.id}`)"
+                          @click.stop="removeVideo(asset)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="inline-note">Noch keine Videos vorhanden.</div>
               </div>
-              <v-slider
-                v-model="selfieDraft.slideshow_max_visible_photos"
-                min="1"
-                max="10"
-                step="1"
-                hide-details
-              />
-            </div>
-          </div>
-          <v-alert v-if="selfieError" type="error" variant="tonal" class="mt-4">
-            {{ selfieError }}
-          </v-alert>
-        </section>
-      </v-col>
 
-      <v-col v-if="isVisualizerMode" cols="12">
-        <section class="settings-section">
-          <div class="settings-section__header">
-            <div class="settings-section__label">Visualizer</div>
-          </div>
-          <div class="settings-group settings-group--spaced">
-            <div class="settings-control">
-              <div class="settings-control__label">Stil</div>
-              <v-select
-                v-model="visualizerDraft.active_preset"
-                class="admin-select"
-                :items="visualizerStore.presets"
-                :disabled="isBooting"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-          </div>
+              <div class="settings-divider" />
 
-          <div class="settings-group">
-            <div class="settings-control">
-              <div class="settings-control__label">Farbwelt</div>
-              <v-select
-                v-model="visualizerDraft.color_scheme"
-                class="admin-select"
-                :items="visualizerStore.colorSchemes"
-                :disabled="isBooting"
-                hide-details
-                variant="solo"
-                density="comfortable"
-              />
-            </div>
-          </div>
-
-          <div class="settings-divider" />
-
-          <div class="settings-group settings-group--sliders">
-            <div class="settings-slider-row settings-slider-row--wide">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Automatikwechsel</div>
-                <div class="settings-slider-row__value">{{ visualizerDraft.auto_cycle_interval_seconds }}s</div>
+              <div class="settings-group">
+                <div class="settings-group__label">Wiedergabe</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Reihenfolge</div>
+                  <v-select
+                    v-model="videoDraft.playback_order"
+                    class="admin-select"
+                    :items="videoOrderItems"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+                <v-switch
+                  v-model="videoDraft.playlist_enabled"
+                  color="primary"
+                  inset
+                  label="Videos nacheinander abspielen"
+                  hide-details
+                />
+                <v-switch
+                  v-model="videoDraft.loop_enabled"
+                  color="primary"
+                  inset
+                  label="Endlosschleife"
+                  hide-details
+                />
+                <div v-if="!videoDraft.playlist_enabled" class="inline-note">
+                  Wenn die Playlist deaktiviert ist, wird das oben markierte Einzelvideo abgespielt.
+                </div>
               </div>
-              <v-slider
-                v-model="visualizerDraft.auto_cycle_interval_seconds"
-                min="15"
-                max="600"
-                step="15"
-                hide-details
-              />
-            </div>
+
+              <div class="settings-divider" />
+
+              <div class="settings-group">
+                <div class="settings-group__label">Darstellung</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Bildfüllung</div>
+                  <v-select
+                    v-model="videoDraft.object_fit"
+                    class="admin-select"
+                    :items="videoFitItems"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+              </div>
+
+              <v-alert v-if="videoError" type="error" variant="tonal" class="mt-4">
+                {{ videoError }}
+              </v-alert>
+            </section>
+
+            <section v-else-if="isSlideshowMode" class="settings-section">
+              <div class="settings-group">
+                <div class="settings-group__label">Animation</div>
+                <div class="settings-slider-row">
+                  <div class="settings-slider-row__header">
+                    <div class="settings-slider-row__label">Einblend-Intervall</div>
+                    <div class="settings-slider-row__value">{{ selfieDraft.slideshow_interval_seconds }}s</div>
+                  </div>
+                  <v-slider
+                    v-model="selfieDraft.slideshow_interval_seconds"
+                    min="2"
+                    max="20"
+                    step="1"
+                    hide-details
+                  />
+                </div>
+                <div class="settings-slider-row">
+                  <div class="settings-slider-row__header">
+                    <div class="settings-slider-row__label">Sichtbare Bilder</div>
+                    <div class="settings-slider-row__value">{{ selfieDraft.slideshow_max_visible_photos }}</div>
+                  </div>
+                  <v-slider
+                    v-model="selfieDraft.slideshow_max_visible_photos"
+                    min="1"
+                    max="10"
+                    step="1"
+                    hide-details
+                  />
+                </div>
+                <div class="settings-control settings-control--spaced">
+                  <div class="settings-control__label">Uploads bis Slideshow startet</div>
+                  <v-text-field
+                    v-model.number="selfieDraft.slideshow_min_uploads_to_start"
+                    class="admin-text-input"
+                    type="number"
+                    min="1"
+                    max="50"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+              </div>
+              <v-alert v-if="selfieError" type="error" variant="tonal" class="mt-4">
+                {{ selfieError }}
+              </v-alert>
+            </section>
+
+            <section v-else-if="isVisualizerMode" class="settings-section">
+              <div class="settings-section__header">
+                <div class="settings-section__label">Visualizer</div>
+              </div>
+              <div class="settings-group settings-group--spaced">
+                <div class="settings-control">
+                  <div class="settings-control__label">Stil</div>
+                  <v-select
+                    v-model="visualizerDraft.active_preset"
+                    class="admin-select"
+                    :items="visualizerPresetItems"
+                    :disabled="isBooting"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+              </div>
+
+              <div class="settings-group">
+                <div class="settings-control">
+                  <div class="settings-control__label">Farbwelt</div>
+                  <v-select
+                    v-model="visualizerDraft.color_scheme"
+                    class="admin-select"
+                    :items="visualizerStore.colorSchemes"
+                    :disabled="isBooting"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+              </div>
+
+              <div class="settings-divider" />
+
+              <div class="settings-group settings-group--sliders">
+                <div class="settings-slider-row settings-slider-row--wide">
+                  <div class="settings-slider-row__header">
+                    <div class="settings-slider-row__label">Automatikwechsel</div>
+                    <div class="settings-slider-row__value">{{ visualizerDraft.auto_cycle_interval_seconds }}s</div>
+                  </div>
+                  <v-slider
+                    v-model="visualizerDraft.auto_cycle_interval_seconds"
+                    min="15"
+                    max="600"
+                    step="15"
+                    hide-details
+                  />
+                </div>
             <div class="settings-slider-row">
               <div class="settings-slider-row__header">
                 <div class="settings-slider-row__label">Tempo</div>
@@ -1994,11 +2261,13 @@ function formatModeLabel(mode: AppMode) {
                 hide-details
               />
             </div>
+              </div>
+              <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
+                {{ visualizerError }}
+              </v-alert>
+            </section>
           </div>
-          <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
-            {{ visualizerError }}
-          </v-alert>
-        </section>
+        </Transition>
       </v-col>
         </template>
 
@@ -2220,20 +2489,40 @@ function formatModeLabel(mode: AppMode) {
                       {{ formatBytes(upload.size) }}
                     </span>
                   </div>
-                  <div class="upload-card__footer">
+                  <div
+                    class="upload-card__status-row"
+                    :class="{ 'upload-card__status-row--actions-only': upload.moderation_status === 'pending' && upload.status !== 'error' }"
+                  >
                     <div
+                      v-if="upload.moderation_status !== 'pending' || upload.status === 'error'"
                       class="upload-card__status"
                       :class="`upload-card__status--${uploadStatusTone(upload)}`"
                     >
-                      {{ upload.status === 'error' ? 'Fehler' : formatModerationStatusLabel(upload.moderation_status) }}
+                      {{ formatUploadCardStatusLabel(upload) }}
                     </div>
-                    <div class="upload-actions">
-                    <template v-if="showUploadModerationActions">
+                    <v-btn
+                      size="small"
+                      color="error"
+                      variant="text"
+                      class="upload-card__delete-action"
+                      prepend-icon="mdi-trash-can-outline"
+                      :loading="isBusy(`delete:${upload.id}`)"
+                      :disabled="isBusy(`approve:${upload.id}`) || isBusy(`reject:${upload.id}`)"
+                      @click="runUploadAction(upload, 'delete')"
+                    >
+                      Löschen
+                    </v-btn>
+                  </div>
+                  <div
+                    v-if="showUploadModerationActions && upload.moderation_status === 'pending' && upload.status === 'processed'"
+                    class="upload-card__actions-block"
+                  >
+                    <div class="upload-card__primary-actions">
                       <v-btn
                         size="small"
                         color="success"
-                        :variant="canApprove(upload) ? 'tonal' : 'outlined'"
-                        class="upload-actions__button"
+                        variant="tonal"
+                        class="upload-card__primary-action"
                         :loading="isBusy(`approve:${upload.id}`)"
                         :disabled="!canApprove(upload) || isBusy(`reject:${upload.id}`) || isBusy(`delete:${upload.id}`)"
                         @click="runUploadAction(upload, 'approve')"
@@ -2242,28 +2531,15 @@ function formatModeLabel(mode: AppMode) {
                       </v-btn>
                       <v-btn
                         size="small"
-                        color="warning"
+                        color="error"
                         variant="tonal"
-                        class="upload-actions__button"
+                        class="upload-card__primary-action"
                         :loading="isBusy(`reject:${upload.id}`)"
                         :disabled="!canReject(upload) || isBusy(`approve:${upload.id}`) || isBusy(`delete:${upload.id}`)"
                         @click="runUploadAction(upload, 'reject')"
                       >
                         Ablehnen
                       </v-btn>
-                    </template>
-                    <v-btn
-                      size="small"
-                      color="error"
-                      variant="text"
-                      class="upload-actions__button upload-actions__button--delete"
-                      prepend-icon="mdi-trash-can-outline"
-                      :loading="isBusy(`delete:${upload.id}`)"
-                      :disabled="isBusy(`approve:${upload.id}`) || isBusy(`reject:${upload.id}`)"
-                      @click="runUploadAction(upload, 'delete')"
-                    >
-                      Löschen
-                    </v-btn>
                     </div>
                   </div>
                 </div>
@@ -2272,7 +2548,9 @@ function formatModeLabel(mode: AppMode) {
           </v-row>
 
           <div v-else class="upload-empty-state">
-            <v-icon :icon="uploadEmptyState.icon" size="52" class="upload-empty-state__icon" />
+            <div class="upload-empty-state__icon-shell" aria-hidden="true">
+              <v-icon :icon="uploadEmptyState.icon" size="34" class="upload-empty-state__icon" />
+            </div>
             <div class="upload-empty-state__title">{{ uploadEmptyState.title }}</div>
             <div class="upload-empty-state__copy">{{ uploadEmptyState.description }}</div>
           </div>
@@ -2329,6 +2607,46 @@ function formatModeLabel(mode: AppMode) {
   padding-top: 0 !important;
   background: transparent;
   backdrop-filter: none;
+  isolation: isolate;
+  contain: paint;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.admin-workspace-shell :deep(.v-btn__overlay),
+.admin-workspace-shell :deep(.v-ripple__container),
+.admin-workspace-shell :deep(.v-selection-control__input::before),
+.admin-workspace-shell :deep(.v-selection-control__input::after) {
+  display: none !important;
+  opacity: 0 !important;
+}
+
+.mode-panel-stage {
+  width: 100%;
+  min-width: 0;
+}
+
+.mode-panel-enter-active,
+.mode-panel-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease,
+    filter 220ms ease;
+  will-change: opacity, transform, filter;
+}
+
+.mode-panel-enter-from,
+.mode-panel-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.992);
+  filter: blur(4px);
+}
+
+.mode-panel-enter-to,
+.mode-panel-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 
 .workspace-overview-card,
@@ -2612,13 +2930,29 @@ function formatModeLabel(mode: AppMode) {
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 0.5rem;
+  gap: 0.65rem;
   padding: 1.2rem 0.8rem;
   text-align: center;
 }
 
+.upload-empty-state__icon-shell {
+  width: 4rem;
+  height: 4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(132, 182, 224, 0.12);
+  background:
+    radial-gradient(circle at top, rgba(101, 198, 255, 0.12), transparent 62%),
+    rgba(10, 18, 28, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 26px rgba(4, 10, 18, 0.12);
+}
+
 .upload-empty-state__icon {
-  color: rgba(129, 171, 207, 0.5);
+  color: rgba(137, 203, 255, 0.88);
+  filter: drop-shadow(0 0 16px rgba(90, 185, 255, 0.22));
 }
 
 .upload-empty-state__title {
@@ -2846,11 +3180,72 @@ function formatModeLabel(mode: AppMode) {
   gap: 0.28rem;
 }
 
+.settings-control--spaced {
+  margin-top: 0.42rem;
+}
+
 .settings-control__label {
   color: rgba(221, 231, 241, 0.78);
   font-size: 0.78rem;
   font-weight: 650;
   line-height: 1.2;
+}
+
+.settings-action {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.settings-actions-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.settings-action__value {
+  color: rgba(244, 249, 255, 0.94);
+  font-size: 0.92rem;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
+.settings-action__button {
+  justify-self: start;
+  min-height: 2.3rem;
+  padding-inline: 0.9rem;
+  border-radius: 12px;
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.settings-explainer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.settings-explainer__icon-shell {
+  width: 2.2rem;
+  height: 2.2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(143, 177, 209, 0.1);
+  background:
+    radial-gradient(circle at top, rgba(94, 211, 244, 0.08), transparent 62%),
+    rgba(10, 18, 28, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 20px rgba(4, 10, 18, 0.1);
+}
+
+.settings-explainer__icon {
+  color: rgba(176, 214, 241, 0.88);
+}
+
+.settings-explainer__copy {
+  min-width: 0;
 }
 
 .settings-divider {
@@ -3053,14 +3448,6 @@ function formatModeLabel(mode: AppMode) {
   padding: 0.85rem 0.95rem 0.95rem;
 }
 
-.upload-card__footer {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  justify-content: space-between;
-  margin-top: 0.2rem;
-}
-
 .upload-card__timestamp {
   color: rgba(221, 231, 242, 0.88);
   font-size: 0.82rem;
@@ -3090,18 +3477,47 @@ function formatModeLabel(mode: AppMode) {
   color: rgba(194, 208, 223, 0.38);
 }
 
-.upload-actions {
+.upload-card__status-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.8rem;
 }
 
-.upload-actions__button {
-  min-height: 2rem;
-  padding-inline: 0.68rem;
-  border-radius: 999px;
+.upload-card__status-row--actions-only {
+  justify-content: flex-end;
+}
+
+.upload-card__delete-action {
+  min-height: 1.9rem;
+  padding-inline: 0.2rem;
+  color: rgba(255, 136, 136, 0.88);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.upload-card__actions-block {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.upload-card__primary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.upload-card__primary-action {
+  min-width: 0;
+  min-height: 2.3rem;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: none;
 }
 
 :deep(.upload-card .v-card__overlay) {
@@ -3190,6 +3606,13 @@ function formatModeLabel(mode: AppMode) {
   margin: 0;
 }
 
+:deep(.settings-section .admin-text-input) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
 :deep(.settings-section .v-input .v-field),
 :deep(.workspace-panel .v-input .v-field) {
   border-radius: 18px;
@@ -3207,7 +3630,21 @@ function formatModeLabel(mode: AppMode) {
     0 0 0 1px rgba(255, 255, 255, 0.006);
 }
 
+:deep(.settings-section .admin-text-input .v-field) {
+  width: 100%;
+  min-height: 47px;
+  border: 1px solid rgba(154, 186, 217, 0.1);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.018),
+    0 0 0 1px rgba(255, 255, 255, 0.006);
+}
+
 :deep(.settings-section .admin-select .v-field__overlay) {
+  opacity: 0;
+}
+
+:deep(.settings-section .admin-text-input .v-field__overlay) {
   opacity: 0;
 }
 
@@ -3215,10 +3652,22 @@ function formatModeLabel(mode: AppMode) {
   display: none;
 }
 
+:deep(.settings-section .admin-text-input .v-field__outline) {
+  display: none;
+}
+
 :deep(.settings-section .admin-select .v-field__input) {
   min-height: 47px;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+:deep(.settings-section .admin-text-input .v-field__input) {
+  min-height: 47px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  color: rgba(245, 249, 255, 0.96);
+  font-size: 0.92rem;
 }
 
 :deep(.settings-section .admin-select .v-select__selection) {
@@ -3231,7 +3680,18 @@ function formatModeLabel(mode: AppMode) {
   align-self: center;
 }
 
+:deep(.settings-section .admin-text-input .v-field__append-inner) {
+  align-self: center;
+}
+
 :deep(.settings-section .admin-select .v-field--focused) {
+  border-color: rgba(89, 214, 228, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(89, 214, 228, 0.22),
+    0 10px 20px rgba(5, 16, 27, 0.14);
+}
+
+:deep(.settings-section .admin-text-input .v-field--focused) {
   border-color: rgba(89, 214, 228, 0.42);
   box-shadow:
     0 0 0 1px rgba(89, 214, 228, 0.22),
@@ -3292,6 +3752,10 @@ function formatModeLabel(mode: AppMode) {
 
 .settings-slider-row--wide {
   gap: 0.24rem;
+}
+
+.settings-slider-row--spaced {
+  margin-top: 0.32rem;
 }
 
 .settings-slider-row__header {
@@ -3557,6 +4021,15 @@ function formatModeLabel(mode: AppMode) {
 
   .settings-group--spaced {
     margin-bottom: 0.5rem;
+  }
+
+  .upload-card__status-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .upload-card__delete-action {
+    margin-left: -0.1rem;
   }
 
   .video-library-item {

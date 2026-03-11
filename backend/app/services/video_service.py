@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -23,6 +23,7 @@ class VideoService:
         self.video_dir = Path(settings.videos_path)
 
     def ensure_state(self) -> VideoState:
+        self._ensure_schema()
         state = self.db.get(VideoState, 1)
         if state is None:
             state = VideoState(
@@ -31,6 +32,7 @@ class VideoService:
                 loop_enabled=True,
                 playback_order="upload_order",
                 vintage_filter_enabled=False,
+                logo_overlay_enabled=True,
                 object_fit="contain",
                 transition="none",
                 active_video_id=None,
@@ -59,6 +61,7 @@ class VideoService:
         state.loop_enabled = payload.loop_enabled
         state.playback_order = payload.playback_order
         state.vintage_filter_enabled = payload.vintage_filter_enabled
+        state.logo_overlay_enabled = payload.logo_overlay_enabled
         state.object_fit = payload.object_fit
         state.transition = payload.transition
         state.active_video_id = payload.active_video_id
@@ -185,6 +188,21 @@ class VideoService:
         if not path.exists():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
         return path
+
+    def _ensure_schema(self) -> None:
+        bind = self.db.get_bind()
+        if bind is None:
+            return
+        columns = {column["name"] for column in inspect(bind).get_columns(VideoState.__tablename__)}
+        if "logo_overlay_enabled" in columns:
+            return
+        self.db.execute(
+            text(
+                "ALTER TABLE video_state "
+                "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+        )
+        self.db.commit()
 
     def _normalize_active_video(self, state: VideoState, payload_requested: bool = False) -> bool:
         existing_ids = [asset.id for asset in self._list_asset_models()]

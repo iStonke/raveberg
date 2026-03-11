@@ -86,9 +86,7 @@ const wrapperStyle = computed(() => {
     height: `${props.item.layout.height}px`,
     '--polaroid-pad-top': 'clamp(0.46rem, 0.98vw, 0.66rem)',
     '--polaroid-pad-side': 'clamp(0.46rem, 1vw, 0.68rem)',
-    '--polaroid-pad-bottom': 'clamp(2.2rem, 4.8vw, 3.4rem)',
-    '--polaroid-footer-offset': 'clamp(0.86rem, 1.8vw, 1.24rem)',
-    '--polaroid-photo-gap': 'clamp(1.64rem, 3.8vw, 2.42rem)',
+    '--polaroid-caption-height': '72px',
     zIndex: String(2 + props.item.order),
     opacity: isPreEnter.value ? '0' : isExiting.value ? '0' : '1',
     transform: isPreEnter.value ? startTransform : finalTransform,
@@ -159,7 +157,8 @@ const frameClass = computed(() => ({
     <div class="polaroid-frame">
       <div class="polaroid-frame__paper-grain" />
       <div v-if="vintageLookEnabled" class="polaroid-frame__paper-wear" />
-      <div class="polaroid-frame__photo">
+      <div class="polaroid-frame__photo-wrap">
+        <div class="polaroid-frame__photo">
         <img
           class="polaroid-frame__image"
           :src="item.src"
@@ -181,8 +180,11 @@ const frameClass = computed(() => ({
         <div v-if="vintageLookEnabled" class="polaroid-frame__vintage-vignette" />
         <div class="polaroid-frame__develop-bloom" :style="{ opacity: developBloomOpacity.toFixed(3) }" />
         <div class="polaroid-frame__develop-veil" :style="{ opacity: developVeilOpacity.toFixed(3) }" />
+        </div>
       </div>
-      <div class="polaroid-frame__footer" />
+      <div class="polaroid-frame__footer">
+        <span v-if="item.caption" class="polaroid-caption-text">{{ item.caption }}</span>
+      </div>
     </div>
   </article>
 </template>
@@ -201,7 +203,10 @@ const frameClass = computed(() => ({
   position: relative;
   width: 100%;
   height: 100%;
-  padding: var(--polaroid-pad-top) var(--polaroid-pad-side) var(--polaroid-pad-bottom);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: var(--polaroid-pad-top) var(--polaroid-pad-side) 0;
   border-radius: 0;
   background:
     linear-gradient(180deg, rgba(254, 254, 250, 0.995), rgba(244, 242, 236, 0.992)),
@@ -244,10 +249,17 @@ const frameClass = computed(() => ({
   pointer-events: none;
 }
 
+.polaroid-frame__photo-wrap {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: block;
+}
+
 .polaroid-frame__photo {
   position: relative;
   width: 100%;
-  height: calc(100% - var(--polaroid-photo-gap));
+  height: 100%;
   overflow: hidden;
   border-radius: 0;
   background: rgba(230, 228, 220, 0.94);
@@ -432,18 +444,40 @@ const frameClass = computed(() => ({
 }
 
 .polaroid-frame__footer {
-  position: absolute;
-  left: clamp(0.7rem, 1.3vw, 0.95rem);
-  right: clamp(0.7rem, 1.3vw, 0.95rem);
-  bottom: var(--polaroid-footer-offset);
-  height: clamp(0.28rem, 1vw, 0.42rem);
-  border-radius: 0;
-  background: linear-gradient(90deg, rgba(216, 212, 204, 0.32), rgba(255, 255, 255, 0.22));
-  opacity: 0.24;
+  flex: 0 0 var(--polaroid-caption-height);
+  height: var(--polaroid-caption-height);
+  min-height: var(--polaroid-caption-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(244, 242, 236, 0.992);
 }
 
-.polaroid-item--vintage .polaroid-frame__footer {
-  background: linear-gradient(90deg, rgba(157, 127, 92, 0.34), rgba(255, 247, 231, 0.16));
-  opacity: 0.34;
+.polaroid-caption-text {
+  display: inline-block;
+  max-width: calc(100% - 1.25rem);
+  font-family:
+    "Caveat",
+    "Bradley Hand",
+    "Segoe Print",
+    "Noteworthy",
+    "Chalkboard SE",
+    "Trebuchet MS",
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Noto Color Emoji",
+    sans-serif;
+  font-size: clamp(1rem, 2vw, 1.375rem);
+  line-height: 1;
+  text-align: center;
+  color: rgba(72, 58, 44, 0.9);
+  letter-spacing: normal;
+  word-spacing: normal;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-kerning: normal;
+  font-variant-ligatures: none;
+  transform: translateY(-2px);
 }
 </style>

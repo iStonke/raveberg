@@ -21,7 +21,9 @@ class SelfieService:
                 slideshow_enabled=settings.default_slideshow_enabled,
                 slideshow_interval_seconds=settings.default_slideshow_interval_seconds,
                 slideshow_max_visible_photos=settings.default_slideshow_max_visible_photos,
+                slideshow_min_uploads_to_start=settings.default_slideshow_min_uploads_to_start,
                 slideshow_shuffle=settings.default_slideshow_shuffle,
+                logo_overlay_enabled=True,
                 vintage_look_enabled=settings.default_vintage_look_enabled,
                 moderation_mode=settings.default_moderation_mode,
             )
@@ -39,7 +41,9 @@ class SelfieService:
         state.slideshow_enabled = payload.slideshow_enabled
         state.slideshow_interval_seconds = payload.slideshow_interval_seconds
         state.slideshow_max_visible_photos = payload.slideshow_max_visible_photos
+        state.slideshow_min_uploads_to_start = payload.slideshow_min_uploads_to_start
         state.slideshow_shuffle = payload.slideshow_shuffle
+        state.logo_overlay_enabled = payload.logo_overlay_enabled
         state.vintage_look_enabled = payload.vintage_look_enabled
         state.moderation_mode = payload.moderation_mode
         state.slideshow_updated_at = datetime.now(timezone.utc)
@@ -53,12 +57,30 @@ class SelfieService:
         if bind is None:
             return
         columns = {column["name"] for column in inspect(bind).get_columns(SelfieState.__tablename__)}
-        if "vintage_look_enabled" in columns:
-            return
-        self.db.execute(
-            text(
-                "ALTER TABLE selfie_state "
-                "ADD COLUMN vintage_look_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+        changed = False
+        if "vintage_look_enabled" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE selfie_state "
+                    "ADD COLUMN vintage_look_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+                )
             )
-        )
-        self.db.commit()
+            changed = True
+        if "logo_overlay_enabled" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE selfie_state "
+                    "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+            changed = True
+        if "slideshow_min_uploads_to_start" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE selfie_state "
+                    "ADD COLUMN slideshow_min_uploads_to_start INTEGER NOT NULL DEFAULT 3"
+                )
+            )
+            changed = True
+        if changed:
+            self.db.commit()

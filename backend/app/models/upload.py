@@ -14,6 +14,7 @@ class Upload(Base):
     filename_display: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str] = mapped_column(String(128))
     size: Mapped[int] = mapped_column(BigInteger())
+    comment: Mapped[str | None] = mapped_column(String(40), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="uploaded")
     moderation_status: Mapped[str] = mapped_column(String(32), default="pending")
     approved: Mapped[bool] = mapped_column(Boolean, default=False)

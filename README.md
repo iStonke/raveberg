@@ -101,7 +101,17 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `tunnel`, `particles`, `waves`, `kaleidoscope` und `warehouse`.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `tunnel`, `particles`, `waves`, `kaleidoscope`, `warehouse`, `swarm_collision`, `vanta_fog`, `vanta_halo`, `hydra_rave` und `particle_swarm`.
+
+## Open-Source-Visualizer
+
+RAVEBERG bindet externe Visualizer nur innerhalb der bestehenden Visualizer-Runtime ein. Produktiv genutzt werden aktuell:
+
+- `vanta` fuer `vanta_fog` und `vanta_halo`
+- `hydra-synth` fuer `hydra_rave`
+- `tsparticles` und `@tsparticles/engine` fuer `particle_swarm`
+
+Wichtig fuer Entwickler: `hydra-synth` steht unter AGPL-3.0. Die Bibliothek bleibt als Open-Source-Abhaengigkeit sichtbar eingebunden und wird nicht als proprietaere Eigenentwicklung dargestellt.
 
 ## Moderations-Flow
 

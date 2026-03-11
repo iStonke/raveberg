@@ -4,7 +4,18 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-VisualizerPreset = Literal["tunnel", "particles", "waves", "kaleidoscope", "warehouse", "swarm_collision"]
+VisualizerPreset = Literal[
+    "tunnel",
+    "particles",
+    "waves",
+    "kaleidoscope",
+    "warehouse",
+    "swarm_collision",
+    "vanta_fog",
+    "vanta_halo",
+    "hydra_rave",
+    "particle_swarm",
+]
 ColorScheme = Literal["mono", "acid", "ultraviolet", "redline"]
 
 

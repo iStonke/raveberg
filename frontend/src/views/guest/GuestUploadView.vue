@@ -16,6 +16,7 @@ const uploadedPreviewUrl = ref<string | null>(null)
 const pendingPreviewUrl = ref<string | null>(null)
 const pendingFile = ref<File | null>(null)
 const isConfirmDialogOpen = ref(false)
+const commentDraft = ref('')
 const isFlashActive = ref(false)
 
 const guestHeadline = 'Selfie auf den Screen'
@@ -25,6 +26,7 @@ const uploadMetaText = computed(() => `1 Bild zurzeit · Max. ${publicRuntimeSto
 
 const successDetail = 'Dein Bild erscheint gleich auf dem Screen'
 let flashTimeoutId: ReturnType<typeof setTimeout> | null = null
+const commentLimit = 40
 
 onMounted(async () => {
   if (!publicRuntimeStore.isLoaded) {
@@ -66,6 +68,7 @@ async function confirmUpload() {
 
   const file = pendingFile.value
   const previewUrl = pendingPreviewUrl.value
+  const comment = normalizeComment(commentDraft.value)
   pendingFile.value = null
   pendingPreviewUrl.value = null
   isConfirmDialogOpen.value = false
@@ -73,7 +76,7 @@ async function confirmUpload() {
   isUploading.value = true
 
   try {
-    await uploadGuestImage(file, (nextProgress) => {
+    await uploadGuestImage(file, comment, (nextProgress) => {
       progress.value = nextProgress
     })
     uploadedPreviewUrl.value = previewUrl
@@ -116,10 +119,39 @@ function revokePreview() {
 
 function clearPendingSelection() {
   pendingFile.value = null
+  commentDraft.value = ''
   if (pendingPreviewUrl.value) {
     URL.revokeObjectURL(pendingPreviewUrl.value)
     pendingPreviewUrl.value = null
   }
+}
+
+function updateCommentDraft(value: string) {
+  commentDraft.value = normalizeComment(value, { preserveTrailingSpace: true })
+}
+
+function normalizeComment(
+  value: string,
+  options: { preserveTrailingSpace?: boolean } = {},
+) {
+  const hadTrailingWhitespace = /\s$/u.test(value)
+  const singleLine = value.replace(/\s+/gu, ' ')
+  let limited = Array.from(singleLine).slice(0, commentLimit).join('')
+
+  if (
+    options.preserveTrailingSpace &&
+    hadTrailingWhitespace &&
+    !limited.endsWith(' ') &&
+    Array.from(limited).length < commentLimit
+  ) {
+    limited += ' '
+  }
+
+  return options.preserveTrailingSpace ? limited : limited.trim()
+}
+
+function commentCounter(value: string) {
+  return Array.from(value).length
 }
 
 function triggerThumbnailFlash() {
@@ -230,6 +262,18 @@ function humanizeUploadError(error: unknown) {
           <div class="upload-confirm-copy">
             Das ausgewählte Foto wird direkt an den Screen-Upload gesendet.
           </div>
+          <v-text-field
+            :model-value="commentDraft"
+            label="Kommentar hinzufügen (optional)"
+            placeholder="z.B. Beste Nacht! 🎉"
+            variant="solo-filled"
+            :counter="commentLimit"
+            :counter-value="commentCounter"
+            single-line
+            class="upload-confirm-field"
+            @update:model-value="updateCommentDraft"
+            @keydown.enter.prevent
+          />
           <div class="upload-confirm-actions">
             <v-btn
               variant="outlined"
@@ -666,6 +710,28 @@ function humanizeUploadError(error: unknown) {
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(226, 235, 247, 0.74);
+}
+
+.upload-confirm-field {
+  margin-top: 0.95rem;
+}
+
+.upload-confirm-field :deep(.v-field) {
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.upload-confirm-field :deep(.v-field__input),
+.upload-confirm-field :deep(.v-label),
+.upload-confirm-field :deep(.v-field__prepend-inner) {
+  color: rgba(241, 246, 255, 0.86);
+}
+
+.upload-confirm-field :deep(.v-counter) {
+  color: rgba(226, 235, 247, 0.58);
 }
 
 .upload-confirm-actions {

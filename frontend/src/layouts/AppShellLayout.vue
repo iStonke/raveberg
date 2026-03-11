@@ -202,6 +202,12 @@ async function logout() {
   transform: scale(0.985);
 }
 
+.utility-bar :deep(.v-btn__overlay),
+.utility-bar :deep(.v-ripple__container) {
+  display: none !important;
+  opacity: 0 !important;
+}
+
 .admin-nav-strip {
   position: fixed;
   top: 44px;

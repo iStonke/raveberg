@@ -79,8 +79,11 @@ async function syncPlaybackState() {
 
   if (props.settings.playlist_enabled) {
     const nextQueue = buildQueue()
+    const queueChanged = !sameQueue(queueIds.value, nextQueue)
     const preferredId =
-      currentAssetId.value && nextQueue.includes(currentAssetId.value)
+      props.settings.playback_order === 'upload_order' && queueChanged
+        ? nextQueue[0]
+        : currentAssetId.value && nextQueue.includes(currentAssetId.value)
         ? currentAssetId.value
         : props.settings.active_video_id && nextQueue.includes(props.settings.active_video_id)
           ? props.settings.active_video_id
@@ -229,6 +232,13 @@ function shuffle(values: number[]) {
     ;[copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]]
   }
   return copy
+}
+
+function sameQueue(left: number[], right: number[]) {
+  if (left.length !== right.length) {
+    return false
+  }
+  return left.every((value, index) => value === right[index])
 }
 </script>
 

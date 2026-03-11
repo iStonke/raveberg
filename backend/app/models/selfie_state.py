@@ -13,7 +13,9 @@ class SelfieState(Base):
     slideshow_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     slideshow_interval_seconds: Mapped[int] = mapped_column(Integer, default=6)
     slideshow_max_visible_photos: Mapped[int] = mapped_column(Integer, default=4)
+    slideshow_min_uploads_to_start: Mapped[int] = mapped_column(Integer, default=3)
     slideshow_shuffle: Mapped[bool] = mapped_column(Boolean, default=True)
+    logo_overlay_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     vintage_look_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     moderation_mode: Mapped[str] = mapped_column(String(32), default="auto_approve")
     slideshow_updated_at: Mapped[datetime] = mapped_column(

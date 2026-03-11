@@ -15,6 +15,7 @@ const props = defineProps<{
     slideshow_enabled: boolean
     slideshow_interval_seconds: number
     slideshow_max_visible_photos: number
+    slideshow_min_uploads_to_start: number
     slideshow_shuffle: boolean
     vintage_look_enabled: boolean
     moderation_mode: ModerationMode
@@ -31,7 +32,9 @@ const manualAdvanceToken = ref(0)
 const isPaused = computed(() => !props.settings.slideshow_enabled)
 const eligibleUploadCount = computed(() => uploads.value.filter((upload) => Boolean(upload.display_url)).length)
 const shouldShowStandby = computed(
-  () => props.settings.slideshow_enabled && eligibleUploadCount.value < 3,
+  () =>
+    props.settings.slideshow_enabled &&
+    eligibleUploadCount.value < props.settings.slideshow_min_uploads_to_start,
 )
 
 onMounted(async () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
 
 import type { SelfiePlaybackEvent } from '../../services/api'
 import { sendDisplayHeartbeat } from '../../services/api'
@@ -7,6 +7,7 @@ import DisplayOverlay from '../../components/display/DisplayOverlay.vue'
 import { useAppModeStore } from '../../stores/appMode'
 import { usePublicRuntimeStore } from '../../stores/publicRuntime'
 import { useSelfieStore } from '../../stores/selfie'
+import { useStandbyStore } from '../../stores/standby'
 import { useVideoStore } from '../../stores/video'
 import { useVisualizerStore } from '../../stores/visualizer'
 import BlackoutRenderer from '../../components/display/BlackoutRenderer.vue'
@@ -19,6 +20,7 @@ import VisualizerRenderer from '../../components/display/VisualizerRenderer.vue'
 const appModeStore = useAppModeStore()
 const publicRuntimeStore = usePublicRuntimeStore()
 const selfieStore = useSelfieStore()
+const standbyStore = useStandbyStore()
 const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
 const uploadRefreshToken = ref(0)
@@ -29,6 +31,7 @@ const hasInitialState = ref(false)
 const connectionState = ref<'connecting' | 'connected' | 'reconnecting'>('connecting')
 const reconnectAttempt = ref(0)
 const lastStateSyncAt = ref<string | null>(null)
+const rendererCrashMessage = ref('')
 
 let eventSource: EventSource | null = null
 let reconnectTimer: number | undefined
@@ -49,6 +52,13 @@ const activeRenderer = computed(() => {
   return VisualizerRenderer
 })
 
+const activeRendererKey = computed(() => {
+  if (!hasInitialState.value) {
+    return 'standby:boot'
+  }
+  return `mode:${appModeStore.mode}`
+})
+
 const rendererProps = computed(() => {
   if (!hasInitialState.value) {
     return {}
@@ -64,6 +74,7 @@ const rendererProps = computed(() => {
         slideshow_enabled: selfieStore.slideshowEnabled,
         slideshow_interval_seconds: selfieStore.slideshowIntervalSeconds,
         slideshow_max_visible_photos: selfieStore.slideshowMaxVisiblePhotos,
+        slideshow_min_uploads_to_start: selfieStore.slideshowMinUploadsToStart,
         slideshow_shuffle: selfieStore.slideshowShuffle,
         vintage_look_enabled: selfieStore.vintageLookEnabled,
         moderation_mode: selfieStore.moderationMode,
@@ -107,6 +118,9 @@ const rendererProps = computed(() => {
   if (appModeStore.mode === 'idle') {
     return {
       reactionToken: idleReactionToken.value,
+      headline: standbyStore.headline,
+      subheadline: standbyStore.subheadline,
+      hueShiftDegrees: standbyStore.hueShiftDegrees,
     }
   }
 
@@ -114,11 +128,25 @@ const rendererProps = computed(() => {
 })
 
 const showDisplayOverlay = computed(
-  () =>
-    publicRuntimeStore.displayOverlayEnabled &&
-    hasInitialState.value &&
-    appModeStore.mode === 'visualizer' &&
-    visualizerStore.logoOverlayEnabled,
+  () => {
+    if (
+      !publicRuntimeStore.displayOverlayEnabled ||
+      !hasInitialState.value ||
+      rendererCrashMessage.value
+    ) {
+      return false
+    }
+    if (appModeStore.mode === 'visualizer') {
+      return visualizerStore.logoOverlayEnabled
+    }
+    if (appModeStore.mode === 'selfie') {
+      return selfieStore.logoOverlayEnabled
+    }
+    if (appModeStore.mode === 'video') {
+      return videoStore.logoOverlayEnabled
+    }
+    return false
+  },
 )
 
 const connectionMessage = computed(() => {
@@ -152,11 +180,25 @@ onBeforeUnmount(() => {
   }
 })
 
+watch(
+  () => appModeStore.mode,
+  () => {
+    rendererCrashMessage.value = ''
+  },
+)
+
+onErrorCaptured((error) => {
+  rendererCrashMessage.value =
+    error instanceof Error ? error.message : 'Display-Renderer konnte nicht gestartet werden'
+  return false
+})
+
 async function loadInitialState() {
   try {
     await Promise.all([
       appModeStore.refresh(),
       selfieStore.refresh(),
+      standbyStore.refresh(),
       videoStore.refreshState(),
       videoStore.refreshPublicLibrary(),
       visualizerStore.refresh(),
@@ -211,6 +253,19 @@ function connectEvents() {
     const payload = parseEventPayload(event)
     if (!payload) return
     selfieStore.applyState(payload)
+    markStateSync()
+  })
+  source.addEventListener('standby_snapshot', (event) => {
+    hasInitialState.value = true
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    standbyStore.applyState(payload)
+    markStateSync()
+  })
+  source.addEventListener('standby_settings_updated', (event) => {
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    standbyStore.applyState(payload)
     markStateSync()
   })
   source.addEventListener('selfie_settings_updated', (event) => {
@@ -375,10 +430,25 @@ async function postHeartbeat(isConnected: boolean) {
 
 <template>
   <div class="display-surface">
-    <component :is="activeRenderer" v-bind="rendererProps" />
-    <DisplayOverlay
-      v-if="showDisplayOverlay"
-    />
+    <div v-if="rendererCrashMessage" class="display-safe-fallback">
+      <div class="display-safe-panel">
+        <div class="display-safe-title">RAVEBERG</div>
+        <div class="display-safe-copy">Display wird stabilisiert.</div>
+      </div>
+    </div>
+    <div v-else class="display-renderer-stage">
+      <Transition name="display-renderer">
+        <component
+          :is="activeRenderer"
+          :key="activeRendererKey"
+          v-bind="rendererProps"
+          class="display-renderer-layer"
+        />
+      </Transition>
+    </div>
+    <Transition name="display-overlay-fade">
+      <DisplayOverlay v-if="showDisplayOverlay" />
+    </Transition>
     <div v-if="connectionState !== 'connected'" class="display-connection">
       {{ connectionMessage }}
     </div>
@@ -395,6 +465,75 @@ async function postHeartbeat(isConnected: boolean) {
   background: #020304;
 }
 
+.display-renderer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.display-renderer-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.display-renderer-enter-active,
+.display-renderer-leave-active {
+  transition:
+    opacity 460ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 560ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+
+.display-renderer-enter-from,
+.display-renderer-leave-to {
+  opacity: 0;
+  transform: scale(1.018);
+  filter: blur(16px) saturate(1.06) brightness(1.03);
+}
+
+.display-renderer-enter-to,
+.display-renderer-leave-from {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0) saturate(1);
+}
+
+.display-safe-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(52, 128, 194, 0.16), transparent 32%),
+    linear-gradient(180deg, #060b12 0%, #030507 100%);
+}
+
+.display-safe-panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1.5rem 1.8rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 16, 24, 0.52);
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  backdrop-filter: blur(18px);
+}
+
+.display-safe-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.display-safe-copy {
+  font-size: 0.98rem;
+  color: rgba(226, 235, 245, 0.74);
+}
+
 .display-connection {
   position: fixed;
   right: 1rem;
@@ -406,5 +545,28 @@ async function postHeartbeat(isConnected: boolean) {
   font-size: 0.78rem;
   letter-spacing: 0.02em;
   backdrop-filter: blur(10px);
+}
+
+.display-overlay-fade-enter-active,
+.display-overlay-fade-leave-active {
+  transition:
+    opacity 320ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+
+.display-overlay-fade-enter-from,
+.display-overlay-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  filter: blur(10px);
+}
+
+.display-overlay-fade-enter-to,
+.display-overlay-fade-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 </style>

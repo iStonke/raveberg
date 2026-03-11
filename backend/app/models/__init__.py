@@ -3,6 +3,7 @@ from app.models.admin_user import AdminUser
 from app.models.app_state import AppState
 from app.models.display_status import DisplayStatus
 from app.models.selfie_state import SelfieState
+from app.models.standby_state import StandbyState
 from app.models.setting import Setting
 from app.models.upload import Upload
 from app.models.video_asset import VideoAsset
@@ -15,6 +16,7 @@ __all__ = [
     "AppState",
     "DisplayStatus",
     "SelfieState",
+    "StandbyState",
     "Setting",
     "Upload",
     "VideoAsset",

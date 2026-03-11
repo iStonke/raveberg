@@ -8,6 +8,7 @@ from app.schemas.display import DisplayStatusRead
 from app.schemas.mode import ModeRead
 from app.schemas.runtime import CleanupCompletedEvent, RateLimitTriggeredEvent, SelfiePlaybackEvent
 from app.schemas.selfie import SelfieStateRead
+from app.schemas.standby import StandbyStateRead
 from app.schemas.upload import UploadDeletedEvent, UploadEvent
 from app.schemas.video import VideoAssetRead, VideoStateRead
 from app.schemas.visualizer import VisualizerStateRead
@@ -60,6 +61,9 @@ class EventService:
 
     async def publish_selfie_settings(self, payload: SelfieStateRead) -> None:
         await self.publish("selfie_settings_updated", payload.model_dump(mode="json"))
+
+    async def publish_standby_settings(self, payload: StandbyStateRead) -> None:
+        await self.publish("standby_settings_updated", payload.model_dump(mode="json"))
 
     async def publish_selfie_playback(self, payload: SelfiePlaybackEvent) -> None:
         await self.publish("selfie_playback_updated", payload.model_dump(mode="json"))

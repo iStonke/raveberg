@@ -14,6 +14,7 @@ class UploadRead(BaseModel):
     filename_display: str | None
     mime_type: str
     size: int
+    comment: str | None
     created_at: datetime
     status: UploadStatus
     moderation_status: UploadModerationStatus
@@ -24,6 +25,7 @@ class UploadRead(BaseModel):
 
 class UploadEvent(BaseModel):
     id: int
+    comment: str | None
     status: UploadStatus
     moderation_status: UploadModerationStatus
     approved: bool

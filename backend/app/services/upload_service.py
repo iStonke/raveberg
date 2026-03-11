@@ -38,12 +38,18 @@ class UploadService:
         self.original_dir = Path(settings.uploads_original_path)
         self.display_dir = Path(settings.uploads_display_path)
 
-    async def create_upload(self, file: UploadFile) -> tuple[UploadRead, UploadEvent, CleanupCompletedEvent | None]:
+    async def create_upload(
+        self,
+        file: UploadFile,
+        *,
+        comment: str | None = None,
+    ) -> tuple[UploadRead, UploadEvent, CleanupCompletedEvent | None]:
         filename = file.filename or "upload"
         extension = Path(filename).suffix.lower()
         mime_type = (file.content_type or "").lower()
         payload = await file.read()
         await file.close()
+        normalized_comment = self._normalize_comment(comment)
 
         self._validate_basic(filename, extension, mime_type, payload)
         moderation_mode = SelfieService(self.db).ensure_state().moderation_mode
@@ -57,6 +63,7 @@ class UploadService:
             filename_display=None,
             mime_type=mime_type,
             size=len(payload),
+            comment=normalized_comment,
             status="uploaded",
             moderation_status="pending",
             approved=False,
@@ -269,6 +276,20 @@ class UploadService:
         if len(payload) > settings.upload_max_bytes:
             raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
 
+    def _normalize_comment(self, comment: str | None) -> str | None:
+        if comment is None:
+            return None
+
+        normalized = " ".join(comment.replace("\r", " ").replace("\n", " ").split()).strip()
+        if not normalized:
+            return None
+        if len(normalized) > 40:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Comment too long",
+            )
+        return normalized
+
     def _build_original_name(self, filename: str, extension: str) -> str:
         safe_stem = Path(filename).stem.lower().replace(" ", "-")
         safe_stem = "".join(ch for ch in safe_stem if ch.isalnum() or ch in {"-", "_"})
@@ -336,6 +357,7 @@ class UploadService:
             filename_display=upload.filename_display,
             mime_type=upload.mime_type,
             size=upload.size,
+            comment=upload.comment,
             created_at=upload.created_at,
             status=upload.status,
             moderation_status=upload.moderation_status,
@@ -348,6 +370,7 @@ class UploadService:
     def _to_event(upload: Upload) -> UploadEvent:
         return UploadEvent(
             id=upload.id,
+            comment=upload.comment,
             status=upload.status,
             moderation_status=upload.moderation_status,
             approved=upload.approved,

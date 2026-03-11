@@ -131,6 +131,7 @@ export interface UploadItem {
   filename_display: string | null
   mime_type: string
   size: number
+  comment: string | null
   created_at: string
   status: 'uploaded' | 'processed' | 'error'
   moderation_status: UploadModerationStatus
@@ -143,10 +144,19 @@ export interface SelfieState {
   slideshow_enabled: boolean
   slideshow_interval_seconds: number
   slideshow_max_visible_photos: number
+  slideshow_min_uploads_to_start: number
   slideshow_shuffle: boolean
+  logo_overlay_enabled: boolean
   vintage_look_enabled: boolean
   moderation_mode: ModerationMode
   slideshow_updated_at: string | null
+}
+
+export interface StandbyState {
+  headline: string
+  subheadline: string
+  hue_shift_degrees: number
+  updated_at: string | null
 }
 
 export interface VideoAsset {
@@ -164,6 +174,7 @@ export interface VideoState {
   loop_enabled: boolean
   playback_order: VideoPlaybackOrder
   vintage_filter_enabled: boolean
+  logo_overlay_enabled: boolean
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
@@ -177,6 +188,10 @@ export type VisualizerPreset =
   | 'kaleidoscope'
   | 'warehouse'
   | 'swarm_collision'
+  | 'vanta_fog'
+  | 'vanta_halo'
+  | 'hydra_rave'
+  | 'particle_swarm'
 export type ColorScheme = 'mono' | 'acid' | 'ultraviolet' | 'redline'
 
 export interface VisualizerState {
@@ -417,11 +432,18 @@ export function deleteUpload(uploadId: number, token: string) {
   })
 }
 
-export function uploadGuestImage(file: File, onProgress?: (progress: number) => void) {
+export function uploadGuestImage(
+  file: File,
+  comment?: string | null,
+  onProgress?: (progress: number) => void,
+) {
   return new Promise<UploadItem>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const formData = new FormData()
     formData.append('file', file)
+    if (comment && comment.trim()) {
+      formData.append('comment', comment.trim())
+    }
 
     xhr.open('POST', '/api/uploads')
     xhr.responseType = 'text'
@@ -458,6 +480,10 @@ export function fetchSelfieState() {
   return request<SelfieState>('/api/selfie')
 }
 
+export function fetchStandbyState() {
+  return request<StandbyState>('/api/standby')
+}
+
 export function fetchVideoState() {
   return request<VideoState>('/api/video')
 }
@@ -480,6 +506,14 @@ export function fetchVisualizerOptions() {
 
 export function updateSelfieState(payload: Omit<SelfieState, 'slideshow_updated_at'>, token: string) {
   return request<SelfieState>('/api/selfie', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateStandbyState(payload: Omit<StandbyState, 'updated_at'>, token: string) {
+  return request<StandbyState>('/api/standby', {
     method: 'PUT',
     headers: withAuth(token),
     body: JSON.stringify(payload),

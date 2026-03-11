@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, withDefaults } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
-import type { VisualizerState } from '../../services/api'
+import type { VisualizerPreset, VisualizerState } from '../../services/api'
 import ClassicVisualizerCanvas from './ClassicVisualizerCanvas.vue'
+import ExternalVisualizerHost from './ExternalVisualizerHost.vue'
 import SwarmCollisionVisualizer from './SwarmCollisionVisualizer.vue'
+import { isExternalVisualizerPreset } from './visualizer/runtime'
 
 const props = withDefaults(
   defineProps<{
@@ -16,14 +18,23 @@ const props = withDefaults(
 )
 
 const transitionOpacity = ref(0)
+const runtimeError = ref('')
 
 let fadeFrameId = 0
 
 const isSwarmCollision = computed(() => props.visualizer.active_preset === 'swarm_collision')
+const isExternalPreset = computed(
+  () => isExternalVisualizerPreset(props.visualizer.active_preset) && !runtimeError.value,
+)
+const fallbackVisualizer = computed<VisualizerState>(() => ({
+  ...props.visualizer,
+  active_preset: 'warehouse' as VisualizerPreset,
+}))
 
 watch(
   () => props.visualizer.active_preset,
   (nextPreset, previousPreset) => {
+    runtimeError.value = ''
     if (previousPreset && nextPreset !== previousPreset) {
       startFade()
     }
@@ -46,6 +57,11 @@ function stepFade() {
     fadeFrameId = window.requestAnimationFrame(stepFade)
   }
 }
+
+function handleRuntimeError(message: string) {
+  runtimeError.value = message
+  startFade()
+}
 </script>
 
 <template>
@@ -55,9 +71,16 @@ function stepFade() {
       :visualizer="props.visualizer"
       :event-token="props.eventToken"
     />
+    <ExternalVisualizerHost
+      v-else-if="isExternalPreset"
+      :key="props.visualizer.active_preset"
+      :visualizer="props.visualizer"
+      :event-token="props.eventToken"
+      @runtime-error="handleRuntimeError"
+    />
     <ClassicVisualizerCanvas
       v-else
-      :visualizer="props.visualizer"
+      :visualizer="runtimeError ? fallbackVisualizer : props.visualizer"
     />
     <div
       v-if="transitionOpacity > 0.001"

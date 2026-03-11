@@ -28,7 +28,7 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
   const memoryTotalBytes = ref<number | null>(null)
   const memoryPercent = ref<number | null>(null)
   const cpuTemperatureCelsius = ref<number | null>(null)
-  const videoUploadMaxBytes = ref(120 * 1024 * 1024)
+  const videoUploadMaxBytes = ref(500 * 1024 * 1024)
   const storage = ref({
     app_data_path: '',
     uploads_path: '',

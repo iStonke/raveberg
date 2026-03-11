@@ -14,6 +14,7 @@ class VideoStateRead(BaseModel):
     loop_enabled: bool
     playback_order: VideoPlaybackOrder
     vintage_filter_enabled: bool
+    logo_overlay_enabled: bool
     object_fit: VideoObjectFit
     transition: VideoTransition
     active_video_id: int | None
@@ -25,6 +26,7 @@ class VideoStateUpdate(BaseModel):
     loop_enabled: bool
     playback_order: VideoPlaybackOrder
     vintage_filter_enabled: bool
+    logo_overlay_enabled: bool
     object_fit: VideoObjectFit
     transition: VideoTransition
     active_video_id: int | None = None

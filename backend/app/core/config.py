@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     default_admin_password: str = Field(default="admin123", alias="DEFAULT_ADMIN_PASSWORD")
     session_ttl_hours: int = Field(default=24, alias="SESSION_TTL_HOURS")
     upload_max_bytes: int = Field(default=15 * 1024 * 1024, alias="UPLOAD_MAX_BYTES")
-    video_upload_max_bytes: int = Field(default=120 * 1024 * 1024, alias="VIDEO_UPLOAD_MAX_BYTES")
+    video_upload_max_bytes: int = Field(default=500 * 1024 * 1024, alias="VIDEO_UPLOAD_MAX_BYTES")
     appliance_mode: bool = Field(default=False, alias="APPLIANCE_MODE")
     public_base_url: str = Field(default="http://localhost:8085", alias="PUBLIC_BASE_URL")
     guest_upload_path: str = Field(default="/guest/upload", alias="GUEST_UPLOAD_PATH")
@@ -55,6 +55,12 @@ class Settings(BaseSettings):
         alias="DEFAULT_SLIDESHOW_MAX_VISIBLE_PHOTOS",
         ge=1,
         le=10,
+    )
+    default_slideshow_min_uploads_to_start: int = Field(
+        default=3,
+        alias="DEFAULT_SLIDESHOW_MIN_UPLOADS_TO_START",
+        ge=1,
+        le=50,
     )
     default_slideshow_shuffle: bool = Field(default=True, alias="DEFAULT_SLIDESHOW_SHUFFLE")
     default_vintage_look_enabled: bool = Field(default=False, alias="DEFAULT_VINTAGE_LOOK_ENABLED")

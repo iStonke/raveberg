@@ -414,6 +414,7 @@ function createActiveItem(upload: UploadItem & { display_url: string }, prepared
     uploadId: upload.id,
     src: upload.display_url,
     alt: upload.filename_original,
+    caption: upload.comment,
     enteredAt: preparedAt,
     entryActivatedAt: null,
     timings: timings.value,

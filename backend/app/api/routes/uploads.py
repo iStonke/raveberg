@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ router = APIRouter()
 async def create_upload(
     request: Request,
     file: UploadFile = File(...),
+    comment: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> UploadRead:
     client_ip = _client_ip_from_request(request)
@@ -27,7 +28,7 @@ async def create_upload(
         client_ip,
         publish_callback=lambda event: asyncio.create_task(event_service.publish_rate_limit_triggered(event)),
     )
-    upload, upload_event, cleanup_event = await upload_service.create_upload(file)
+    upload, upload_event, cleanup_event = await upload_service.create_upload(file, comment=comment)
     await event_service.publish_upload(upload_event)
     if cleanup_event is not None:
         for removed_id in cleanup_event.removed_ids:

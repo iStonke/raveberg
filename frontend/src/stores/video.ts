@@ -14,6 +14,7 @@ export const useVideoStore = defineStore('video', () => {
   const loopEnabled = ref(true)
   const playbackOrder = ref<VideoState['playback_order']>('upload_order')
   const vintageFilterEnabled = ref(false)
+  const logoOverlayEnabled = ref(true)
   const objectFit = ref<VideoState['object_fit']>('contain')
   const transition = ref<VideoState['transition']>('none')
   const activeVideoId = ref<number | null>(null)
@@ -46,6 +47,7 @@ export const useVideoStore = defineStore('video', () => {
     loopEnabled.value = state.loop_enabled
     playbackOrder.value = state.playback_order
     vintageFilterEnabled.value = state.vintage_filter_enabled
+    logoOverlayEnabled.value = state.logo_overlay_enabled
     objectFit.value = state.object_fit
     transition.value = state.transition
     activeVideoId.value = state.active_video_id
@@ -61,6 +63,7 @@ export const useVideoStore = defineStore('video', () => {
     loopEnabled,
     playbackOrder,
     vintageFilterEnabled,
+    logoOverlayEnabled,
     objectFit,
     transition,
     activeVideoId,
