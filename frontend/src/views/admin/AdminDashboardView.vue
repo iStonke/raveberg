@@ -29,6 +29,7 @@ import {
 } from '../../services/api'
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
 import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
+import { useAdminUploadsBadgeStore } from '../../stores/adminUploadsBadge'
 import { useAppModeStore } from '../../stores/appMode'
 import { useAuthStore } from '../../stores/auth'
 import { usePublicRuntimeStore } from '../../stores/publicRuntime'
@@ -40,6 +41,7 @@ import { useVisualizerStore } from '../../stores/visualizer'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const adminUploadsBadgeStore = useAdminUploadsBadgeStore()
 const appModeStore = useAppModeStore()
 const publicRuntimeStore = usePublicRuntimeStore()
 const selfieStore = useSelfieStore()
@@ -94,6 +96,7 @@ const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
 const isGuestQrDialogOpen = ref(false)
 const guestQrCopyMessage = ref('')
+const sessionNewUploadIds = ref<number[]>([])
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -105,7 +108,7 @@ const visualizerDraft = reactive<{
   auto_cycle_enabled: boolean
   auto_cycle_interval_seconds: number
 }>({
-  active_preset: 'tunnel',
+  active_preset: 'warehouse',
   intensity: 65,
   speed: 55,
   brightness: 70,
@@ -184,9 +187,7 @@ const videoFitItems = [
 ] as const
 
 const visualizerPresetLabels: Record<VisualizerPreset, string> = {
-  tunnel: 'Tunnel',
   particles: 'Particles',
-  waves: 'Waves',
   kaleidoscope: 'Kaleidoscope',
   warehouse: 'Warehouse',
   swarm_collision: 'Swarm Collision',
@@ -206,21 +207,10 @@ const slideshowRunningLabel = computed(() =>
 )
 
 const displayUploads = computed(() =>
-  [...uploads.value].sort((left, right) => {
-    const rank = (upload: UploadItem) => {
-      if (upload.status !== 'processed') return 3
-      if (upload.moderation_status === 'pending') return 0
-      if (upload.moderation_status === 'rejected') return 1
-      return 2
-    }
-
-    const rankDiff = rank(left) - rank(right)
-    if (rankDiff !== 0) {
-      return rankDiff
-    }
-
-    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-  }),
+  [...uploads.value].sort(
+    (left, right) =>
+      new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+  ),
 )
 
 const pendingCount = computed(
@@ -554,7 +544,7 @@ const visualizerTelemetryLabel = computed(
 const visualizerPresetItems = computed(() => {
   const presets: VisualizerPreset[] = visualizerStore.presets.length
     ? [...visualizerStore.presets]
-    : ['tunnel', 'particles', 'waves', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
+    : ['particles', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
 
   return presets.map((preset) => ({
     title: visualizerPresetLabels[preset] ?? preset,
@@ -692,6 +682,21 @@ watch(
       scheduleVisualizerPersist()
     }
   },
+)
+
+watch(
+  activeWorkspaceSection,
+  (section) => {
+    if (section === 'uploads') {
+      const unseenIds = adminUploadsBadgeStore.consumeUnseenUploadIds()
+      if (unseenIds.length) {
+        sessionNewUploadIds.value = Array.from(new Set([...unseenIds, ...sessionNewUploadIds.value]))
+      }
+      return
+    }
+    sessionNewUploadIds.value = []
+  },
+  { immediate: true },
 )
 
 watch(
@@ -1137,7 +1142,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['tunnel', 'particles', 'waves', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
+      : ['particles', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]
@@ -1592,11 +1597,36 @@ function connectLiveEvents() {
     await refreshSystemOnly()
   })
 
+  source.addEventListener('upload_created', (event) => {
+    pushRecentEvent('upload_created')
+    const payload = parseEventPayload(event) as { id?: unknown } | null
+    const uploadId = typeof payload?.id === 'number' ? payload.id : null
+    if (activeWorkspaceSection.value !== 'uploads') {
+      if (uploadId != null) {
+        adminUploadsBadgeStore.markNewUpload(uploadId)
+      }
+    } else {
+      if (uploadId != null && !sessionNewUploadIds.value.includes(uploadId)) {
+        sessionNewUploadIds.value = [uploadId, ...sessionNewUploadIds.value]
+      }
+    }
+    void refreshOperationalState()
+  })
+
+  source.addEventListener('upload_deleted', (event) => {
+    pushRecentEvent('upload_deleted')
+    const payload = parseEventPayload(event) as { id?: unknown } | null
+    const uploadId = typeof payload?.id === 'number' ? payload.id : null
+    if (uploadId != null) {
+      adminUploadsBadgeStore.removeUpload(uploadId)
+      sessionNewUploadIds.value = sessionNewUploadIds.value.filter((id) => id !== uploadId)
+    }
+    void refreshOperationalState()
+  })
+
   for (const eventName of [
-    'upload_created',
     'upload_approved',
     'upload_rejected',
-    'upload_deleted',
     'cleanup_completed',
     'rate_limit_triggered',
     'heartbeat_updated',
@@ -1620,6 +1650,10 @@ function scheduleReconnect() {
     reconnectTimer.value = undefined
     connectLiveEvents()
   }, delay)
+}
+
+function isNewUpload(upload: UploadItem) {
+  return sessionNewUploadIds.value.includes(upload.id)
 }
 
 function closeEventSource() {
@@ -2515,10 +2549,18 @@ function overlayModeLabel(mode: OverlayMode) {
             {{ uploadError }}
           </v-alert>
 
-          <v-row v-if="filteredUploadGallery.length">
+          <TransitionGroup
+            v-if="filteredUploadGallery.length"
+            name="upload-card-list"
+            tag="div"
+            class="v-row upload-gallery-grid"
+          >
             <v-col v-for="upload in filteredUploadGallery" :key="upload.id" cols="12" sm="6" md="4" xl="3">
               <v-card class="upload-card" variant="flat">
                 <div class="upload-card__media">
+                  <div v-if="isNewUpload(upload)" class="upload-card__new-badge">
+                    Neu
+                  </div>
                   <div
                     v-if="upload.moderation_status === 'approved' && upload.status === 'processed'"
                     class="upload-card__stamp upload-card__stamp--approved"
@@ -2531,30 +2573,31 @@ function overlayModeLabel(mode: OverlayMode) {
                   >
                     Abgelehnt
                   </div>
-                  <v-img
-                    v-if="thumbnailUrls[upload.id]"
-                    class="upload-preview"
-                    :src="thumbnailUrls[upload.id]"
-                    height="220"
-                    cover
-                  />
-                  <v-sheet
-                    v-else
-                    height="220"
-                    class="upload-card__fallback"
-                  >
-                    <div class="upload-card__fallback-inner">
-                      <v-icon icon="mdi-image-outline" size="34" />
-                      <span>{{ upload.status === 'processed' ? 'Preview wird geladen' : 'Kein Preview' }}</span>
-                    </div>
-                  </v-sheet>
+                  <div class="upload-card__image-wrapper">
+                    <v-img
+                      v-if="thumbnailUrls[upload.id]"
+                      class="upload-preview"
+                      :src="thumbnailUrls[upload.id]"
+                      height="220"
+                      cover
+                    />
+                    <v-sheet
+                      v-else
+                      height="220"
+                      class="upload-card__fallback"
+                    >
+                      <div class="upload-card__fallback-inner">
+                        <v-icon icon="mdi-image-outline" size="34" />
+                        <span>{{ upload.status === 'processed' ? 'Preview wird geladen' : 'Kein Preview' }}</span>
+                      </div>
+                    </v-sheet>
+                  </div>
                 </div>
                 <div class="upload-card__body">
                   <div class="upload-card__meta-top">
                     <div class="upload-card__timestamp">{{ formatCompactDate(upload.created_at) }}</div>
                     <v-btn
                       size="small"
-                      color="error"
                       variant="text"
                       class="upload-card__delete-action"
                       prepend-icon="mdi-trash-can-outline"
@@ -2613,7 +2656,7 @@ function overlayModeLabel(mode: OverlayMode) {
                 </div>
               </v-card>
             </v-col>
-          </v-row>
+          </TransitionGroup>
 
           <div v-else class="upload-empty-state">
             <div class="upload-empty-state__icon-shell" aria-hidden="true">
@@ -3592,8 +3635,36 @@ function overlayModeLabel(mode: OverlayMode) {
 .upload-card__media {
   position: relative;
   overflow: hidden;
-  border-radius: 18px 18px 0 0;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  border-radius: 17px 17px 0 0;
+  isolation: isolate;
+}
+
+.upload-card__image-wrapper {
+  border-radius: inherit;
+  overflow: hidden;
+  background: rgba(10, 18, 28, 0.96);
+}
+
+.upload-card__new-badge {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  padding: 0.18rem 0.52rem;
+  border-radius: 999px;
+  background: rgba(255, 92, 92, 0.96);
+  color: #fff7f7;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 10px 20px rgba(65, 10, 10, 0.28);
 }
 
 .upload-card__stamp {
@@ -3798,7 +3869,7 @@ function overlayModeLabel(mode: OverlayMode) {
 .upload-card__delete-action {
   min-height: 1.6rem;
   padding-inline: 0.1rem;
-  color: #ff6b6b;
+  color: rgba(221, 231, 242, 0.64);
   font-size: 0.76rem;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -3807,7 +3878,7 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .upload-card__delete-action:hover {
-  color: #ff8787;
+  color: #ff6b6b;
 }
 
 .upload-card__actions-block {
@@ -3849,6 +3920,15 @@ function overlayModeLabel(mode: OverlayMode) {
   filter: none !important;
 }
 
+:deep(.upload-preview),
+:deep(.upload-preview .v-responsive),
+:deep(.upload-preview .v-responsive__content),
+:deep(.upload-preview .v-img__img),
+:deep(.upload-preview .v-img__picture),
+:deep(.upload-preview .v-img__gradient) {
+  border-radius: inherit;
+}
+
 :deep(.upload-preview .v-responsive__content) {
   position: relative;
   z-index: 1;
@@ -3877,6 +3957,24 @@ function overlayModeLabel(mode: OverlayMode) {
     0 12px 32px rgba(0, 0, 0, 0.52),
     inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
   border-color: rgba(120, 200, 255, 0.17);
+}
+
+.upload-card-list-move,
+.upload-card-list-enter-active,
+.upload-card-list-leave-active {
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+.upload-card-list-enter-from,
+.upload-card-list-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+}
+
+.upload-card-list-leave-active {
+  pointer-events: none;
 }
 
 @keyframes uploadStampIn {

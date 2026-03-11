@@ -101,7 +101,7 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `tunnel`, `particles`, `waves`, `kaleidoscope`, `warehouse`, `swarm_collision`, `vanta_fog`, `vanta_halo`, `hydra_rave` und `particle_swarm`.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `swarm_collision`, `vanta_fog`, `vanta_halo`, `hydra_rave` und `particle_swarm`.
 
 ## Open-Source-Visualizer
 

@@ -26,7 +26,7 @@ def upgrade() -> None:
     op.execute(
         """
         INSERT INTO visualizer_state (id, active_preset, intensity, speed, brightness, color_scheme, updated_at)
-        VALUES (1, 'tunnel', 65, 55, 70, 'acid', now())
+        VALUES (1, 'warehouse', 65, 55, 70, 'acid', now())
         """
     )
 

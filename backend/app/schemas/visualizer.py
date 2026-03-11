@@ -5,9 +5,7 @@ from pydantic import BaseModel, Field
 
 
 VisualizerPreset = Literal[
-    "tunnel",
     "particles",
-    "waves",
     "kaleidoscope",
     "warehouse",
     "swarm_collision",

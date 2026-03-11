@@ -14,7 +14,7 @@ import {
 } from '../services/api'
 
 export const useVisualizerStore = defineStore('visualizer', () => {
-  const activePreset = ref<VisualizerPreset>('tunnel')
+  const activePreset = ref<VisualizerPreset>('warehouse')
   const intensity = ref(65)
   const speed = ref(55)
   const brightness = ref(70)

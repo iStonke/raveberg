@@ -10,7 +10,7 @@ class VisualizerState(Base):
     __tablename__ = "visualizer_state"
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    active_preset: Mapped[str] = mapped_column(String(64), default="tunnel")
+    active_preset: Mapped[str] = mapped_column(String(64), default="warehouse")
     intensity: Mapped[int] = mapped_column(Integer, default=65)
     speed: Mapped[int] = mapped_column(Integer, default=55)
     brightness: Mapped[int] = mapped_column(Integer, default=70)

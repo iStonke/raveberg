@@ -95,12 +95,8 @@ function render(timestamp: number) {
   context.fillStyle = `rgba(4, 5, 8, ${Math.max(0.12, 0.26 - brightnessFactor * 0.08)})`
   context.fillRect(0, 0, width, height)
 
-  if (props.visualizer.active_preset === 'tunnel') {
-    drawTunnel(context, width, height, elapsed, speedFactor, intensityFactor, palette)
-  } else if (props.visualizer.active_preset === 'particles') {
+  if (props.visualizer.active_preset === 'particles') {
     drawParticles(context, width, height, elapsed, speedFactor, intensityFactor, palette)
-  } else if (props.visualizer.active_preset === 'waves') {
-    drawWaves(context, width, height, elapsed, speedFactor, intensityFactor, palette)
   } else if (props.visualizer.active_preset === 'warehouse') {
     drawWarehouse(context, width, height, elapsed, speedFactor, intensityFactor, palette)
   } else {
@@ -108,34 +104,6 @@ function render(timestamp: number) {
   }
 
   frameId = window.requestAnimationFrame(render)
-}
-
-function drawTunnel(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  elapsed: number,
-  speedFactor: number,
-  intensityFactor: number,
-  palette: string[],
-) {
-  const cx = width / 2
-  const cy = height / 2
-  const maxRadius = Math.hypot(cx, cy)
-  const rings = 14 + Math.floor(intensityFactor * 18)
-
-  for (let index = 0; index < rings; index += 1) {
-    const progress = ((elapsed * speedFactor * 0.55) + index / rings) % 1
-    const radius = (1 - progress) * maxRadius
-    context.beginPath()
-    context.lineWidth = 2 + intensityFactor * 10 * (1 - progress)
-    context.strokeStyle = palette[index % palette.length]
-    context.globalAlpha = 0.08 + (1 - progress) * 0.42
-    context.arc(cx, cy, radius, 0, Math.PI * 2)
-    context.stroke()
-  }
-
-  context.globalAlpha = 1
 }
 
 function drawParticles(
@@ -165,45 +133,6 @@ function drawParticles(
     context.globalAlpha = 0.18 + seed.seed * 0.55
     context.arc(x, y, size, 0, Math.PI * 2)
     context.fill()
-  }
-
-  context.globalAlpha = 1
-}
-
-function drawWaves(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  elapsed: number,
-  speedFactor: number,
-  intensityFactor: number,
-  palette: string[],
-) {
-  const lines = 6 + Math.floor(intensityFactor * 8)
-  const amplitude = 18 + intensityFactor * 90
-
-  for (let line = 0; line < lines; line += 1) {
-    const yBase = (height / (lines + 1)) * (line + 1)
-    context.beginPath()
-    context.lineWidth = 2 + intensityFactor * 6
-    context.strokeStyle = palette[line % palette.length]
-    context.globalAlpha = 0.18 + (line / lines) * 0.35
-
-    for (let x = 0; x <= width; x += 18) {
-      const wave =
-        Math.sin((x / width) * Math.PI * (3 + line) + elapsed * speedFactor * 1.7 + line) *
-          amplitude +
-        Math.cos((x / width) * Math.PI * 2 + elapsed * speedFactor + line * 0.5) *
-          amplitude *
-          0.35
-      const y = yBase + wave
-      if (x === 0) {
-        context.moveTo(x, y)
-      } else {
-        context.lineTo(x, y)
-      }
-    }
-    context.stroke()
   }
 
   context.globalAlpha = 1

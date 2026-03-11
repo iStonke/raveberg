@@ -183,9 +183,7 @@ export interface VideoState {
 }
 
 export type VisualizerPreset =
-  | 'tunnel'
   | 'particles'
-  | 'waves'
   | 'kaleidoscope'
   | 'warehouse'
   | 'swarm_collision'

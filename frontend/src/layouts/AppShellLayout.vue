@@ -3,11 +3,13 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
+import { useAdminUploadsBadgeStore } from '../stores/adminUploadsBadge'
 import { usePublicRuntimeStore } from '../stores/publicRuntime'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const adminUploadsBadgeStore = useAdminUploadsBadgeStore()
 const publicRuntimeStore = usePublicRuntimeStore()
 const isGuestRoute = computed(() => route.path.startsWith('/guest'))
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
@@ -38,6 +40,10 @@ onMounted(async () => {
 async function logout() {
   await authStore.logout()
   await router.push('/admin/login')
+}
+
+function showUploadsBadge(hash: string) {
+  return hash === '#uploads' && adminUploadsBadgeStore.hasUnseenUploads
 }
 </script>
 
@@ -82,7 +88,14 @@ async function logout() {
           class="admin-nav-link"
           :class="{ 'admin-nav-link--active': activeAdminSection === item.hash.replace('#', '') }"
         >
-          {{ item.label }}
+          <span class="admin-nav-link__label">
+            <span>{{ item.label }}</span>
+            <span
+              v-if="showUploadsBadge(item.hash)"
+              class="admin-nav-link__badge"
+              aria-label="Neue Uploads"
+            />
+          </span>
         </router-link>
       </div>
     </div>
@@ -256,6 +269,26 @@ async function logout() {
 
 .admin-nav-link:active {
   transform: scale(0.985);
+}
+
+.admin-nav-link__label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-nav-link__badge {
+  position: absolute;
+  top: -0.24rem;
+  right: -0.58rem;
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: #ff5c5c;
+  box-shadow:
+    0 0 0 2px rgba(7, 13, 21, 0.92),
+    0 0 12px rgba(255, 92, 92, 0.24);
 }
 
 .admin-nav-link--active {

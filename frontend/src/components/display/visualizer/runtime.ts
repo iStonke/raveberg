@@ -494,7 +494,7 @@ class HydraVisualizerRuntime implements VisualizerRuntimeController {
       .saturate(() => 1.2 + this.brightnessFactor() * 0.4)
       .contrast(() => 1.18 + this.intensityFactor() * 0.28)
 
-    const tunnelScene = h
+    const latticeScene = h
       .voronoi(
         () => 3.2 + this.intensityFactor() * 9 + this.burstLevel * 4,
         () => 0.16 + this.speedFactor() * 0.38,
@@ -547,7 +547,7 @@ class HydraVisualizerRuntime implements VisualizerRuntimeController {
       .saturate(() => 1.22 + this.intensityFactor() * 0.48)
 
     mirrorScene
-      .blend(tunnelScene, () => 0.18 + this.phaseWeight(0.38, 0.22) * 0.74)
+      .blend(latticeScene, () => 0.18 + this.phaseWeight(0.38, 0.22) * 0.74)
       .blend(waveScene, () => 0.12 + this.phaseWeight(0.64, 0.2) * 0.62)
       .add(surgeScene, () => 0.06 + this.phaseWeight(0.86, 0.16) * 0.52 + this.burstLevel * 0.12)
       .blend(

@@ -67,9 +67,7 @@ AP3 arbeitet bewusst mit genau einem aktiven Datensatz. Das haelt den Steuerpfad
 
 In AP3 umgesetzt:
 
-- `tunnel`
 - `particles`
-- `waves`
 - `kaleidoscope`
 - `warehouse`
 

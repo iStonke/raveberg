@@ -18,9 +18,7 @@ from app.schemas.visualizer import (
 )
 
 PRESETS: list[VisualizerPreset] = [
-    "tunnel",
     "particles",
-    "waves",
     "kaleidoscope",
     "warehouse",
     "swarm_collision",
@@ -49,7 +47,7 @@ class VisualizerService:
         if state is None:
             state = VisualizerState(
                 id=1,
-                active_preset="tunnel",
+                active_preset="warehouse",
                 intensity=65,
                 speed=55,
                 brightness=70,
