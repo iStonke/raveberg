@@ -6,6 +6,7 @@ import type {
   AppMode,
   ColorScheme,
   ModerationMode,
+  OverlayMode,
   UploadItem,
   VideoAsset,
   VideoObjectFit,
@@ -26,9 +27,11 @@ import {
   triggerSelfieReload,
   uploadAdminVideo,
 } from '../../services/api'
+import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
 import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
 import { useAppModeStore } from '../../stores/appMode'
 import { useAuthStore } from '../../stores/auth'
+import { usePublicRuntimeStore } from '../../stores/publicRuntime'
 import { useSelfieStore } from '../../stores/selfie'
 import { useStandbyStore } from '../../stores/standby'
 import { useSystemStatusStore } from '../../stores/systemStatus'
@@ -38,6 +41,7 @@ import { useVisualizerStore } from '../../stores/visualizer'
 const route = useRoute()
 const authStore = useAuthStore()
 const appModeStore = useAppModeStore()
+const publicRuntimeStore = usePublicRuntimeStore()
 const selfieStore = useSelfieStore()
 const standbyStore = useStandbyStore()
 const systemStatusStore = useSystemStatusStore()
@@ -61,6 +65,7 @@ const systemActionError = ref('')
 const systemActionMessage = ref('')
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
+const optimisticMode = ref<AppMode | null>(null)
 const isSavingVisualizer = ref(false)
 const isSavingSelfie = ref(false)
 const isSavingStandby = ref(false)
@@ -87,6 +92,8 @@ const videoDurations = ref<Record<number, string>>({})
 const videoMetadataLoading = ref<Record<number, boolean>>({})
 const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
+const isGuestQrDialogOpen = ref(false)
+const guestQrCopyMessage = ref('')
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -94,7 +101,7 @@ const visualizerDraft = reactive<{
   speed: number
   brightness: number
   color_scheme: ColorScheme
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   auto_cycle_enabled: boolean
   auto_cycle_interval_seconds: number
 }>({
@@ -103,7 +110,7 @@ const visualizerDraft = reactive<{
   speed: 55,
   brightness: 70,
   color_scheme: 'acid',
-  logo_overlay_enabled: true,
+  overlay_mode: 'logo',
   auto_cycle_enabled: false,
   auto_cycle_interval_seconds: 45,
 })
@@ -114,7 +121,7 @@ const selfieDraft = reactive<{
   slideshow_max_visible_photos: number
   slideshow_min_uploads_to_start: number
   slideshow_shuffle: boolean
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   vintage_look_enabled: boolean
   moderation_mode: ModerationMode
 }>({
@@ -123,7 +130,7 @@ const selfieDraft = reactive<{
   slideshow_max_visible_photos: 4,
   slideshow_min_uploads_to_start: 3,
   slideshow_shuffle: true,
-  logo_overlay_enabled: true,
+  overlay_mode: 'logo',
   vintage_look_enabled: false,
   moderation_mode: 'auto_approve',
 })
@@ -143,7 +150,7 @@ const videoDraft = reactive<{
   loop_enabled: boolean
   playback_order: VideoPlaybackOrder
   vintage_filter_enabled: boolean
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
@@ -152,7 +159,7 @@ const videoDraft = reactive<{
   loop_enabled: true,
   playback_order: 'upload_order',
   vintage_filter_enabled: false,
-  logo_overlay_enabled: true,
+  overlay_mode: 'logo',
   object_fit: 'contain',
   transition: 'none',
   active_video_id: null,
@@ -360,7 +367,7 @@ const activeWorkspaceSection = computed<AdminWorkspaceSection>(() => {
   return 'modus'
 })
 
-const activeModePanelKey = computed(() => appModeStore.mode)
+const activeMode = computed(() => optimisticMode.value ?? appModeStore.mode)
 
 const dashboardStatusChip = computed(() => {
   if (dashboardLiveActive.value) {
@@ -401,7 +408,7 @@ const displayStatusChip = computed(() => {
 })
 
 const contextActions = computed(() => {
-  if (appModeStore.mode === 'selfie') {
+  if (activeMode.value === 'selfie') {
     return [
       {
         id: 'selfie:toggle',
@@ -450,17 +457,17 @@ const contextActions = computed(() => {
         active: selfieDraft.vintage_look_enabled,
       },
       {
-        id: 'selfie:logo-overlay',
-        label: selfieDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
+        id: 'selfie:overlay-mode',
+        label: overlayModeLabel(selfieDraft.overlay_mode),
         color: 'primary' as const,
-        loading: isBusy('selfie:logo-overlay'),
+        loading: isBusy('selfie:overlay-mode'),
         disabled: isBooting.value,
-        active: selfieDraft.logo_overlay_enabled,
+        active: selfieDraft.overlay_mode !== 'off',
       },
     ]
   }
 
-  if (appModeStore.mode === 'visualizer') {
+  if (activeMode.value === 'visualizer') {
     return [
       {
         id: 'visualizer:next-preset',
@@ -478,17 +485,17 @@ const contextActions = computed(() => {
         active: visualizerDraft.auto_cycle_enabled,
       },
       {
-        id: 'visualizer:logo-overlay',
-        label: visualizerDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
+        id: 'visualizer:overlay-mode',
+        label: overlayModeLabel(visualizerDraft.overlay_mode),
         color: 'secondary' as const,
-        loading: isBusy('visualizer:logo-overlay'),
+        loading: isBusy('visualizer:overlay-mode'),
         disabled: isBooting.value,
-        active: visualizerDraft.logo_overlay_enabled,
+        active: visualizerDraft.overlay_mode !== 'off',
       },
     ]
   }
 
-  if (appModeStore.mode === 'video') {
+  if (activeMode.value === 'video') {
     return [
       {
         id: 'video:upload',
@@ -514,12 +521,12 @@ const contextActions = computed(() => {
         active: videoDraft.transition === 'fade',
       },
       {
-        id: 'video:logo-overlay',
-        label: videoDraft.logo_overlay_enabled ? 'Logo-Overlay an' : 'Logo-Overlay aus',
+        id: 'video:overlay-mode',
+        label: overlayModeLabel(videoDraft.overlay_mode),
         color: 'primary' as const,
-        loading: isBusy('video:logo-overlay'),
+        loading: isBusy('video:overlay-mode'),
         disabled: isBooting.value,
-        active: videoDraft.logo_overlay_enabled,
+        active: videoDraft.overlay_mode !== 'off',
       },
     ]
   }
@@ -532,7 +539,7 @@ const moderationSummaryLabel = computed(() =>
 )
 
 const showUploadModerationActions = computed(() =>
-  selfieStore.moderationMode !== 'auto_approve',
+  selfieDraft.moderation_mode === 'manual_approve',
 )
 
 const visualizerAutoCycleSummaryLabel = computed(() =>
@@ -555,15 +562,15 @@ const visualizerPresetItems = computed(() => {
   }))
 })
 
-const isBlackoutMode = computed(() => appModeStore.mode === 'blackout')
+const isBlackoutMode = computed(() => activeMode.value === 'blackout')
 
-const isStandbyMode = computed(() => appModeStore.mode === 'idle')
+const isStandbyMode = computed(() => activeMode.value === 'idle')
 
-const isSlideshowMode = computed(() => appModeStore.mode === 'selfie')
+const isSlideshowMode = computed(() => activeMode.value === 'selfie')
 
-const isVideoMode = computed(() => appModeStore.mode === 'video')
+const isVideoMode = computed(() => activeMode.value === 'video')
 
-const isVisualizerMode = computed(() => appModeStore.mode === 'visualizer')
+const isVisualizerMode = computed(() => activeMode.value === 'visualizer')
 
 const orderedVideoAssets = computed(() =>
   [...videoStore.assets].sort((left, right) => left.position - right.position),
@@ -608,6 +615,8 @@ const temperatureHint = computed(() =>
     : 'Temperaturdaten vom Gerät',
 )
 
+const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
+
 onMounted(async () => {
   if (!authStore.token) {
     isBooting.value = false
@@ -619,6 +628,7 @@ onMounted(async () => {
     const [latestUploads] = await Promise.all([
       fetchAdminUploads(adminToken, 50),
       appModeStore.refresh(),
+      publicRuntimeStore.refresh(),
       selfieStore.refresh(),
       standbyStore.refresh(),
       videoStore.refreshState(),
@@ -673,7 +683,7 @@ watch(
     visualizerDraft.speed,
     visualizerDraft.brightness,
     visualizerDraft.color_scheme,
-    visualizerDraft.logo_overlay_enabled,
+    visualizerDraft.overlay_mode,
     visualizerDraft.auto_cycle_enabled,
     visualizerDraft.auto_cycle_interval_seconds,
   ],
@@ -704,7 +714,7 @@ watch(
     selfieDraft.slideshow_max_visible_photos,
     selfieDraft.slideshow_min_uploads_to_start,
     selfieDraft.slideshow_shuffle,
-    selfieDraft.logo_overlay_enabled,
+    selfieDraft.overlay_mode,
     selfieDraft.vintage_look_enabled,
     selfieDraft.moderation_mode,
   ],
@@ -721,7 +731,7 @@ watch(
     videoDraft.loop_enabled,
     videoDraft.playback_order,
     videoDraft.vintage_filter_enabled,
-    videoDraft.logo_overlay_enabled,
+    videoDraft.overlay_mode,
     videoDraft.object_fit,
     videoDraft.transition,
     videoDraft.active_video_id,
@@ -734,14 +744,21 @@ watch(
 )
 
 async function switchMode(mode: AppMode) {
+  if (isSwitchingMode.value || mode === activeMode.value) {
+    return
+  }
+
   errorMessage.value = ''
+  optimisticMode.value = mode
   isSwitchingMode.value = true
   try {
     await appModeStore.setMode(mode)
     await refreshSystemOnly()
   } catch (error) {
+    optimisticMode.value = null
     errorMessage.value = error instanceof Error ? error.message : 'Moduswechsel fehlgeschlagen'
   } finally {
+    optimisticMode.value = null
     isSwitchingMode.value = false
   }
 }
@@ -753,7 +770,7 @@ async function syncVisualizerDraftFromStore() {
   visualizerDraft.speed = visualizerStore.speed
   visualizerDraft.brightness = visualizerStore.brightness
   visualizerDraft.color_scheme = visualizerStore.colorScheme
-  visualizerDraft.logo_overlay_enabled = visualizerStore.logoOverlayEnabled
+  visualizerDraft.overlay_mode = visualizerStore.overlayMode
   visualizerDraft.auto_cycle_enabled = visualizerStore.autoCycleEnabled
   visualizerDraft.auto_cycle_interval_seconds = visualizerStore.autoCycleIntervalSeconds
   await nextTick()
@@ -767,7 +784,7 @@ async function syncSelfieDraftFromStore() {
   selfieDraft.slideshow_max_visible_photos = selfieStore.slideshowMaxVisiblePhotos
   selfieDraft.slideshow_min_uploads_to_start = selfieStore.slideshowMinUploadsToStart
   selfieDraft.slideshow_shuffle = selfieStore.slideshowShuffle
-  selfieDraft.logo_overlay_enabled = selfieStore.logoOverlayEnabled
+  selfieDraft.overlay_mode = selfieStore.overlayMode
   selfieDraft.vintage_look_enabled = selfieStore.vintageLookEnabled
   selfieDraft.moderation_mode = selfieStore.moderationMode
   await nextTick()
@@ -789,7 +806,7 @@ async function syncVideoDraftFromStore() {
   videoDraft.loop_enabled = videoStore.loopEnabled
   videoDraft.playback_order = videoStore.playbackOrder
   videoDraft.vintage_filter_enabled = videoStore.vintageFilterEnabled
-  videoDraft.logo_overlay_enabled = videoStore.logoOverlayEnabled
+  videoDraft.overlay_mode = videoStore.overlayMode
   videoDraft.object_fit = videoStore.objectFit
   videoDraft.transition = videoStore.transition
   videoDraft.active_video_id = videoStore.activeVideoId
@@ -847,7 +864,7 @@ async function saveVisualizerDraft() {
       speed: visualizerDraft.speed,
       brightness: visualizerDraft.brightness,
       color_scheme: visualizerDraft.color_scheme,
-      logo_overlay_enabled: visualizerDraft.logo_overlay_enabled,
+      overlay_mode: visualizerDraft.overlay_mode,
       auto_cycle_enabled: visualizerDraft.auto_cycle_enabled,
       auto_cycle_interval_seconds: visualizerDraft.auto_cycle_interval_seconds,
     })
@@ -870,7 +887,7 @@ async function saveSelfieDraft() {
       slideshow_max_visible_photos: selfieDraft.slideshow_max_visible_photos,
       slideshow_min_uploads_to_start: selfieDraft.slideshow_min_uploads_to_start,
       slideshow_shuffle: selfieDraft.slideshow_shuffle,
-      logo_overlay_enabled: selfieDraft.logo_overlay_enabled,
+      overlay_mode: selfieDraft.overlay_mode,
       vintage_look_enabled: selfieDraft.vintage_look_enabled,
       moderation_mode: selfieDraft.moderation_mode,
     })
@@ -910,7 +927,7 @@ async function saveVideoDraft() {
       loop_enabled: videoDraft.loop_enabled,
       playback_order: videoDraft.playback_order,
       vintage_filter_enabled: videoDraft.vintage_filter_enabled,
-      logo_overlay_enabled: videoDraft.logo_overlay_enabled,
+      overlay_mode: videoDraft.overlay_mode,
       object_fit: videoDraft.object_fit,
       transition: videoDraft.transition,
       active_video_id: videoDraft.active_video_id,
@@ -984,6 +1001,25 @@ async function shutdownSystem() {
       error instanceof Error ? error.message : 'Ausschalten konnte nicht ausgelöst werden'
   } finally {
     isShuttingDown.value = false
+  }
+}
+
+function openGuestQrDialog() {
+  guestQrCopyMessage.value = ''
+  isGuestQrDialogOpen.value = true
+}
+
+async function copyGuestUploadUrl() {
+  if (!guestUploadUrl.value) {
+    guestQrCopyMessage.value = 'Kein Link verfügbar'
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(guestUploadUrl.value)
+    guestQrCopyMessage.value = 'Link kopiert'
+  } catch {
+    guestQrCopyMessage.value = 'Kopieren nicht möglich'
   }
 }
 
@@ -1130,7 +1166,7 @@ async function toggleAutoCycleQuick() {
   }
 }
 
-async function toggleVisualizerLogoOverlayQuick(actionKey = 'visualizer:logo-overlay') {
+async function cycleVisualizerOverlayModeQuick(actionKey = 'visualizer:overlay-mode') {
   const key = actionKey
   setBusy(key, true)
   try {
@@ -1138,7 +1174,7 @@ async function toggleVisualizerLogoOverlayQuick(actionKey = 'visualizer:logo-ove
       window.clearTimeout(visualizerPersistTimer)
     }
     isHydratingVisualizerDraft.value = true
-    visualizerDraft.logo_overlay_enabled = !visualizerDraft.logo_overlay_enabled
+    visualizerDraft.overlay_mode = nextOverlayMode(visualizerDraft.overlay_mode)
     await nextTick()
     isHydratingVisualizerDraft.value = false
     await saveVisualizerDraft()
@@ -1147,15 +1183,15 @@ async function toggleVisualizerLogoOverlayQuick(actionKey = 'visualizer:logo-ove
   }
 }
 
-async function toggleSelfieLogoOverlayQuick() {
-  const key = 'selfie:logo-overlay'
+async function cycleSelfieOverlayModeQuick() {
+  const key = 'selfie:overlay-mode'
   setBusy(key, true)
   try {
     if (selfiePersistTimer) {
       window.clearTimeout(selfiePersistTimer)
     }
     isHydratingSelfieDraft.value = true
-    selfieDraft.logo_overlay_enabled = !selfieDraft.logo_overlay_enabled
+    selfieDraft.overlay_mode = nextOverlayMode(selfieDraft.overlay_mode)
     await nextTick()
     isHydratingSelfieDraft.value = false
     await saveSelfieDraft()
@@ -1164,15 +1200,15 @@ async function toggleSelfieLogoOverlayQuick() {
   }
 }
 
-async function toggleVideoLogoOverlayQuick() {
-  const key = 'video:logo-overlay'
+async function cycleVideoOverlayModeQuick() {
+  const key = 'video:overlay-mode'
   setBusy(key, true)
   try {
     if (videoPersistTimer) {
       window.clearTimeout(videoPersistTimer)
     }
     isHydratingVideoDraft.value = true
-    videoDraft.logo_overlay_enabled = !videoDraft.logo_overlay_enabled
+    videoDraft.overlay_mode = nextOverlayMode(videoDraft.overlay_mode)
     await nextTick()
     isHydratingVideoDraft.value = false
     await saveVideoDraft()
@@ -1213,8 +1249,8 @@ async function runHeaderAction(actionId: string) {
     await toggleSelfieSettingQuick('vintage_look_enabled')
     return
   }
-  if (actionId === 'selfie:logo-overlay') {
-    await toggleSelfieLogoOverlayQuick()
+  if (actionId === 'selfie:overlay-mode') {
+    await cycleSelfieOverlayModeQuick()
     return
   }
   if (actionId === 'visualizer:next-preset') {
@@ -1225,8 +1261,8 @@ async function runHeaderAction(actionId: string) {
     await toggleAutoCycleQuick()
     return
   }
-  if (actionId === 'visualizer:logo-overlay') {
-    await toggleVisualizerLogoOverlayQuick()
+  if (actionId === 'visualizer:overlay-mode') {
+    await cycleVisualizerOverlayModeQuick()
     return
   }
   if (actionId === 'video:vintage') {
@@ -1237,8 +1273,8 @@ async function runHeaderAction(actionId: string) {
     toggleVideoTransition()
     return
   }
-  if (actionId === 'video:logo-overlay') {
-    await toggleVideoLogoOverlayQuick()
+  if (actionId === 'video:overlay-mode') {
+    await cycleVideoOverlayModeQuick()
     return
   }
   if (actionId === 'video:upload') {
@@ -1752,6 +1788,13 @@ function approveLabel(upload: UploadItem) {
   return upload.moderation_status === 'approved' ? 'Freigegeben' : 'Freigeben'
 }
 
+function moderationActionCount(upload: UploadItem) {
+  let count = 0
+  if (canApprove(upload)) count += 1
+  if (canReject(upload)) count += 1
+  return count
+}
+
 function toggleSelfieModerationMode() {
   selfieDraft.moderation_mode =
     selfieDraft.moderation_mode === 'auto_approve' ? 'manual_approve' : 'auto_approve'
@@ -1765,24 +1808,10 @@ function toggleVideoTransition() {
   videoDraft.transition = videoDraft.transition === 'fade' ? 'none' : 'fade'
 }
 
-function formatUploadCardStatusLabel(upload: UploadItem) {
-  if (upload.status === 'error') return 'Fehler'
-  if (upload.moderation_status === 'pending') return 'Freigabe ausstehend'
-  if (upload.moderation_status === 'approved') return 'Genehmigt'
-  return 'Abgelehnt'
-}
-
 function formatModerationStatusLabel(status: UploadItem['moderation_status']) {
   if (status === 'pending') return 'Ausstehend'
   if (status === 'approved') return 'Genehmigt'
   return 'Abgelehnt'
-}
-
-function uploadStatusTone(status: UploadItem) {
-  if (status.status === 'error') return 'error'
-  if (status.moderation_status === 'approved') return 'success'
-  if (status.moderation_status === 'pending') return 'warning'
-  return 'error'
 }
 
 function formatDate(value: string | null) {
@@ -1892,6 +1921,18 @@ function formatModeLabel(mode: AppMode) {
   if (mode === 'video') return 'Video'
   return 'Visualizer'
 }
+
+function nextOverlayMode(current: OverlayMode): OverlayMode {
+  if (current === 'logo') return 'qr'
+  if (current === 'qr') return 'off'
+  return 'logo'
+}
+
+function overlayModeLabel(mode: OverlayMode) {
+  if (mode === 'logo') return 'Overlay: Logo'
+  if (mode === 'qr') return 'Overlay: QR-Code'
+  return 'Overlay: Aus'
+}
 </script>
 
 <template>
@@ -1905,22 +1946,22 @@ function formatModeLabel(mode: AppMode) {
         </v-col>
 
         <template v-if="activeWorkspaceSection === 'modus'">
-      <v-col cols="12" class="admin-mode-sticky-col">
-        <AdminShowControlHeader
-          :current-mode="appModeStore.mode"
-          :mode-options="modeButtons"
-          :context-actions="contextActions"
-          :is-booting="isBooting"
-          :is-switching-mode="isSwitchingMode"
-          @switch-mode="switchMode"
-          @run-action="runHeaderAction"
-        />
-      </v-col>
+          <v-col cols="12" class="admin-mode-sticky-col">
+            <AdminShowControlHeader
+              :current-mode="activeMode"
+              :mode-options="modeButtons"
+              :context-actions="contextActions"
+              :is-booting="isBooting"
+              :is-switching-mode="isSwitchingMode"
+              @switch-mode="switchMode"
+              @run-action="runHeaderAction"
+            />
+          </v-col>
 
-      <v-col cols="12">
-        <Transition name="mode-panel" mode="out-in">
-          <div :key="activeModePanelKey" class="mode-panel-stage">
-            <section v-if="isBlackoutMode" class="settings-section">
+          <v-col cols="12">
+            <div class="mode-panel-stage">
+              <v-expand-transition>
+                <section v-show="isBlackoutMode" class="settings-section">
               <div class="settings-group">
                 <div class="settings-explainer">
                   <div class="settings-explainer__icon-shell" aria-hidden="true">
@@ -1936,9 +1977,11 @@ function formatModeLabel(mode: AppMode) {
                   </div>
                 </div>
               </div>
-            </section>
+                </section>
+              </v-expand-transition>
 
-            <section v-else-if="isStandbyMode" class="settings-section">
+              <v-expand-transition>
+                <section v-show="isStandbyMode" class="settings-section">
               <div class="settings-group">
                 <div class="settings-control">
                   <div class="settings-control__label">Headline</div>
@@ -1981,9 +2024,11 @@ function formatModeLabel(mode: AppMode) {
               <v-alert v-if="standbyError" type="error" variant="tonal" class="mt-4">
                 {{ standbyError }}
               </v-alert>
-            </section>
+                </section>
+              </v-expand-transition>
 
-            <section v-else-if="isVideoMode" class="settings-section">
+              <v-expand-transition>
+                <section v-show="isVideoMode" class="settings-section">
               <input
                 ref="videoFileInput"
                 type="file"
@@ -2120,9 +2165,11 @@ function formatModeLabel(mode: AppMode) {
               <v-alert v-if="videoError" type="error" variant="tonal" class="mt-4">
                 {{ videoError }}
               </v-alert>
-            </section>
+                </section>
+              </v-expand-transition>
 
-            <section v-else-if="isSlideshowMode" class="settings-section">
+              <v-expand-transition>
+                <section v-show="isSlideshowMode" class="settings-section">
               <div class="settings-group">
                 <div class="settings-group__label">Animation</div>
                 <div class="settings-slider-row">
@@ -2164,13 +2211,27 @@ function formatModeLabel(mode: AppMode) {
                     density="comfortable"
                   />
                 </div>
+                <div class="settings-action settings-action--spaced">
+                  <v-btn
+                    variant="text"
+                    color="primary"
+                    class="settings-action__button settings-action__button--qr"
+                    prepend-icon="mdi-qrcode"
+                    :disabled="!guestUploadUrl"
+                    @click="openGuestQrDialog"
+                  >
+                    Gäste-Upload QR-Code
+                  </v-btn>
+                </div>
               </div>
               <v-alert v-if="selfieError" type="error" variant="tonal" class="mt-4">
                 {{ selfieError }}
               </v-alert>
-            </section>
+                </section>
+              </v-expand-transition>
 
-            <section v-else-if="isVisualizerMode" class="settings-section">
+              <v-expand-transition>
+                <section v-show="isVisualizerMode" class="settings-section">
               <div class="settings-section__header">
                 <div class="settings-section__label">Visualizer</div>
               </div>
@@ -2265,10 +2326,10 @@ function formatModeLabel(mode: AppMode) {
               <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
                 {{ visualizerError }}
               </v-alert>
-            </section>
-          </div>
-        </Transition>
-      </v-col>
+                </section>
+              </v-expand-transition>
+            </div>
+          </v-col>
         </template>
 
         <template v-else-if="activeWorkspaceSection === 'status'">
@@ -2458,6 +2519,18 @@ function formatModeLabel(mode: AppMode) {
             <v-col v-for="upload in filteredUploadGallery" :key="upload.id" cols="12" sm="6" md="4" xl="3">
               <v-card class="upload-card" variant="flat">
                 <div class="upload-card__media">
+                  <div
+                    v-if="upload.moderation_status === 'approved' && upload.status === 'processed'"
+                    class="upload-card__stamp upload-card__stamp--approved"
+                  >
+                    Genehmigt
+                  </div>
+                  <div
+                    v-else-if="upload.moderation_status === 'rejected' && upload.status === 'processed'"
+                    class="upload-card__stamp upload-card__stamp--rejected"
+                  >
+                    Abgelehnt
+                  </div>
                   <v-img
                     v-if="thumbnailUrls[upload.id]"
                     class="upload-preview"
@@ -2477,29 +2550,8 @@ function formatModeLabel(mode: AppMode) {
                   </v-sheet>
                 </div>
                 <div class="upload-card__body">
-                  <div class="upload-card__timestamp">{{ formatCompactDate(upload.created_at) }}</div>
-                  <div class="upload-card__meta">
-                    <span class="upload-card__meta-item">
-                      <v-icon icon="mdi-file-image-outline" size="15" />
-                      {{ formatImageMimeLabel(upload.mime_type) }}
-                    </span>
-                    <span class="upload-card__meta-separator">·</span>
-                    <span class="upload-card__meta-item">
-                      <v-icon icon="mdi-database-outline" size="15" />
-                      {{ formatBytes(upload.size) }}
-                    </span>
-                  </div>
-                  <div
-                    class="upload-card__status-row"
-                    :class="{ 'upload-card__status-row--actions-only': upload.moderation_status === 'pending' && upload.status !== 'error' }"
-                  >
-                    <div
-                      v-if="upload.moderation_status !== 'pending' || upload.status === 'error'"
-                      class="upload-card__status"
-                      :class="`upload-card__status--${uploadStatusTone(upload)}`"
-                    >
-                      {{ formatUploadCardStatusLabel(upload) }}
-                    </div>
+                  <div class="upload-card__meta-top">
+                    <div class="upload-card__timestamp">{{ formatCompactDate(upload.created_at) }}</div>
                     <v-btn
                       size="small"
                       color="error"
@@ -2513,12 +2565,27 @@ function formatModeLabel(mode: AppMode) {
                       Löschen
                     </v-btn>
                   </div>
+                  <div class="upload-card__meta">
+                    <span class="upload-card__meta-item">
+                      <v-icon icon="mdi-file-image-outline" size="15" />
+                      {{ formatImageMimeLabel(upload.mime_type) }}
+                    </span>
+                    <span class="upload-card__meta-separator">·</span>
+                    <span class="upload-card__meta-item">
+                      <v-icon icon="mdi-database-outline" size="15" />
+                      {{ formatBytes(upload.size) }}
+                    </span>
+                  </div>
                   <div
-                    v-if="showUploadModerationActions && upload.moderation_status === 'pending' && upload.status === 'processed'"
+                    v-if="showUploadModerationActions && upload.status === 'processed' && moderationActionCount(upload) > 0"
                     class="upload-card__actions-block"
                   >
-                    <div class="upload-card__primary-actions">
+                    <div
+                      class="upload-card__primary-actions"
+                      :class="{ 'upload-card__primary-actions--single': moderationActionCount(upload) === 1 }"
+                    >
                       <v-btn
+                        v-if="canApprove(upload)"
                         size="small"
                         color="success"
                         variant="tonal"
@@ -2530,6 +2597,7 @@ function formatModeLabel(mode: AppMode) {
                         {{ approveLabel(upload) }}
                       </v-btn>
                       <v-btn
+                        v-if="canReject(upload)"
                         size="small"
                         color="error"
                         variant="tonal"
@@ -2559,6 +2627,67 @@ function formatModeLabel(mode: AppMode) {
         </template>
       </v-row>
     </div>
+
+    <v-dialog
+      v-model="isGuestQrDialogOpen"
+      max-width="30rem"
+      scrim="rgba(2, 6, 12, 0.74)"
+      content-class="guest-qr-dialog__content"
+    >
+      <v-card class="guest-qr-dialog" variant="flat">
+        <div class="guest-qr-dialog__header">
+          <div>
+            <div class="guest-qr-dialog__label">Gäste-Upload</div>
+            <div class="guest-qr-dialog__title">QR-Code für Gäste-Upload</div>
+          </div>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            size="small"
+            aria-label="QR-Code schließen"
+            @click="isGuestQrDialogOpen = false"
+          />
+        </div>
+
+        <div class="guest-qr-dialog__body">
+          <div v-if="guestUploadUrl" class="guest-qr-dialog__code-shell">
+            <div class="guest-qr-dialog__code-card">
+              <QrCodeMatrix class="guest-qr-dialog__qr" :text="guestUploadUrl" :quiet-zone="5" />
+            </div>
+            <div class="guest-qr-dialog__hint">
+              Mit der Smartphone-Kamera scannen, um Bilder hochzuladen.
+            </div>
+          </div>
+
+          <div v-else class="guest-qr-dialog__empty">
+            Die Gäste-Upload-URL ist aktuell nicht verfügbar.
+          </div>
+        </div>
+
+        <div class="guest-qr-dialog__actions">
+          <v-btn
+            variant="text"
+            class="guest-qr-dialog__action"
+            prepend-icon="mdi-content-copy"
+            :disabled="!guestUploadUrl"
+            @click="copyGuestUploadUrl"
+          >
+            Link kopieren
+          </v-btn>
+          <v-btn
+            variant="text"
+            class="guest-qr-dialog__action"
+            @click="isGuestQrDialogOpen = false"
+          >
+            Schließen
+          </v-btn>
+        </div>
+
+        <div v-if="guestQrCopyMessage" class="guest-qr-dialog__feedback inline-note">
+          {{ guestQrCopyMessage }}
+        </div>
+      </v-card>
+    </v-dialog>
   </section>
 </template>
 
@@ -2608,9 +2737,6 @@ function formatModeLabel(mode: AppMode) {
   background: transparent;
   backdrop-filter: none;
   isolation: isolate;
-  contain: paint;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 .admin-workspace-shell :deep(.v-btn__overlay),
@@ -2624,29 +2750,6 @@ function formatModeLabel(mode: AppMode) {
 .mode-panel-stage {
   width: 100%;
   min-width: 0;
-}
-
-.mode-panel-enter-active,
-.mode-panel-leave-active {
-  transition:
-    opacity 180ms ease,
-    transform 220ms ease,
-    filter 220ms ease;
-  will-change: opacity, transform, filter;
-}
-
-.mode-panel-enter-from,
-.mode-panel-leave-to {
-  opacity: 0;
-  transform: translateY(10px) scale(0.992);
-  filter: blur(4px);
-}
-
-.mode-panel-enter-to,
-.mode-panel-leave-from {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
 }
 
 .workspace-overview-card,
@@ -3218,6 +3321,104 @@ function formatModeLabel(mode: AppMode) {
   letter-spacing: 0.01em;
 }
 
+.guest-qr-dialog {
+  border-radius: 24px !important;
+  background:
+    linear-gradient(180deg, rgba(12, 19, 29, 0.96), rgba(8, 14, 22, 0.98)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 24px 60px rgba(2, 6, 12, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
+  padding: 1rem;
+}
+
+.guest-qr-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.guest-qr-dialog__label {
+  color: rgba(194, 211, 228, 0.48);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.guest-qr-dialog__title {
+  margin-top: 0.3rem;
+  color: rgba(245, 249, 255, 0.96);
+  font-size: 1.08rem;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.guest-qr-dialog__body {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.9rem;
+}
+
+.guest-qr-dialog__code-shell {
+  display: grid;
+  justify-items: center;
+  gap: 0.8rem;
+}
+
+.guest-qr-dialog__code-card {
+  width: min(100%, 21rem);
+  padding: 1.1rem;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 1px rgba(8, 14, 22, 0.04),
+    0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.guest-qr-dialog__qr {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: #111;
+}
+
+.guest-qr-dialog__hint {
+  color: rgba(221, 231, 241, 0.78);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.guest-qr-dialog__empty {
+  padding: 1rem 0.4rem;
+  color: rgba(208, 220, 232, 0.68);
+  text-align: center;
+  line-height: 1.45;
+}
+
+.guest-qr-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.guest-qr-dialog__action {
+  min-height: 2.3rem;
+  padding-inline: 0.8rem;
+  border-radius: 999px;
+  text-transform: none;
+  font-weight: 650;
+}
+
+.guest-qr-dialog__feedback {
+  margin-top: 0.45rem;
+  text-align: center;
+}
+
 .settings-explainer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -3370,18 +3571,126 @@ function formatModeLabel(mode: AppMode) {
 
 .upload-card {
   overflow: hidden;
-  border-radius: 22px;
-  background: rgba(8, 14, 22, 0.76) !important;
-  border: 1px solid rgba(164, 195, 223, 0.08);
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(20, 30, 40, 0.9),
+      rgba(10, 18, 28, 0.95)
+    ) !important;
+  border: 1px solid rgba(120, 200, 255, 0.15);
   backdrop-filter: blur(14px);
   box-shadow:
-    0 10px 24px rgba(4, 10, 18, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
+    0 10px 30px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  transition:
+    transform 150ms ease,
+    box-shadow 180ms ease,
+    border-color 160ms ease;
 }
 
 .upload-card__media {
+  position: relative;
   overflow: hidden;
-  border-radius: 22px 22px 0 0;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.upload-card__stamp {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: min(86%, 17.5rem);
+  min-height: 3.9rem;
+  padding: 0.58rem 1.25rem;
+  border-radius: 10px;
+  font-size: clamp(1.16rem, 4vw, 1.42rem);
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%) rotate(-15deg);
+  transform-origin: center;
+  pointer-events: none;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  mix-blend-mode: screen;
+  filter:
+    drop-shadow(0 4px 8px rgba(0, 0, 0, 0.62))
+    drop-shadow(0 0 16px rgba(0, 0, 0, 0.22));
+  animation: uploadStampIn 220ms cubic-bezier(0.2, 0.9, 0.22, 1.18) both;
+  will-change: transform, opacity, filter;
+}
+
+.upload-card__stamp::before,
+.upload-card__stamp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.upload-card__stamp::before {
+  inset: -0.1rem;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at center, rgba(3, 10, 7, 0.16), rgba(3, 10, 7, 0.28) 72%, rgba(0, 0, 0, 0.34));
+  filter: blur(10px);
+  opacity: 0.72;
+}
+
+.upload-card__stamp::after {
+  inset: 0.3rem;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.18);
+  background:
+    repeating-linear-gradient(
+      -11deg,
+      rgba(255, 255, 255, 0.12) 0,
+      rgba(255, 255, 255, 0.12) 2px,
+      transparent 2px,
+      transparent 11px
+    ),
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.16), transparent 18%),
+    radial-gradient(circle at 80% 72%, rgba(255, 255, 255, 0.1), transparent 16%);
+  opacity: 0.28;
+  mix-blend-mode: screen;
+}
+
+.upload-card__stamp--approved {
+  color: rgba(163, 255, 195, 0.98);
+  border: 4px solid rgba(34, 197, 94, 0.98);
+  background: rgba(10, 38, 20, 0.22);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 2px rgba(7, 22, 12, 0.28),
+    0 0 24px rgba(34, 197, 94, 0.14);
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.36),
+    0 0 10px rgba(7, 24, 12, 0.34),
+    0 0 16px rgba(34, 197, 94, 0.18);
+}
+
+.upload-card__stamp--rejected {
+  color: rgba(255, 197, 197, 0.98);
+  border: 4px solid rgba(239, 68, 68, 0.98);
+  background: rgba(48, 12, 16, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 2px rgba(29, 8, 10, 0.3),
+    0 0 24px rgba(239, 68, 68, 0.14);
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.38),
+    0 0 10px rgba(35, 8, 10, 0.34),
+    0 0 16px rgba(239, 68, 68, 0.18);
 }
 
 .upload-card__fallback {
@@ -3444,15 +3753,23 @@ function formatModeLabel(mode: AppMode) {
 
 .upload-card__body {
   display: grid;
-  gap: 0.42rem;
-  padding: 0.85rem 0.95rem 0.95rem;
+  gap: 0.56rem;
+  padding: 0.96rem 0.95rem 0.75rem;
+}
+
+.upload-card__meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
 }
 
 .upload-card__timestamp {
   color: rgba(221, 231, 242, 0.88);
-  font-size: 0.82rem;
-  font-weight: 640;
+  font-size: 0.94rem;
+  font-weight: 560;
   line-height: 1.2;
+  min-width: 0;
 }
 
 .upload-card__meta {
@@ -3461,7 +3778,8 @@ function formatModeLabel(mode: AppMode) {
   align-items: center;
   gap: 0.28rem;
   min-width: 0;
-  color: rgba(194, 208, 223, 0.66);
+  margin-top: 0.08rem;
+  color: rgba(200, 220, 240, 0.7);
 }
 
 .upload-card__meta-item {
@@ -3469,46 +3787,43 @@ function formatModeLabel(mode: AppMode) {
   align-items: center;
   gap: 0.24rem;
   min-width: 0;
-  font-size: 0.76rem;
-  line-height: 1.1;
+  font-size: 0.78rem;
+  line-height: 1.2;
 }
 
 .upload-card__meta-separator {
   color: rgba(194, 208, 223, 0.38);
 }
 
-.upload-card__status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.8rem;
-}
-
-.upload-card__status-row--actions-only {
-  justify-content: flex-end;
-}
-
 .upload-card__delete-action {
-  min-height: 1.9rem;
-  padding-inline: 0.2rem;
-  color: rgba(255, 136, 136, 0.88);
-  font-size: 0.78rem;
+  min-height: 1.6rem;
+  padding-inline: 0.1rem;
+  color: #ff6b6b;
+  font-size: 0.76rem;
   font-weight: 650;
   letter-spacing: 0.01em;
   text-transform: none;
+  flex: 0 0 auto;
+}
+
+.upload-card__delete-action:hover {
+  color: #ff8787;
 }
 
 .upload-card__actions-block {
   display: grid;
   gap: 0.65rem;
-  margin-top: 0.8rem;
+  margin-top: 0.9rem;
 }
 
 .upload-card__primary-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.55rem;
+}
+
+.upload-card__primary-actions--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .upload-card__primary-action {
@@ -3534,6 +3849,11 @@ function formatModeLabel(mode: AppMode) {
   filter: none !important;
 }
 
+:deep(.upload-preview .v-responsive__content) {
+  position: relative;
+  z-index: 1;
+}
+
 :deep(.settings-section .v-btn),
 :deep(.workspace-panel .v-btn),
 :deep(.workspace-overview-card .v-btn),
@@ -3550,6 +3870,37 @@ function formatModeLabel(mode: AppMode) {
 :deep(.workspace-overview-card .v-btn:active),
 :deep(.upload-card .v-btn:active) {
   transform: scale(0.985);
+}
+
+.upload-card:hover {
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.52),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(120, 200, 255, 0.17);
+}
+
+@keyframes uploadStampIn {
+  0% {
+    opacity: 0.18;
+    transform: translate(-50%, -56%) rotate(-15deg) scale(1.1);
+    filter:
+      drop-shadow(0 10px 18px rgba(0, 0, 0, 0.28))
+      blur(1.2px);
+  }
+  58% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-15deg) scale(0.958);
+    filter:
+      drop-shadow(0 6px 10px rgba(0, 0, 0, 0.42))
+      blur(0.18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-15deg) scale(1);
+    filter:
+      drop-shadow(0 4px 8px rgba(0, 0, 0, 0.62))
+      drop-shadow(0 0 16px rgba(0, 0, 0, 0.22));
+  }
 }
 
 :deep(.settings-section .v-switch .v-selection-control__wrapper),

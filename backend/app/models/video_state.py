@@ -15,6 +15,7 @@ class VideoState(Base):
     playback_order: Mapped[str] = mapped_column(String(32), default="upload_order")
     vintage_filter_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     logo_overlay_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    overlay_mode: Mapped[str] = mapped_column(String(32), default="logo")
     object_fit: Mapped[str] = mapped_column(String(32), default="contain")
     transition: Mapped[str] = mapped_column(String(32), default="none")
     active_video_id: Mapped[int | None] = mapped_column(

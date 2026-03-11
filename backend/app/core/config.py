@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         default="http://localhost:8085,http://127.0.0.1:8085,http://localhost:5180,http://127.0.0.1:5180",
         alias="BACKEND_CORS_ORIGINS",
     )
-    default_app_mode: ModeType = Field(default="visualizer", alias="DEFAULT_APP_MODE")
+    default_app_mode: ModeType = Field(default="idle", alias="DEFAULT_APP_MODE")
     default_admin_username: str = Field(default="admin", alias="DEFAULT_ADMIN_USERNAME")
     default_admin_password: str = Field(default="admin123", alias="DEFAULT_ADMIN_PASSWORD")
     session_ttl_hours: int = Field(default=24, alias="SESSION_TTL_HOURS")

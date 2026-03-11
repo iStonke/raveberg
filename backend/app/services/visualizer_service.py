@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import random
 from dataclasses import dataclass
 
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -43,6 +44,7 @@ class VisualizerService:
         self.db = db
 
     def ensure_state(self) -> VisualizerState:
+        self._ensure_schema()
         state = self.db.get(VisualizerState, 1)
         if state is None:
             state = VisualizerState(
@@ -53,6 +55,7 @@ class VisualizerService:
                 brightness=70,
                 color_scheme="acid",
                 logo_overlay_enabled=True,
+                overlay_mode="logo",
                 auto_cycle_enabled=settings.default_visualizer_auto_cycle_enabled,
                 auto_cycle_interval_seconds=settings.default_visualizer_auto_cycle_interval_seconds,
             )
@@ -84,7 +87,8 @@ class VisualizerService:
         state.speed = payload.speed
         state.brightness = payload.brightness
         state.color_scheme = payload.color_scheme
-        state.logo_overlay_enabled = payload.logo_overlay_enabled
+        state.overlay_mode = payload.overlay_mode
+        state.logo_overlay_enabled = payload.overlay_mode == "logo"
         state.auto_cycle_enabled = payload.auto_cycle_enabled
         state.auto_cycle_interval_seconds = payload.auto_cycle_interval_seconds
         state.updated_at = datetime.now(timezone.utc)
@@ -128,3 +132,34 @@ class VisualizerService:
     def _pick_next_preset(current_preset: VisualizerPreset) -> VisualizerPreset:
         candidates = [preset for preset in PRESETS if preset != current_preset]
         return random.choice(candidates or PRESETS)
+
+    def _ensure_schema(self) -> None:
+        bind = self.db.get_bind()
+        if bind is None:
+            return
+        columns = {column["name"] for column in inspect(bind).get_columns(VisualizerState.__tablename__)}
+        changed = False
+        if "logo_overlay_enabled" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE visualizer_state "
+                    "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+            changed = True
+        if "overlay_mode" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE visualizer_state "
+                    "ADD COLUMN overlay_mode VARCHAR(32) NOT NULL DEFAULT 'logo'"
+                )
+            )
+            self.db.execute(
+                text(
+                    "UPDATE visualizer_state "
+                    "SET overlay_mode = CASE WHEN logo_overlay_enabled THEN 'logo' ELSE 'off' END"
+                )
+            )
+            changed = True
+        if changed:
+            self.db.commit()

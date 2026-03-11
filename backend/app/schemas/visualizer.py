@@ -17,6 +17,7 @@ VisualizerPreset = Literal[
     "particle_swarm",
 ]
 ColorScheme = Literal["mono", "acid", "ultraviolet", "redline"]
+OverlayMode = Literal["logo", "qr", "off"]
 
 
 class VisualizerStateRead(BaseModel):
@@ -25,7 +26,7 @@ class VisualizerStateRead(BaseModel):
     speed: int
     brightness: int
     color_scheme: ColorScheme
-    logo_overlay_enabled: bool
+    overlay_mode: OverlayMode
     auto_cycle_enabled: bool
     auto_cycle_interval_seconds: int
     updated_at: datetime | None
@@ -37,7 +38,7 @@ class VisualizerStateUpdate(BaseModel):
     speed: int = Field(ge=0, le=100)
     brightness: int = Field(ge=0, le=100)
     color_scheme: ColorScheme
-    logo_overlay_enabled: bool
+    overlay_mode: OverlayMode
     auto_cycle_enabled: bool
     auto_cycle_interval_seconds: int = Field(ge=15, le=600)
 

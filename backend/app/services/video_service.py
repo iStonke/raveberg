@@ -33,6 +33,7 @@ class VideoService:
                 playback_order="upload_order",
                 vintage_filter_enabled=False,
                 logo_overlay_enabled=True,
+                overlay_mode="logo",
                 object_fit="contain",
                 transition="none",
                 active_video_id=None,
@@ -61,7 +62,8 @@ class VideoService:
         state.loop_enabled = payload.loop_enabled
         state.playback_order = payload.playback_order
         state.vintage_filter_enabled = payload.vintage_filter_enabled
-        state.logo_overlay_enabled = payload.logo_overlay_enabled
+        state.overlay_mode = payload.overlay_mode
+        state.logo_overlay_enabled = payload.overlay_mode == "logo"
         state.object_fit = payload.object_fit
         state.transition = payload.transition
         state.active_video_id = payload.active_video_id
@@ -194,15 +196,31 @@ class VideoService:
         if bind is None:
             return
         columns = {column["name"] for column in inspect(bind).get_columns(VideoState.__tablename__)}
-        if "logo_overlay_enabled" in columns:
-            return
-        self.db.execute(
-            text(
-                "ALTER TABLE video_state "
-                "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+        changed = False
+        if "logo_overlay_enabled" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE video_state "
+                    "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
             )
-        )
-        self.db.commit()
+            changed = True
+        if "overlay_mode" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE video_state "
+                    "ADD COLUMN overlay_mode VARCHAR(32) NOT NULL DEFAULT 'logo'"
+                )
+            )
+            self.db.execute(
+                text(
+                    "UPDATE video_state "
+                    "SET overlay_mode = CASE WHEN logo_overlay_enabled THEN 'logo' ELSE 'off' END"
+                )
+            )
+            changed = True
+        if changed:
+            self.db.commit()
 
     def _normalize_active_video(self, state: VideoState, payload_requested: bool = False) -> bool:
         existing_ids = [asset.id for asset in self._list_asset_models()]

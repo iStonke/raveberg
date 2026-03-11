@@ -24,6 +24,7 @@ class SelfieService:
                 slideshow_min_uploads_to_start=settings.default_slideshow_min_uploads_to_start,
                 slideshow_shuffle=settings.default_slideshow_shuffle,
                 logo_overlay_enabled=True,
+                overlay_mode="logo",
                 vintage_look_enabled=settings.default_vintage_look_enabled,
                 moderation_mode=settings.default_moderation_mode,
             )
@@ -43,7 +44,8 @@ class SelfieService:
         state.slideshow_max_visible_photos = payload.slideshow_max_visible_photos
         state.slideshow_min_uploads_to_start = payload.slideshow_min_uploads_to_start
         state.slideshow_shuffle = payload.slideshow_shuffle
-        state.logo_overlay_enabled = payload.logo_overlay_enabled
+        state.overlay_mode = payload.overlay_mode
+        state.logo_overlay_enabled = payload.overlay_mode == "logo"
         state.vintage_look_enabled = payload.vintage_look_enabled
         state.moderation_mode = payload.moderation_mode
         state.slideshow_updated_at = datetime.now(timezone.utc)
@@ -71,6 +73,20 @@ class SelfieService:
                 text(
                     "ALTER TABLE selfie_state "
                     "ADD COLUMN logo_overlay_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+            changed = True
+        if "overlay_mode" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE selfie_state "
+                    "ADD COLUMN overlay_mode VARCHAR(32) NOT NULL DEFAULT 'logo'"
+                )
+            )
+            self.db.execute(
+                text(
+                    "UPDATE selfie_state "
+                    "SET overlay_mode = CASE WHEN logo_overlay_enabled THEN 'logo' ELSE 'off' END"
                 )
             )
             changed = True

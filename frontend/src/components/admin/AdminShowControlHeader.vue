@@ -29,7 +29,7 @@ const emit = defineEmits<{
 }>()
 
 function handleModeChange(value: AppMode | null) {
-  if (!value) {
+  if (!value || props.isBooting || props.isSwitchingMode || value === props.currentMode) {
     return
   }
   emit('switch-mode', value)
@@ -42,14 +42,14 @@ function actionIcon(actionId: string) {
   if (actionId === 'selfie:moderation') return 'mdi-shield-check-outline'
   if (actionId === 'selfie:shuffle') return 'mdi-shuffle-variant'
   if (actionId === 'selfie:vintage') return 'mdi-image-filter-vintage'
-  if (actionId === 'selfie:logo-overlay') return 'mdi-image-filter-center-focus-weak'
+  if (actionId === 'selfie:overlay-mode') return 'mdi-layers-triple-outline'
   if (actionId === 'video:upload') return 'mdi-video-plus-outline'
   if (actionId === 'video:vintage') return 'mdi-image-filter-vintage'
   if (actionId === 'video:transition') return 'mdi-transition'
-  if (actionId === 'video:logo-overlay') return 'mdi-image-filter-center-focus-weak'
+  if (actionId === 'video:overlay-mode') return 'mdi-layers-triple-outline'
   if (actionId === 'visualizer:next-preset') return 'mdi-palette-swatch-outline'
   if (actionId === 'visualizer:auto-cycle') return 'mdi-autorenew'
-  if (actionId === 'visualizer:logo-overlay') return 'mdi-image-filter-center-focus-weak'
+  if (actionId === 'visualizer:overlay-mode') return 'mdi-layers-triple-outline'
   return 'mdi-lightning-bolt-outline'
 }
 
@@ -70,13 +70,15 @@ function modeIcon(mode: AppMode) {
         <v-btn
           v-for="mode in modeOptions"
           :key="mode.value"
-          :disabled="isBooting || isSwitchingMode"
           class="mode-grid__btn"
           :class="[
             `mode-grid__btn--${mode.value}`,
-            { 'mode-grid__btn--active': currentMode === mode.value },
+            {
+              'mode-grid__btn--active': currentMode === mode.value,
+              'mode-grid__btn--inactive': currentMode !== mode.value,
+            },
           ]"
-          :variant="currentMode === mode.value ? 'flat' : 'text'"
+          variant="flat"
           @click="handleModeChange(mode.value)"
         >
           <span class="mode-grid__content">
@@ -88,7 +90,7 @@ function modeIcon(mode: AppMode) {
     </div>
 
     <div
-      v-if="contextActions.length"
+      v-show="contextActions.length"
       class="context-actions-row"
       :class="`context-actions-row--${currentMode}`"
     >
@@ -133,9 +135,6 @@ function modeIcon(mode: AppMode) {
     0 12px 26px rgba(4, 10, 18, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.018);
   isolation: isolate;
-  contain: layout paint;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 .mode-block {
@@ -162,7 +161,7 @@ function modeIcon(mode: AppMode) {
   gap: 0.68rem;
 }
 
-.mode-grid__btn:last-child:nth-child(odd) {
+.mode-grid__btn:first-child {
   grid-column: 1 / -1;
 }
 
@@ -187,8 +186,6 @@ function modeIcon(mode: AppMode) {
     background-color 160ms ease,
     box-shadow 180ms ease,
     color 160ms ease;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 .mode-grid__content {
@@ -216,6 +213,10 @@ function modeIcon(mode: AppMode) {
     0 10px 20px rgba(6, 17, 26, 0.12),
     0 0 0 1px rgba(255, 255, 255, 0.025),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.mode-grid__btn--inactive {
+  background: rgba(255, 255, 255, 0.03) !important;
 }
 
 .mode-grid__btn--blackout.mode-grid__btn--active {
@@ -280,8 +281,6 @@ function modeIcon(mode: AppMode) {
     background-color 160ms ease,
     color 160ms ease,
     border-color 160ms ease;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 .context-action-btn:hover {

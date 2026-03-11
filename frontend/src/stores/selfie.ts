@@ -10,7 +10,7 @@ export const useSelfieStore = defineStore('selfie', () => {
   const slideshowMaxVisiblePhotos = ref(4)
   const slideshowMinUploadsToStart = ref(3)
   const slideshowShuffle = ref(true)
-  const logoOverlayEnabled = ref(true)
+  const overlayMode = ref<SelfieState['overlay_mode']>('logo')
   const vintageLookEnabled = ref(false)
   const moderationMode = ref<SelfieState['moderation_mode']>('auto_approve')
   const slideshowUpdatedAt = ref<string | null>(null)
@@ -34,7 +34,7 @@ export const useSelfieStore = defineStore('selfie', () => {
     slideshowMaxVisiblePhotos.value = state.slideshow_max_visible_photos
     slideshowMinUploadsToStart.value = state.slideshow_min_uploads_to_start
     slideshowShuffle.value = state.slideshow_shuffle
-    logoOverlayEnabled.value = state.logo_overlay_enabled
+    overlayMode.value = state.overlay_mode
     vintageLookEnabled.value = state.vintage_look_enabled
     moderationMode.value = state.moderation_mode
     slideshowUpdatedAt.value = state.slideshow_updated_at
@@ -46,7 +46,7 @@ export const useSelfieStore = defineStore('selfie', () => {
     slideshowMaxVisiblePhotos,
     slideshowMinUploadsToStart,
     slideshowShuffle,
-    logoOverlayEnabled,
+    overlayMode,
     vintageLookEnabled,
     moderationMode,
     slideshowUpdatedAt,

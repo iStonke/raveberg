@@ -134,18 +134,18 @@ const showDisplayOverlay = computed(
       !hasInitialState.value ||
       rendererCrashMessage.value
     ) {
-      return false
+      return null
     }
     if (appModeStore.mode === 'visualizer') {
-      return visualizerStore.logoOverlayEnabled
+      return visualizerStore.overlayMode === 'off' ? null : visualizerStore.overlayMode
     }
     if (appModeStore.mode === 'selfie') {
-      return selfieStore.logoOverlayEnabled
+      return selfieStore.overlayMode === 'off' ? null : selfieStore.overlayMode
     }
     if (appModeStore.mode === 'video') {
-      return videoStore.logoOverlayEnabled
+      return videoStore.overlayMode === 'off' ? null : videoStore.overlayMode
     }
-    return false
+    return null
   },
 )
 
@@ -447,7 +447,11 @@ async function postHeartbeat(isConnected: boolean) {
       </Transition>
     </div>
     <Transition name="display-overlay-fade">
-      <DisplayOverlay v-if="showDisplayOverlay" />
+      <DisplayOverlay
+        v-if="showDisplayOverlay"
+        :mode="showDisplayOverlay"
+        :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
+      />
     </Transition>
     <div v-if="connectionState !== 'connected'" class="display-connection">
       {{ connectionMessage }}

@@ -5,6 +5,7 @@ export type UploadModerationStatus = 'pending' | 'approved' | 'rejected'
 export type VideoPlaybackOrder = 'upload_order' | 'random'
 export type VideoObjectFit = 'contain' | 'cover'
 export type VideoTransition = 'none' | 'fade'
+export type OverlayMode = 'logo' | 'qr' | 'off'
 
 export interface SessionUser {
   id: number
@@ -146,7 +147,7 @@ export interface SelfieState {
   slideshow_max_visible_photos: number
   slideshow_min_uploads_to_start: number
   slideshow_shuffle: boolean
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   vintage_look_enabled: boolean
   moderation_mode: ModerationMode
   slideshow_updated_at: string | null
@@ -174,7 +175,7 @@ export interface VideoState {
   loop_enabled: boolean
   playback_order: VideoPlaybackOrder
   vintage_filter_enabled: boolean
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
@@ -200,7 +201,7 @@ export interface VisualizerState {
   speed: number
   brightness: number
   color_scheme: ColorScheme
-  logo_overlay_enabled: boolean
+  overlay_mode: OverlayMode
   auto_cycle_enabled: boolean
   auto_cycle_interval_seconds: number
   updated_at: string | null
