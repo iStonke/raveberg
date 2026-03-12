@@ -199,6 +199,7 @@ const config = {
 
 const PLAYLIST_FILENAME = 'playlist.m3u8'
 const SEGMENT_GLOB = /^segment_\d+\.(ts|m4s)$/i
+const MJPEG_BOUNDARY = 'frame'
 
 const state = {
   startedAt: Date.now(),
@@ -235,7 +236,15 @@ const state = {
   backpressureWaitMsLast: null,
   lastBackpressureAt: null,
   latestFrame: null,
+  latestSnapshotAt: null,
   lastError: '',
+  mjpeg: {
+    activeClients: 0,
+    framesBroadcastTotal: 0,
+    lastFrameAt: null,
+    lastClientConnectedAt: null,
+    lastClientDisconnectedAt: null,
+  },
   ffmpeg: {
     running: false,
     pid: null,
@@ -261,6 +270,8 @@ const healthRuntime = {
   startupGraceLoggedActive: null,
 }
 
+const mjpegClients = new Set()
+
 function beginStartupGrace(reason, anchorAt = Date.now()) {
   state.startupGraceAnchorAt = anchorAt
   state.startupGraceEndsAt = anchorAt + config.startupGraceMs
@@ -268,6 +279,72 @@ function beginStartupGrace(reason, anchorAt = Date.now()) {
   console.log(
     `[renderer_headless] startup grace started reason=${reason} anchor=${new Date(anchorAt).toISOString()} ends=${new Date(state.startupGraceEndsAt).toISOString()} duration_ms=${config.startupGraceMs}`,
   )
+}
+
+function updateMjpegClientCount() {
+  state.mjpeg.activeClients = mjpegClients.size
+}
+
+function unregisterMjpegClient(client) {
+  if (!mjpegClients.delete(client)) {
+    return
+  }
+  state.mjpeg.lastClientDisconnectedAt = Date.now()
+  updateMjpegClientCount()
+  console.log(`[renderer_headless] mjpeg client disconnected active_clients=${state.mjpeg.activeClients}`)
+}
+
+function writeMjpegFrame(response, frame, emittedAt) {
+  response.write(`--${MJPEG_BOUNDARY}\r\n`)
+  response.write('Content-Type: image/jpeg\r\n')
+  response.write(`Content-Length: ${frame.length}\r\n`)
+  response.write(`X-Frame-Timestamp: ${emittedAt}\r\n\r\n`)
+  response.write(frame)
+  response.write('\r\n')
+}
+
+function broadcastMjpegFrame(frame, emittedAt) {
+  state.mjpeg.framesBroadcastTotal += 1
+  state.mjpeg.lastFrameAt = emittedAt
+  if (mjpegClients.size === 0) {
+    return
+  }
+
+  for (const client of Array.from(mjpegClients)) {
+    const response = client.response
+    if (response.destroyed || response.writableEnded) {
+      unregisterMjpegClient(client)
+      continue
+    }
+    try {
+      writeMjpegFrame(response, frame, emittedAt)
+    } catch (_error) {
+      unregisterMjpegClient(client)
+    }
+  }
+}
+
+function registerMjpegClient(response) {
+  const client = { response }
+  mjpegClients.add(client)
+  state.mjpeg.lastClientConnectedAt = Date.now()
+  updateMjpegClientCount()
+  console.log(`[renderer_headless] mjpeg client connected active_clients=${state.mjpeg.activeClients}`)
+
+  response.on('close', () => {
+    unregisterMjpegClient(client)
+  })
+  response.on('error', () => {
+    unregisterMjpegClient(client)
+  })
+
+  if (state.latestFrame && state.lastFrameAt) {
+    try {
+      writeMjpegFrame(response, state.latestFrame, state.lastFrameAt)
+    } catch (_error) {
+      unregisterMjpegClient(client)
+    }
+  }
 }
 
 class HeadlessRenderer {
@@ -626,6 +703,8 @@ class HeadlessRenderer {
     const screenshotDurationMs = screenshotCompletedAt - renderStartedAt
 
     state.latestFrame = jpeg
+    state.latestSnapshotAt = screenshotCompletedAt
+    broadcastMjpegFrame(jpeg, screenshotCompletedAt)
 
     const writeResult = await writeToStream(this.ffmpeg.stdin, jpeg, () => {
       state.backpressureWaitsTotal += 1
@@ -850,9 +929,29 @@ function toSnakeOutputStatus(output) {
   }
 }
 
+function buildPreviewStatus() {
+  const snapshotReady = Boolean(state.latestFrame)
+  const lastFrameAt = state.mjpeg.lastFrameAt ?? state.latestSnapshotAt ?? state.lastFrameAt
+
+  return {
+    mode: 'mjpeg',
+    streamUrl: '/stream',
+    snapshotUrl: '/snapshot.jpg',
+    streamAvailable: true,
+    snapshotReady,
+    activeClients: state.mjpeg.activeClients,
+    framesBroadcastTotal: state.mjpeg.framesBroadcastTotal,
+    lastFrameAt,
+    lastSnapshotAt: state.latestSnapshotAt,
+    lastClientConnectedAt: state.mjpeg.lastClientConnectedAt,
+    lastClientDisconnectedAt: state.mjpeg.lastClientDisconnectedAt,
+  }
+}
+
 function buildHealthPayload() {
   const preferredOutput = collectOutputStatus()
   const preferredOutputSnake = toSnakeOutputStatus(preferredOutput)
+  const previewOutput = buildPreviewStatus()
   const now = Date.now()
   const uptimeMs = now - state.startedAt
   const ffmpegUptimeMs = state.ffmpeg.startedAt ? Math.max(0, now - state.ffmpeg.startedAt) : null
@@ -956,6 +1055,8 @@ function buildHealthPayload() {
     actual_fps: state.actualFps,
     avg_frame_render_ms: state.avgFrameRenderMs,
     ffmpeg_stdin_backpressure_count: state.backpressureWaitsTotal,
+    preview_stream_active: previewOutput.activeClients > 0,
+    last_preview_frame_at: previewOutput.lastFrameAt,
     ffmpeg_running: state.ffmpeg.running,
     ffmpeg_exit_code: state.ffmpeg.exitCode,
     last_healthy_at: state.lastHealthyAt,
@@ -1016,6 +1117,20 @@ function buildHealthPayload() {
       ...state.ffmpeg,
       uptimeMs: ffmpegUptimeMs,
     },
+    preview: previewOutput,
+    preview_output: {
+      mode: previewOutput.mode,
+      stream_url: previewOutput.streamUrl,
+      snapshot_url: previewOutput.snapshotUrl,
+      stream_available: previewOutput.streamAvailable,
+      snapshot_ready: previewOutput.snapshotReady,
+      active_clients: previewOutput.activeClients,
+      frames_broadcast_total: previewOutput.framesBroadcastTotal,
+      last_frame_at: previewOutput.lastFrameAt,
+      last_snapshot_at: previewOutput.lastSnapshotAt,
+      last_client_connected_at: previewOutput.lastClientConnectedAt,
+      last_client_disconnected_at: previewOutput.lastClientDisconnectedAt,
+    },
     preferredOutput,
     preferred_output: preferredOutputSnake,
     watchdog: {
@@ -1058,7 +1173,8 @@ function logHealthTransition(payload) {
     `[renderer_headless] health transition status=${payload.status} detail=${payload.statusDetail} ` +
     `display_loaded=${payload.display_loaded} ffmpeg_running=${payload.ffmpeg_running} ` +
     `playlist_exists=${payload.preferred_output.playlist_exists} segment_count=${payload.preferred_output.segment_count} ` +
-    `actual_fps=${payload.actual_fps} target_fps=${payload.settings?.fps ?? 'n/a'}`
+    `actual_fps=${payload.actual_fps} target_fps=${payload.settings?.fps ?? 'n/a'} ` +
+    `preview_clients=${payload.preview_output?.active_clients ?? 0}`
 
   if (payload.status === 'ok') {
     console.log(message)
@@ -1088,13 +1204,15 @@ function createPreviewHtml() {
       main {
         width: min(92vw, 1280px);
       }
-      video {
+      img {
         width: 100%;
         display: block;
         border-radius: 18px;
         border: 1px solid rgba(255,255,255,0.08);
         background: #020409;
         box-shadow: 0 24px 72px rgba(0,0,0,0.45);
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
       }
       .panel {
         margin-bottom: 1rem;
@@ -1140,7 +1258,6 @@ function createPreviewHtml() {
         color: #91dcff;
       }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   </head>
   <body>
     <main>
@@ -1148,25 +1265,24 @@ function createPreviewHtml() {
       <div id="status" class="panel waiting">Waiting for renderer status.</div>
       <div class="panel">
         <div>Display source: <code>${escapeHtml(config.displayUrl)}</code></div>
-        <div>Preferred output: <code>/hls/${PLAYLIST_FILENAME}</code></div>
+        <div>Pi-compatible preview: <code>/stream</code></div>
+        <div>Primary HLS output: <code>/hls/${PLAYLIST_FILENAME}</code></div>
         <div>Render size: <code>${config.renderWidth}x${config.renderHeight}</code>, output size: <code>${config.outputWidth}x${config.outputHeight}</code></div>
         <div>Profile: <code>${config.profile}</code>, target: <code>${config.fps} FPS</code>, JPEG quality: <code>${config.jpegQuality}</code>, preset: <code>${config.preset}</code></div>
       </div>
-      <video id="video" controls autoplay muted playsinline></video>
+      <img id="previewImage" src="/stream" alt="Renderer preview stream" />
       <div id="metrics" class="panel metrics">
         <div class="metric"><strong>Status</strong><span>Waiting for data</span></div>
       </div>
       <div class="panel">
-        Inspect <a href="/health">/health</a> if the playlist is not ready yet.
+        Inspect <a href="/health">/health</a>, <a href="/stream">/stream</a> and <a href="/hls/${PLAYLIST_FILENAME}">/hls/${PLAYLIST_FILENAME}</a>.
       </div>
     </main>
     <script>
-      const video = document.getElementById('video');
+      const previewImage = document.getElementById('previewImage');
       const statusBox = document.getElementById('status');
       const metricsBox = document.getElementById('metrics');
-      const source = '/hls/${PLAYLIST_FILENAME}';
-      let attached = false;
-      let player;
+      let mjpegLoaded = false;
 
       function formatTime(timestamp) {
         if (!timestamp) {
@@ -1177,6 +1293,7 @@ function createPreviewHtml() {
 
       function renderMetrics(payload) {
         const output = payload.preferredOutput || {};
+        const preview = payload.preview || {};
         const settings = payload.settings || {};
         metricsBox.innerHTML = [
           ['Status', payload.status + ' / ' + payload.statusDetail],
@@ -1184,6 +1301,9 @@ function createPreviewHtml() {
           ['Avg frame', payload.avg_frame_render_ms != null ? payload.avg_frame_render_ms + ' ms' : 'n/a'],
           ['Dropped / skipped', (payload.frames_dropped_total ?? 0) + ' / ' + (payload.frames_skipped_total ?? 0)],
           ['Backpressure', payload.ffmpeg_stdin_backpressure_count ?? 0],
+          ['Preview', preview.streamAvailable ? 'mjpeg' : 'snapshot'],
+          ['Preview clients', preview.activeClients ?? 0],
+          ['Last preview frame', formatTime(preview.lastFrameAt)],
           ['HLS', output.stale ? 'stale' : (output.ready ? 'ready' : 'not ready')],
           ['Segments', output.segmentCount ?? 0],
           ['Last HLS activity', formatTime(output.lastActivityAt)],
@@ -1193,42 +1313,26 @@ function createPreviewHtml() {
         ].map(([label, value]) => '<div class="metric"><strong>' + label + '</strong><span>' + value + '</span></div>').join('');
       }
 
-      function attachPlayer() {
-        if (attached) {
-          return;
-        }
-        attached = true;
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = source;
-          return;
-        }
-        if (window.Hls && window.Hls.isSupported()) {
-          player = new Hls({
-            lowLatencyMode: true,
-            liveSyncDurationCount: 2,
-            maxLiveSyncPlaybackRate: 1.2,
-          });
-          player.loadSource(source);
-          player.attachMedia(video);
-          return;
-        }
-        statusBox.className = 'panel waiting';
-        statusBox.textContent = 'HLS playback is not supported in this browser.';
-      }
+      previewImage.addEventListener('load', () => {
+        mjpegLoaded = true;
+      });
+      previewImage.addEventListener('error', () => {
+        mjpegLoaded = false;
+      });
 
       async function refresh() {
         try {
           const response = await fetch('/health', { cache: 'no-store' });
           const payload = await response.json();
           const output = payload.preferredOutput || {};
+          const preview = payload.preview || {};
           renderMetrics(payload);
           if (payload.statusDetail === 'hls_stale') {
             statusBox.className = 'panel failed';
-            statusBox.textContent = 'HLS output is stale. A restart is likely pending.';
-          } else if (output.ready) {
+            statusBox.textContent = 'HLS output is stale. MJPEG preview may still show the last rendered frames.';
+          } else if (preview.snapshotReady && mjpegLoaded) {
             statusBox.className = payload.status === 'degraded' ? 'panel waiting' : 'panel ready';
-            statusBox.innerHTML = 'Renderer ready via <code>/hls/${PLAYLIST_FILENAME}</code> at <code>' + (payload.actual_fps ?? 'n/a') + ' FPS</code>.';
-            attachPlayer();
+            statusBox.innerHTML = 'Pi-compatible preview active via <code>/stream</code>. HLS status: <code>' + (output.ready ? 'ready' : payload.statusDetail) + '</code>.';
           } else if (payload.statusDetail === 'ffmpeg_failed') {
             statusBox.className = 'panel failed';
             statusBox.textContent = payload.ffmpeg?.lastError || 'ffmpeg failed before HLS output became ready.';
@@ -1243,19 +1347,19 @@ function createPreviewHtml() {
             statusBox.textContent = 'Render loop is no longer active.';
           } else if (payload.status === 'starting' || payload.statusDetail === 'starting') {
             statusBox.className = 'panel waiting';
-            statusBox.textContent = 'Renderer is still within startup grace and preparing HLS output.';
+            statusBox.textContent = 'Renderer is still within startup grace and preparing preview/HLS output.';
           } else if (payload.statusDetail === 'warming_up') {
             statusBox.className = 'panel waiting';
-            statusBox.textContent = 'Renderer is rendering first frames, HLS playlist is still warming up.';
+            statusBox.textContent = 'Renderer is rendering first frames. MJPEG preview should appear before HLS becomes ready.';
           } else if (payload.statusDetail === 'running_slowly') {
             statusBox.className = 'panel waiting';
-            statusBox.textContent = 'Renderer is alive but currently below target FPS. HLS may appear with delay.';
+            statusBox.textContent = 'Renderer is alive but currently below target FPS. MJPEG preview is the compatibility path for the Pi.';
           } else if (payload.statusDetail === 'hls_init_timeout') {
             statusBox.className = 'panel failed';
-            statusBox.textContent = 'Renderer stayed active, but HLS did not become ready within the init timeout.';
+            statusBox.textContent = 'Renderer stayed active, but HLS did not become ready within the init timeout. Check whether MJPEG preview is visible.';
           } else {
             statusBox.className = 'panel waiting';
-            statusBox.textContent = 'Renderer is running, but HLS output is not ready yet.';
+            statusBox.textContent = 'Renderer is running, but preview frames are not visible yet.';
           }
         } catch (_error) {
           statusBox.className = 'panel failed';
@@ -1304,6 +1408,7 @@ async function main() {
   console.log(`[renderer_headless] startup grace: ${config.startupGraceMs}ms`)
   console.log(`[renderer_headless] hls init timeout: ${config.hlsInitTimeoutMs}ms`)
   console.log(`[renderer_headless] output stale threshold: ${config.outputStaleMs}ms`)
+  console.log('[renderer_headless] preview compatibility mode: MJPEG /stream + snapshot /snapshot.jpg')
   console.log(
     `[renderer_headless] watchdog: ${config.watchdogEnabled ? `enabled every ${config.watchdogIntervalMs}ms (threshold ${config.watchdogFailureThreshold})` : 'disabled'}`,
   )
@@ -1340,6 +1445,16 @@ async function main() {
     response.type('html').send(createPreviewHtml())
   })
 
+  app.get('/stream', (_request, response) => {
+    sendNoCache(response)
+    response.status(200)
+    response.setHeader('Connection', 'keep-alive')
+    response.setHeader('X-Accel-Buffering', 'no')
+    response.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`)
+    response.flushHeaders()
+    registerMjpegClient(response)
+  })
+
   app.get('/snapshot.jpg', (_request, response) => {
     if (!state.latestFrame) {
       response.status(503).type('text/plain').send('No rendered frame available yet.')
@@ -1370,6 +1485,8 @@ async function main() {
   const server = app.listen(config.port, config.host, () => {
     console.log(`[renderer_headless] preview: http://${config.host}:${config.port}/preview`)
     console.log(`[renderer_headless] health: http://${config.host}:${config.port}/health`)
+    console.log(`[renderer_headless] mjpeg stream: http://${config.host}:${config.port}/stream`)
+    console.log(`[renderer_headless] snapshot: http://${config.host}:${config.port}/snapshot.jpg`)
     console.log(`[renderer_headless] hls playlist: http://${config.host}:${config.port}/hls/${PLAYLIST_FILENAME}`)
   })
 
