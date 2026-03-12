@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename)
 const DEFAULTS = {
   host: '0.0.0.0',
   port: 9012,
-  displayUrl: 'http://127.0.0.1:8085/display',
+  displayUrl: 'http://127.0.0.1:8085/display?renderer=1',
   outputWidth: 1920,
   outputHeight: 1080,
   renderWidth: 1920,

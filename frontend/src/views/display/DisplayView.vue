@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import type { SelfiePlaybackEvent } from '../../services/api'
 import { sendDisplayHeartbeat } from '../../services/api'
@@ -20,6 +21,7 @@ import VideoRenderer from '../../components/display/VideoRenderer.vue'
 import VisualizerRenderer from '../../components/display/VisualizerRenderer.vue'
 
 const appModeStore = useAppModeStore()
+const route = useRoute()
 const publicRuntimeStore = usePublicRuntimeStore()
 const selfieStore = useSelfieStore()
 const standbyStore = useStandbyStore()
@@ -48,8 +50,12 @@ const heartbeatIntervalMs = Math.max(
   Number(import.meta.env.VITE_DISPLAY_HEARTBEAT_INTERVAL_SECONDS ?? '15'),
 ) * 1000
 
+// The external headless renderer requests `/display?renderer=1` so it always sees
+// the local display path instead of recursing into the remote player again.
+const rendererBypassActive = computed(() => route.query.renderer === '1')
+
 const remoteHeadlessModeEnabled = computed(
-  () => publicRuntimeStore.displayRenderMode === 'remote_headless',
+  () => publicRuntimeStore.displayRenderMode === 'remote_headless' && !rendererBypassActive.value,
 )
 
 const remoteVisualizerConfigured = computed(
@@ -483,6 +489,9 @@ function markStateSync() {
 
 function currentRendererLabel() {
   if (!hasInitialState.value) return 'Idle Renderer'
+  if (rendererBypassActive.value) {
+    return `${localRendererLabel()} (Renderer Bypass)`
+  }
   if (remoteHeadlessModeEnabled.value) {
     if (remoteHeadlessAvailable.value) {
       return 'Remote Headless Renderer'

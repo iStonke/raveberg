@@ -2,10 +2,16 @@
 
 Pragmatischer separater Renderer-Service fuer RaveBerg. Der Service bleibt Teil des bestehenden Repos, nutzt die vorhandene `/display`-Seite als Render-Quelle und dupliziert keine Business-Logik.
 
+Wichtig fuer `remote_headless`:
+
+- Der Renderer soll immer die lokale Display-Variante laden, nicht erneut den Remote-Player.
+- Dafuer wird als Quelle explizit `http://<PI-IP>:8085/display?renderer=1` verwendet.
+- Der Query-Parameter `renderer=1` umgeht nur fuer diesen Aufruf den globalen `remote_headless`-Modus und verhindert so einen Remote-Renderer-Loop.
+
 ## Architektur
 
 1. Das bestehende RaveBerg-System auf dem Raspberry Pi bleibt Master fuer Backend, Uploads, Admin, Moderation, API und Zustande.
-2. Dieser Service laedt die bestehende `/display`-Seite in einem Headless-Chromium.
+2. Dieser Service laedt die bestehende `/display?renderer=1`-Seite in einem Headless-Chromium.
 3. Der Browser rendert die Vue-Display-Ansicht ohne Desktop-Capture oder Bildschirmaufnahme.
 4. Einzelne Browser-Frames werden direkt aus der Headless-Renderpipeline als JPEG entnommen.
 5. `ffmpeg` encodiert diese Frames in H.264/HLS.
@@ -96,7 +102,7 @@ Wichtige Variablen:
 Sinnvolle Defaults:
 
 - Port `9012`
-- Display-URL `http://127.0.0.1:8085/display`
+- Display-URL `http://127.0.0.1:8085/display?renderer=1`
 - Output-Aufloesung `1920x1080`
 - Render-Aufloesung `1280x720` im Profil `balanced`
 - Profil `balanced`
@@ -149,7 +155,7 @@ Produktionsnah lokal:
 
 ```bash
 cd /Users/admin/Documents/raveBerg/renderer_headless
-HEADLESS_RENDERER_DISPLAY_URL=http://192.168.178.38:8085/display \
+HEADLESS_RENDERER_DISPLAY_URL=http://192.168.178.38:8085/display?renderer=1 \
 HEADLESS_RENDERER_HOST=0.0.0.0 \
 HEADLESS_RENDERER_PORT=9012 \
 HEADLESS_RENDERER_PROFILE=balanced \
@@ -272,7 +278,7 @@ Empfohlener erster echter Erfolgstest:
 
 - ob der Renderer laeuft
 - ob der Headless-Browser laeuft
-- ob `/display` erfolgreich geladen wurde
+- ob `/display?renderer=1` erfolgreich geladen wurde
 - ob die Render-Pipeline aktiv ist
 - wie viele Frames erfolgreich an `ffmpeg` uebergeben wurden
 - wie viele Frames verworfen oder uebersprungen wurden
@@ -382,6 +388,14 @@ Problemfaelle klar erkennbar:
 ## Nutzung auf dem Raspberry Pi
 
 Der Pi bleibt im integrierten Betrieb weiterhin auf der bestehenden RaveBerg-Seite `/display`. Dort kann im Adminbereich zwischen lokalem Rendering und `remote_headless` umgeschaltet werden.
+
+Der externe Renderer selbst soll dagegen immer diese Quelle verwenden:
+
+```text
+http://<PI-IP>:8085/display?renderer=1
+```
+
+Damit rendert der Renderer bewusst die lokale Display-Ansicht und nicht erneut den `RemoteRendererPlayer`.
 
 Empfohlene Runtime-Konfiguration in RaveBerg:
 
