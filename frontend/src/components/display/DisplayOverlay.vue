@@ -5,11 +5,12 @@ import RavebergLogo from '../branding/RavebergLogo.vue'
 defineProps<{
   mode: 'logo' | 'qr'
   guestUploadUrl?: string
+  position?: 'fixed' | 'absolute'
 }>()
 </script>
 
 <template>
-  <div class="display-overlay">
+  <div class="display-overlay" :class="position === 'absolute' ? 'display-overlay--absolute' : ''">
     <RavebergLogo v-if="mode === 'logo'" mode="compact" class="overlay-logo" muted />
     <div v-else class="overlay-qr-shell">
       <div class="overlay-qr-card">
@@ -40,6 +41,10 @@ defineProps<{
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   pointer-events: none;
   z-index: 10;
+}
+
+.display-overlay--absolute {
+  position: absolute;
 }
 
 .overlay-qr-shell {

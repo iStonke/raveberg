@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { AppMode, ModerationMode, SelfiePlaybackEvent, UploadItem } from '../../services/api'
+import type { AppMode, ModerationMode, OverlayMode, SelfiePlaybackEvent, UploadItem } from '../../services/api'
 import { fetchPublicUploads } from '../../services/api'
 import { usePublicRuntimeStore } from '../../stores/publicRuntime'
+import DisplayOverlay from './DisplayOverlay.vue'
 import IdleRenderer from './IdleRenderer.vue'
 import SelfiePolaroidStage from './selfie/SelfiePolaroidStage.vue'
 
@@ -22,6 +23,8 @@ const props = defineProps<{
     slideshow_updated_at: string | null
   }
   playbackCommand: SelfiePlaybackEvent | null
+  overlayMode: OverlayMode
+  guestUploadUrl?: string
 }>()
 
 const publicRuntimeStore = usePublicRuntimeStore()
@@ -97,22 +100,43 @@ function shuffle(items: UploadItem[]) {
 </script>
 
 <template>
-  <IdleRenderer
-    v-if="shouldShowStandby"
-    :event-name="publicRuntimeStore.eventName"
-    :event-tagline="publicRuntimeStore.eventTagline"
-    :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
-    :reaction-token="props.standbyReactionToken"
-  />
-  <SelfiePolaroidStage
-    v-else
-    :uploads="uploads"
-    :loading="isLoading"
-    :paused="isPaused"
-    :interval-seconds="props.settings.slideshow_interval_seconds"
-    :max-visible-photos="props.settings.slideshow_max_visible_photos"
-    :vintage-look-enabled="props.settings.vintage_look_enabled"
-    :moderation-mode="props.settings.moderation_mode"
-    :manual-advance-token="manualAdvanceToken"
-  />
+  <div class="selfie-renderer">
+    <IdleRenderer
+      v-if="shouldShowStandby"
+      :event-name="publicRuntimeStore.eventName"
+      :event-tagline="publicRuntimeStore.eventTagline"
+      :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
+      :reaction-token="props.standbyReactionToken"
+    />
+    <SelfiePolaroidStage
+      v-else
+      :uploads="uploads"
+      :loading="isLoading"
+      :paused="isPaused"
+      :interval-seconds="props.settings.slideshow_interval_seconds"
+      :max-visible-photos="props.settings.slideshow_max_visible_photos"
+      :vintage-look-enabled="props.settings.vintage_look_enabled"
+      :moderation-mode="props.settings.moderation_mode"
+      :manual-advance-token="manualAdvanceToken"
+    />
+    <DisplayOverlay
+      v-if="props.overlayMode !== 'off' && !shouldShowStandby"
+      class="selfie-renderer__overlay"
+      :mode="props.overlayMode"
+      :guest-upload-url="props.guestUploadUrl"
+      position="absolute"
+    />
+  </div>
 </template>
+
+<style scoped>
+.selfie-renderer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.selfie-renderer__overlay {
+  z-index: 20;
+}
+</style>

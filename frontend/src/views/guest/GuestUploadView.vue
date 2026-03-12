@@ -1,397 +1,224 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ref } from 'vue'
 
 import RavebergLogo from '../../components/branding/RavebergLogo.vue'
-import { uploadGuestImage } from '../../services/api'
-import { usePublicRuntimeStore } from '../../stores/publicRuntime'
+import { useGuestUploadFlow } from '../../composables/useGuestUploadFlow'
 
-const publicRuntimeStore = usePublicRuntimeStore()
-const fileInput = ref<HTMLInputElement | null>(null)
-const cameraInput = ref<HTMLInputElement | null>(null)
-const isUploading = ref(false)
-const progress = ref(0)
-const successMessage = ref('')
-const errorMessage = ref('')
-const uploadedPreviewUrl = ref<string | null>(null)
-const pendingPreviewUrl = ref<string | null>(null)
-const pendingFile = ref<File | null>(null)
-const isConfirmDialogOpen = ref(false)
-const commentDraft = ref('')
-const isFlashActive = ref(false)
+const isCommentFieldFocused = ref(false)
 
-const guestHeadline = 'Selfie auf den Screen'
-const guestSubheadline = 'Foto machen oder hochladen'
-
-const uploadMetaText = computed(() => `1 Bild zurzeit · Max. ${publicRuntimeStore.uploadMaxMegabytes} MB`)
-
-const successDetail = 'Dein Bild erscheint gleich auf dem Screen'
-let flashTimeoutId: ReturnType<typeof setTimeout> | null = null
-const commentLimit = 40
-
-onMounted(async () => {
-  if (!publicRuntimeStore.isLoaded) {
-    try {
-      await publicRuntimeStore.refresh()
-    } catch {
-      // Keep the guest upload flow usable even if runtime info is temporarily unavailable.
-    }
-  }
-})
-
-onBeforeUnmount(() => {
-  clearFlashTimeout()
-  clearPendingSelection()
-  revokePreview()
-})
-
-async function handleFileSelection(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  target.value = ''
-
-  if (!file) {
-    return
-  }
-
-  clearMessages()
-  clearPendingSelection()
-  pendingFile.value = file
-  pendingPreviewUrl.value = URL.createObjectURL(file)
-  progress.value = 0
-  isConfirmDialogOpen.value = true
-}
-
-async function confirmUpload() {
-  if (!pendingFile.value || !pendingPreviewUrl.value) {
-    return
-  }
-
-  const file = pendingFile.value
-  const previewUrl = pendingPreviewUrl.value
-  const comment = normalizeComment(commentDraft.value)
-  pendingFile.value = null
-  pendingPreviewUrl.value = null
-  isConfirmDialogOpen.value = false
-  progress.value = 0
-  isUploading.value = true
-
-  try {
-    await uploadGuestImage(file, comment, (nextProgress) => {
-      progress.value = nextProgress
-    })
-    uploadedPreviewUrl.value = previewUrl
-    successMessage.value = 'Bild hochgeladen'
-    await nextTick()
-    triggerThumbnailFlash()
-  } catch (error) {
-    URL.revokeObjectURL(previewUrl)
-    errorMessage.value = humanizeUploadError(error)
-  } finally {
-    isUploading.value = false
-  }
-}
-
-function cancelUploadConfirmation() {
-  isConfirmDialogOpen.value = false
-  clearPendingSelection()
-}
-
-function openLibrary() {
-  fileInput.value?.click()
-}
-
-function openCamera() {
-  cameraInput.value?.click()
-}
-
-function clearMessages() {
-  successMessage.value = ''
-  errorMessage.value = ''
-  revokePreview()
-}
-
-function revokePreview() {
-  if (uploadedPreviewUrl.value) {
-    URL.revokeObjectURL(uploadedPreviewUrl.value)
-    uploadedPreviewUrl.value = null
-  }
-}
-
-function clearPendingSelection() {
-  pendingFile.value = null
-  commentDraft.value = ''
-  if (pendingPreviewUrl.value) {
-    URL.revokeObjectURL(pendingPreviewUrl.value)
-    pendingPreviewUrl.value = null
-  }
-}
-
-function updateCommentDraft(value: string) {
-  commentDraft.value = normalizeComment(value, { preserveTrailingSpace: true })
-}
-
-function normalizeComment(
-  value: string,
-  options: { preserveTrailingSpace?: boolean } = {},
-) {
-  const hadTrailingWhitespace = /\s$/u.test(value)
-  const singleLine = value.replace(/\s+/gu, ' ')
-  let limited = Array.from(singleLine).slice(0, commentLimit).join('')
-
-  if (
-    options.preserveTrailingSpace &&
-    hadTrailingWhitespace &&
-    !limited.endsWith(' ') &&
-    Array.from(limited).length < commentLimit
-  ) {
-    limited += ' '
-  }
-
-  return options.preserveTrailingSpace ? limited : limited.trim()
-}
-
-function commentCounter(value: string) {
-  return Array.from(value).length
-}
-
-function triggerThumbnailFlash() {
-  clearFlashTimeout()
-  isFlashActive.value = false
-
-  flashTimeoutId = setTimeout(() => {
-    requestAnimationFrame(() => {
-      isFlashActive.value = true
-      flashTimeoutId = setTimeout(() => {
-        isFlashActive.value = false
-        flashTimeoutId = null
-      }, 420)
-    })
-  }, 70)
-}
-
-function clearFlashTimeout() {
-  if (flashTimeoutId) {
-    clearTimeout(flashTimeoutId)
-    flashTimeoutId = null
-  }
-}
-
-function humanizeUploadError(error: unknown) {
-  const message = error instanceof Error ? error.message : 'Upload fehlgeschlagen'
-
-  if (/Zu viele Uploads/i.test(message)) {
-    return 'Kurz Pause. Bitte gleich noch einmal versuchen.'
-  }
-  if (/Unsupported file extension|Unsupported MIME type/i.test(message)) {
-    return 'Dieses Bildformat wird nicht unterstützt.'
-  }
-  if (/File too large/i.test(message)) {
-    return `Bild ist größer als ${publicRuntimeStore.uploadMaxMegabytes} MB.`
-  }
-  if (/Invalid or damaged image|Image processing failed/i.test(message)) {
-    return 'Dieses Bild konnte nicht verarbeitet werden.'
-  }
-  if (/Empty upload|Filename missing/i.test(message)) {
-    return 'Bitte wähle zuerst ein Foto aus.'
-  }
-
-  return 'Upload gerade nicht möglich. Bitte gleich noch einmal versuchen.'
-}
+const {
+  fileInput,
+  cameraInput,
+  isUploading,
+  errorMessage,
+  successNotice,
+  pendingPreviewUrl,
+  isPendingPreviewReady,
+  commentDraft,
+  step,
+  commentLimit,
+  commentLength,
+  uploadMetaText,
+  uploadProgressValue,
+  handleFileSelection,
+  confirmUpload,
+  cancelConfirmation,
+  openLibrary,
+  openCamera,
+  updateCommentDraft,
+  handlePendingPreviewLoad,
+} = useGuestUploadFlow()
 </script>
 
 <template>
   <section class="guest-upload-page">
-    <div class="guest-background" aria-hidden="true">
-      <div class="guest-background-layer guest-background-base" />
-      <div class="guest-background-layer guest-background-orb guest-background-orb-a" />
-      <div class="guest-background-layer guest-background-orb guest-background-orb-b" />
-      <div class="guest-background-layer guest-background-orb guest-background-orb-c" />
-      <div class="guest-background-layer guest-background-glow" />
+    <div class="guest-upload-background" aria-hidden="true">
+      <div class="guest-upload-background-layer guest-upload-background-base" />
+      <div class="guest-upload-background-layer guest-upload-background-orb guest-upload-background-orb-a" />
+      <div class="guest-upload-background-layer guest-upload-background-orb guest-upload-background-orb-b" />
+      <div class="guest-upload-background-layer guest-upload-background-orb guest-upload-background-orb-c" />
+      <div class="guest-upload-background-layer guest-upload-background-glow" />
     </div>
+
+    <Transition name="guest-success-banner">
+      <div v-if="successNotice" class="guest-success-banner-wrap" aria-live="polite" aria-atomic="true">
+        <div class="guest-success-banner" role="status">
+          <div class="guest-success-banner__icon">
+            <v-icon icon="mdi-check-circle" size="20" />
+          </div>
+          <div class="guest-success-banner__copy">
+            <div class="guest-success-banner__title">Bild hochgeladen</div>
+            <div class="guest-success-banner__text">{{ successNotice }}</div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <div class="guest-upload-panel">
-      <div class="guest-header">
-        <RavebergLogo mode="compact" class="guest-logo" />
-        <h1 class="guest-headline">{{ guestHeadline }}</h1>
-        <p class="guest-subheadline">{{ guestSubheadline }}</p>
-      </div>
-
-      <div class="guest-actions">
-        <v-btn
-          size="x-large"
-          color="primary"
-          rounded="xl"
-          block
-          class="guest-action-primary"
-          prepend-icon="mdi-camera"
-          :loading="isUploading"
-          @click="openCamera"
-        >
-          Kamera öffnen
-        </v-btn>
-        <v-btn
-          size="x-large"
-          variant="outlined"
-          rounded="xl"
-          block
-          class="guest-action-secondary"
-          prepend-icon="mdi-image-outline"
-          :disabled="isUploading"
-          @click="openLibrary"
-        >
-          Bild auswählen
-        </v-btn>
-      </div>
-
-      <div class="guest-meta" aria-live="polite">
-        <p class="guest-meta-line">{{ uploadMetaText }}</p>
-      </div>
-
-      <div v-if="successMessage && uploadedPreviewUrl" class="guest-divider" aria-hidden="true" />
-
-      <v-dialog
-        v-model="isConfirmDialogOpen"
-        max-width="24rem"
-        :persistent="isUploading"
-        scrim="rgba(3, 7, 12, 0.76)"
-      >
-        <v-card class="upload-confirm-card" rounded="xl">
-          <div v-if="pendingPreviewUrl" class="upload-confirm-preview-frame">
-            <img class="upload-confirm-preview" :src="pendingPreviewUrl" alt="Ausgewähltes Bild" />
+      <Transition name="guest-panel-switch" mode="out-in">
+        <div v-if="step === 'select'" key="select" class="guest-form">
+          <div class="guest-select-header">
+            <RavebergLogo mode="compact" class="guest-logo" />
+            <div class="guest-confirm-copy guest-confirm-copy--select">
+              <h1 class="guest-headline">Selfie auf dem Screen anzeigen</h1>
+              <p class="guest-subheadline">Foto machen oder auswählen</p>
+            </div>
           </div>
-          <div class="upload-confirm-title">Bild wirklich hochladen?</div>
-          <div class="upload-confirm-copy">
-            Das ausgewählte Foto wird direkt an den Screen-Upload gesendet.
+
+          <div class="guest-actions">
+            <v-btn
+              color="primary"
+              block
+              rounded="xl"
+              class="guest-submit guest-submit--primary"
+              size="x-large"
+              prepend-icon="mdi-camera"
+              :disabled="isUploading"
+              @click="openCamera"
+            >
+              Kamera öffnen
+            </v-btn>
+
+            <v-btn
+              variant="outlined"
+              block
+              rounded="xl"
+              class="guest-submit guest-submit--secondary"
+              size="x-large"
+              prepend-icon="mdi-image-outline"
+              :disabled="isUploading"
+              @click="openLibrary"
+            >
+              Bild auswählen
+            </v-btn>
           </div>
-          <v-text-field
-            :model-value="commentDraft"
-            label="Kommentar hinzufügen (optional)"
-            placeholder="z.B. Beste Nacht! 🎉"
-            variant="solo-filled"
-            :counter="commentLimit"
-            :counter-value="commentCounter"
-            single-line
-            class="upload-confirm-field"
-            @update:model-value="updateCommentDraft"
-            @keydown.enter.prevent
-          />
-          <div class="upload-confirm-actions">
+
+          <div class="guest-meta">
+            {{ uploadMetaText }}
+          </div>
+        </div>
+
+        <div v-else key="confirm" class="guest-form guest-form--confirm">
+          <div class="guest-confirm-scroll">
+            <Transition name="guest-preview" appear>
+              <div
+                v-if="pendingPreviewUrl"
+                class="guest-preview-frame"
+                :class="{ 'guest-preview-frame--loading': !isPendingPreviewReady }"
+              >
+                <img
+                  class="guest-preview-image"
+                  :class="{ 'guest-preview-image--ready': isPendingPreviewReady }"
+                  :src="pendingPreviewUrl"
+                  alt="Ausgewähltes Bild"
+                  @load="handlePendingPreviewLoad"
+                />
+              </div>
+            </Transition>
+
+            <div class="guest-confirm-copy">
+              <h1 class="guest-headline guest-headline--confirm">Bild wirklich hochladen?</h1>
+              <p class="guest-subheadline">Das Bild wird direkt auf dem Screen angezeigt</p>
+            </div>
+
+            <v-text-field
+              :model-value="commentDraft"
+              :placeholder="commentDraft ? '' : 'Kommentar hinzufügen (optional)'"
+              :maxlength="commentLimit"
+              aria-label="Kommentar hinzufügen"
+              variant="solo-filled"
+              hide-details
+              class="guest-field"
+              @update:model-value="updateCommentDraft"
+              @keydown.enter.prevent
+              @focusin="isCommentFieldFocused = true"
+              @focusout="isCommentFieldFocused = false"
+            />
+
+            <Transition name="guest-counter">
+              <div
+                v-if="isCommentFieldFocused"
+                class="guest-comment-counter"
+                aria-live="polite"
+              >
+                {{ commentLength }} / {{ commentLimit }}
+              </div>
+            </Transition>
+
+            <v-progress-linear
+              v-if="isUploading"
+              class="guest-progress"
+              color="primary"
+              rounded
+              height="8"
+              :model-value="uploadProgressValue"
+            />
+          </div>
+
+          <div class="guest-confirm-actions">
             <v-btn
               variant="outlined"
               rounded="xl"
-              class="upload-confirm-cancel"
+              class="guest-submit guest-submit--secondary"
               :disabled="isUploading"
-              @click="cancelUploadConfirmation"
+              @click="cancelConfirmation"
             >
-              Abbrechen
+              Zurück
             </v-btn>
+
             <v-btn
               color="primary"
               rounded="xl"
-              class="upload-confirm-submit"
+              class="guest-submit guest-submit--primary"
               :loading="isUploading"
               @click="confirmUpload"
             >
               Hochladen
             </v-btn>
           </div>
-        </v-card>
-      </v-dialog>
-
-      <input
-        ref="cameraInput"
-        class="hidden-input"
-        type="file"
-        accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
-        capture="environment"
-        @change="handleFileSelection"
-      />
-      <input
-        ref="fileInput"
-        class="hidden-input"
-        type="file"
-        accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
-        @change="handleFileSelection"
-      />
-
-      <v-progress-linear
-        v-if="isUploading"
-        class="guest-progress"
-        color="primary"
-        height="10"
-        rounded
-        :model-value="progress"
-      />
-
-      <Transition name="success-card">
-        <div v-if="successMessage && uploadedPreviewUrl" class="upload-feedback success-feedback">
-        <div class="upload-thumbnail-frame">
-          <img class="upload-thumbnail" :src="uploadedPreviewUrl" alt="Hochgeladenes Bild" />
-          <div class="thumbnail-flash-overlay" :class="{ 'flash-active': isFlashActive }" />
         </div>
-        <div class="feedback-title">{{ successMessage }}</div>
-        <div class="feedback-copy">{{ successDetail }}</div>
-      </div>
       </Transition>
 
-      <v-alert v-if="errorMessage" class="guest-alert" type="error" variant="tonal">
+      <v-alert
+        v-if="errorMessage"
+        type="error"
+        variant="tonal"
+        class="guest-alert"
+      >
         {{ errorMessage }}
       </v-alert>
     </div>
+
+    <input
+      ref="cameraInput"
+      class="hidden-input"
+      type="file"
+      accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
+      capture="environment"
+      @change="handleFileSelection"
+    />
+    <input
+      ref="fileInput"
+      class="hidden-input"
+      type="file"
+      accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
+      @change="handleFileSelection"
+    />
   </section>
 </template>
 
 <style scoped>
-.thumbnail-flash-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 255, 255, 0.98);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 2;
-  border-radius: 18px;
-  will-change: opacity;
-}
-
-.flash-active {
-  animation: cameraFlash 360ms cubic-bezier(0.16, 0.84, 0.32, 1);
-}
-
-@keyframes cameraFlash {
+@keyframes guestPreviewShimmer {
   0% {
-    opacity: 0;
-  }
-
-  18% {
-    opacity: 1;
-  }
-
-  52% {
-    opacity: 0.42;
+    background-position: 180% 0, 0 0;
   }
 
   100% {
-    opacity: 0;
+    background-position: -40% 0, 0 0;
   }
 }
 
-@keyframes confirmDialogJump {
-  0% {
-    opacity: 0;
-    transform: translateY(22px) scale(0.92);
-  }
-
-  55% {
-    opacity: 1;
-    transform: translateY(-8px) scale(1.02);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes bgMove {
+@keyframes guestBgMove {
   0% {
     transform: translate3d(-10%, -7%, 0) scale(0.98);
     opacity: 0.72;
@@ -403,7 +230,7 @@ function humanizeUploadError(error: unknown) {
   }
 }
 
-@keyframes bgDrift {
+@keyframes guestBgDrift {
   0% {
     transform: translate3d(0, 0, 0) scale(1);
     opacity: 0.42;
@@ -418,17 +245,18 @@ function humanizeUploadError(error: unknown) {
 .guest-upload-page {
   position: relative;
   isolation: isolate;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100%;
   display: grid;
   place-items: center;
   padding: 1rem;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% -8%, rgba(196, 231, 255, 0.14), transparent 24%),
-    linear-gradient(180deg, #1b3d63 0%, #122f50 34%, #081c33 68%, #040d18 100%);
+    radial-gradient(circle at 50% -8%, rgba(196, 231, 255, 0.08), transparent 20%),
+    linear-gradient(180deg, #0f233b 0%, #091828 34%, #040c16 68%, #02060b 100%);
 }
 
-.guest-background {
+.guest-upload-background {
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -436,65 +264,70 @@ function humanizeUploadError(error: unknown) {
   pointer-events: none;
 }
 
-.guest-background-layer {
+.guest-upload-background-layer {
   position: absolute;
   inset: 0;
 }
 
-.guest-background-base {
+.guest-upload-background-base {
   background:
-    radial-gradient(circle at 48% 12%, rgba(178, 222, 255, 0.32), transparent 26%),
-    radial-gradient(circle at 18% 24%, rgba(108, 226, 255, 0.12), transparent 20%),
-    radial-gradient(circle at 84% 78%, rgba(2, 8, 18, 0.62), transparent 28%),
-    radial-gradient(circle at 18% 88%, rgba(0, 0, 0, 0.46), transparent 24%),
-    linear-gradient(180deg, rgba(58, 107, 166, 0.18), rgba(6, 14, 26, 0.42));
+    radial-gradient(circle at 48% 12%, rgba(178, 222, 255, 0.2), transparent 22%),
+    radial-gradient(circle at 18% 24%, rgba(108, 226, 255, 0.08), transparent 18%),
+    radial-gradient(circle at 84% 78%, rgba(0, 0, 0, 0.78), transparent 26%),
+    radial-gradient(circle at 18% 88%, rgba(0, 0, 0, 0.62), transparent 22%),
+    linear-gradient(180deg, rgba(33, 73, 120, 0.14), rgba(2, 7, 14, 0.58));
 }
 
-.guest-background-orb {
+.guest-upload-background-orb {
   inset: -24%;
   filter: blur(40px);
   opacity: 0.98;
   will-change: transform;
 }
 
-.guest-background-orb-a {
+.guest-upload-background-orb-a {
   background:
-    radial-gradient(circle at 34% 24%, rgba(158, 222, 255, 0.72), transparent 16%),
-    radial-gradient(circle at 42% 32%, rgba(67, 154, 255, 0.24), transparent 24%),
-    radial-gradient(circle at 68% 72%, rgba(0, 0, 0, 0.26), transparent 30%);
-  animation: bgMove 7s ease-in-out infinite alternate;
+    radial-gradient(circle at 34% 24%, rgba(158, 222, 255, 0.48), transparent 14%),
+    radial-gradient(circle at 42% 32%, rgba(67, 154, 255, 0.16), transparent 20%),
+    radial-gradient(circle at 68% 72%, rgba(0, 0, 0, 0.42), transparent 26%);
+  animation: guestBgMove 7s ease-in-out infinite alternate;
 }
 
-.guest-background-orb-b {
+.guest-upload-background-orb-b {
   background:
-    radial-gradient(circle at 72% 24%, rgba(41, 136, 255, 0.5), transparent 18%),
-    radial-gradient(circle at 64% 18%, rgba(9, 29, 77, 0.52), transparent 24%),
-    radial-gradient(circle at 32% 82%, rgba(0, 0, 0, 0.34), transparent 28%);
-  animation: bgDrift 8.5s ease-in-out infinite alternate;
+    radial-gradient(circle at 72% 24%, rgba(41, 136, 255, 0.34), transparent 16%),
+    radial-gradient(circle at 64% 18%, rgba(9, 29, 77, 0.58), transparent 22%),
+    radial-gradient(circle at 32% 82%, rgba(0, 0, 0, 0.46), transparent 24%);
+  animation: guestBgDrift 8.5s ease-in-out infinite alternate;
 }
 
-.guest-background-orb-c {
+.guest-upload-background-orb-c {
   background:
-    radial-gradient(circle at 46% 78%, rgba(96, 235, 255, 0.24), transparent 16%),
-    radial-gradient(circle at 54% 72%, rgba(6, 20, 52, 0.5), transparent 24%),
-    radial-gradient(circle at 74% 20%, rgba(0, 0, 0, 0.32), transparent 26%);
-  animation: bgMove 10s ease-in-out infinite alternate-reverse;
+    radial-gradient(circle at 46% 78%, rgba(96, 235, 255, 0.16), transparent 14%),
+    radial-gradient(circle at 54% 72%, rgba(6, 20, 52, 0.58), transparent 22%),
+    radial-gradient(circle at 74% 20%, rgba(0, 0, 0, 0.44), transparent 22%);
+  animation: guestBgMove 10s ease-in-out infinite alternate-reverse;
 }
 
-.guest-background-glow {
+.guest-upload-background-glow {
   inset: -8%;
   background:
-    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.1), transparent 12%),
-    radial-gradient(circle at 52% 58%, rgba(37, 125, 255, 0.14), transparent 22%),
-    radial-gradient(circle at 30% 84%, rgba(4, 16, 41, 0.42), transparent 18%),
-    radial-gradient(circle at 78% 88%, rgba(0, 0, 0, 0.3), transparent 20%);
+    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.06), transparent 10%),
+    radial-gradient(circle at 52% 58%, rgba(37, 125, 255, 0.1), transparent 20%),
+    radial-gradient(circle at 30% 84%, rgba(4, 16, 41, 0.54), transparent 16%),
+    radial-gradient(circle at 78% 88%, rgba(0, 0, 0, 0.42), transparent 18%);
   filter: blur(22px);
-  animation: bgDrift 11s ease-in-out infinite alternate-reverse;
+  animation: guestBgDrift 11s ease-in-out infinite alternate-reverse;
 }
 
 .guest-upload-panel {
-  width: min(100%, 34rem);
-  padding: clamp(1.2rem, 4vw, 1.8rem);
+  position: relative;
+  width: min(100%, 28rem);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: clamp(1.35rem, 4vw, 1.9rem);
   border-radius: 30px;
   background:
     linear-gradient(180deg, rgba(25, 34, 46, 0.14), rgba(8, 12, 18, 0.34)),
@@ -506,285 +339,314 @@ function humanizeUploadError(error: unknown) {
     inset 0 -1px 0 rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(28px) saturate(145%);
   -webkit-backdrop-filter: blur(28px) saturate(145%);
-}
-
-.guest-header {
-  display: grid;
-  justify-items: center;
-  gap: 0.28rem;
+  overflow: hidden;
 }
 
 .guest-logo {
   width: min(100%, 12rem);
-  margin-bottom: 0.72rem;
+  display: block;
+  margin: 0 auto;
   filter: drop-shadow(0 14px 30px rgba(56, 148, 255, 0.16));
 }
 
 .guest-headline {
-  margin: 0;
-  max-width: none;
-  font-size: clamp(1.15rem, 4.2vw, 1.375rem);
+  margin: 1rem 0 0;
+  text-align: center;
+  font-size: clamp(1.2rem, 4.4vw, 1.45rem);
   font-weight: 600;
   line-height: 1.2;
-  letter-spacing: -0.01em;
-  text-align: center;
   color: rgba(255, 255, 255, 0.92);
   text-shadow: 0 0 12px rgba(82, 178, 255, 0.08);
-  white-space: nowrap;
+}
+
+.guest-headline--confirm {
+  margin-top: 0;
 }
 
 .guest-subheadline {
-  margin: 0;
+  margin: 0.08rem 0 0;
   text-align: center;
-  font-size: 0.9375rem;
-  font-weight: 400;
+  font-size: 0.94rem;
   line-height: 1.35;
-  color: rgba(255, 255, 255, 0.75);
-  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.guest-form {
+  display: grid;
+  gap: 0.9rem;
+  min-height: 0;
+}
+
+.guest-form--confirm {
+  flex: 1 1 auto;
 }
 
 .guest-actions {
   display: grid;
   gap: 0.9rem;
-  margin-top: 2.05rem;
 }
 
-.guest-action-primary,
-.guest-action-secondary {
-  min-height: 3.7rem;
-  border-radius: 1.35rem;
-}
-
-.guest-action-primary {
-  box-shadow: 0 16px 36px rgba(0, 146, 255, 0.24);
-}
-
-.guest-meta {
-  margin-top: 0.65rem;
+.guest-confirm-scroll {
   display: grid;
-  justify-items: center;
+  gap: 0.9rem;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
 }
 
-.guest-meta-line {
-  margin: 0;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 0.875rem;
-  line-height: 1.4;
+.guest-confirm-scroll::-webkit-scrollbar {
+  display: none;
 }
 
-.guest-progress {
-  margin-top: 1.15rem;
-  opacity: 0.95;
-}
-
-.upload-feedback {
-  margin-top: 0;
-  padding: 0;
-  display: grid;
-  justify-items: center;
-  text-align: center;
-  gap: 0.6rem;
-  overflow: hidden;
-  transform-origin: top center;
-}
-
-.guest-divider {
-  width: 60%;
-  height: 1px;
-  margin: 1.45rem auto;
-  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.18), transparent);
-}
-
-.success-card-enter-active,
-.success-card-leave-active {
-  transition:
-    opacity 280ms ease,
-    transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    max-height 320ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    margin-top 320ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    filter 280ms ease;
-}
-
-.success-card-enter-from,
-.success-card-leave-to {
-  opacity: 0;
-  transform: translateY(-10px) scaleY(0.94);
-  max-height: 0;
-  margin-top: 0;
-  filter: blur(8px);
-}
-
-.success-card-enter-to,
-.success-card-leave-from {
-  opacity: 1;
-  transform: translateY(0) scaleY(1);
-  max-height: 28rem;
-  margin-top: 0;
-  filter: blur(0);
-}
-
-.success-feedback {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.upload-thumbnail {
-  width: min(42vw, 156px);
-  max-height: 156px;
-  object-fit: cover;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(255, 255, 255, 0.03);
-}
-
-.upload-thumbnail-frame {
+.guest-preview-frame {
   position: relative;
-  border-radius: 18px;
   overflow: hidden;
-}
-
-.feedback-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  line-height: 1.25;
-  color: rgba(241, 249, 245, 0.94);
-}
-
-.feedback-copy {
-  margin-top: -0.2rem;
-  max-width: 18rem;
-  text-align: center;
-  font-size: 0.9rem;
-  font-weight: 400;
-  line-height: 1.4;
-  color: rgba(241, 249, 245, 0.75);
-}
-
-.guest-alert {
-  margin-top: 1rem;
-}
-
-.upload-confirm-card {
-  padding: 1rem;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background:
-    linear-gradient(180deg, rgba(24, 33, 46, 0.92), rgba(9, 13, 20, 0.96)),
-    rgba(10, 15, 20, 0.94);
+    radial-gradient(circle at 18% 20%, rgba(143, 210, 255, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
   box-shadow:
-    0 26px 80px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  transform-origin: center bottom;
-  animation: confirmDialogJump 420ms cubic-bezier(0.2, 0.9, 0.22, 1);
+    0 18px 42px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.upload-confirm-preview-frame {
-  overflow: hidden;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.guest-preview-frame--loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.16) 48%, transparent 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  background-size: 220% 100%, 100% 100%;
+  animation: guestPreviewShimmer 1.1s linear infinite;
+  pointer-events: none;
 }
 
-.upload-confirm-preview {
+.guest-preview-image {
   display: block;
   width: 100%;
   max-height: 13rem;
   object-fit: cover;
+  opacity: 0;
+  transform: scale(1.035);
+  filter: saturate(0.92) blur(3px);
+  transition:
+    opacity 320ms ease,
+    transform 520ms cubic-bezier(0.2, 0.76, 0.24, 1),
+    filter 360ms ease;
 }
 
-.upload-confirm-title {
-  margin-top: 0.95rem;
-  text-align: center;
-  font-size: 1.08rem;
-  font-weight: 600;
-  line-height: 1.25;
-  color: rgba(247, 250, 255, 0.94);
+.guest-preview-image--ready {
+  opacity: 1;
+  transform: scale(1);
+  filter: saturate(1) blur(0);
 }
 
-.upload-confirm-copy {
-  margin-top: 0.45rem;
-  text-align: center;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: rgba(226, 235, 247, 0.74);
+.guest-confirm-copy {
+  display: grid;
+  gap: 0;
 }
 
-.upload-confirm-field {
-  margin-top: 0.95rem;
+.guest-select-header {
+  display: block;
 }
 
-.upload-confirm-field :deep(.v-field) {
-  border-radius: 1rem;
+.guest-confirm-copy--select {
+  margin-top: 0;
+}
+
+.guest-field :deep(.v-field) {
+  border-radius: 1.2rem;
   background: rgba(255, 255, 255, 0.05);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 10px 24px rgba(0, 0, 0, 0.12);
 }
 
-.upload-confirm-field :deep(.v-field__input),
-.upload-confirm-field :deep(.v-label),
-.upload-confirm-field :deep(.v-field__prepend-inner) {
+.guest-field :deep(.v-field__overlay) {
+  opacity: 0.04;
+}
+
+.guest-field :deep(.v-field__input),
+.guest-field :deep(.v-label),
+.guest-field :deep(.v-field__prepend-inner) {
   color: rgba(241, 246, 255, 0.86);
 }
 
-.upload-confirm-field :deep(.v-counter) {
-  color: rgba(226, 235, 247, 0.58);
+.guest-field :deep(.v-field__overlay) {
+  opacity: 0.04;
 }
 
-.upload-confirm-actions {
-  margin-top: 1rem;
+.guest-progress {
+  margin-top: 0.1rem;
+}
+
+.guest-comment-counter {
+  margin-top: -0.3rem;
+  text-align: right;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  color: rgba(214, 224, 235, 0.58);
+}
+
+.guest-counter-enter-active,
+.guest-counter-leave-active {
+  overflow: hidden;
+  transition:
+    max-height 220ms ease,
+    opacity 180ms ease,
+    transform 220ms ease,
+    margin-top 220ms ease;
+}
+
+.guest-counter-enter-from,
+.guest-counter-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  margin-top: -0.55rem;
+}
+
+.guest-counter-enter-to,
+.guest-counter-leave-from {
+  max-height: 1rem;
+  opacity: 1;
+  transform: translateY(0);
+  margin-top: -0.3rem;
+}
+
+.guest-confirm-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
-.upload-confirm-cancel,
-.upload-confirm-submit {
-  min-height: 3rem;
+.guest-submit {
+  min-height: 3.5rem;
+  margin-top: 0.1rem;
+}
+
+.guest-submit--primary {
+  box-shadow: 0 16px 36px rgba(0, 146, 255, 0.24);
+}
+
+.guest-submit :deep(.v-btn__content) {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.guest-meta {
+  margin-top: 0.1rem;
+  text-align: center;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  color: rgba(214, 224, 235, 0.72);
+}
+
+.guest-alert {
+  margin-top: 0.9rem;
 }
 
 .hidden-input {
   display: none;
 }
 
-.guest-action-primary :deep(.v-btn__content),
-.guest-action-secondary :deep(.v-btn__content) {
-  gap: 0.82rem;
+.guest-success-banner-wrap {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.8rem);
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.guest-success-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(138, 226, 177, 0.18);
+  background:
+    linear-gradient(180deg, rgba(24, 34, 43, 0.92), rgba(12, 18, 24, 0.96)),
+    rgba(11, 17, 23, 0.94);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(154, 235, 193, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+
+.guest-success-banner__icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: rgba(166, 244, 199, 0.98);
+  background: radial-gradient(circle at 30% 30%, rgba(124, 236, 176, 0.22), rgba(50, 115, 78, 0.12));
+}
+
+.guest-success-banner__copy {
+  min-width: 0;
+}
+
+.guest-success-banner__title {
+  font-size: 0.98rem;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: rgba(244, 249, 246, 0.96);
 }
 
-.guest-action-primary :deep(.v-btn__prepend),
-.guest-action-secondary :deep(.v-btn__prepend) {
-  margin-inline-end: 0.42rem;
+.guest-success-banner__text {
+  margin-top: 0.18rem;
+  font-size: 0.855rem;
+  line-height: 1.35;
+  color: rgba(219, 231, 223, 0.8);
 }
 
-.guest-action-primary :deep(.v-btn__overlay) {
-  opacity: 0.08;
+.guest-success-banner-enter-active,
+.guest-success-banner-leave-active,
+.guest-panel-switch-enter-active,
+.guest-panel-switch-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 240ms cubic-bezier(0.2, 0.76, 0.24, 1);
 }
 
-.guest-action-secondary :deep(.v-btn__underlay) {
-  background: transparent;
+.guest-success-banner-enter-from,
+.guest-success-banner-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
 }
 
-.guest-action-secondary :deep(.v-btn__content) {
-  color: rgba(241, 246, 255, 0.86);
+.guest-preview-enter-active,
+.guest-preview-leave-active {
+  transition:
+    opacity 240ms ease,
+    transform 320ms cubic-bezier(0.2, 0.76, 0.24, 1),
+    filter 240ms ease;
 }
 
-.guest-action-secondary :deep(.v-btn__prepend .v-icon) {
-  color: rgba(156, 215, 255, 0.88);
+.guest-preview-enter-from,
+.guest-preview-leave-to {
+  opacity: 0;
+  transform: translateY(14px) scale(0.96);
+  filter: blur(8px);
+}
+
+.guest-panel-switch-enter-from,
+.guest-panel-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .guest-upload-panel {
     background: linear-gradient(180deg, rgba(20, 39, 63, 0.82), rgba(10, 24, 42, 0.9));
-  }
-
-  .success-feedback {
-    background: linear-gradient(180deg, rgba(47, 93, 73, 0.34), rgba(16, 28, 22, 0.84));
   }
 }
 
@@ -792,18 +654,41 @@ function humanizeUploadError(error: unknown) {
   .guest-upload-page {
     padding: 1.4rem;
   }
+}
+
+@media (max-height: 520px) {
+  .guest-upload-page {
+    padding: 0.75rem;
+  }
 
   .guest-upload-panel {
-    width: min(100%, 35rem);
-    padding: 1.65rem 1.7rem 1.75rem;
+    padding: 1rem;
   }
 
-  .guest-actions {
-    margin-top: 2.15rem;
+  .guest-logo {
+    width: min(100%, 9.8rem);
   }
 
-  .guest-meta {
+  .guest-headline {
     margin-top: 0.7rem;
+    font-size: 1.08rem;
+  }
+
+  .guest-subheadline {
+    font-size: 0.86rem;
+  }
+
+  .guest-form {
+    margin-top: 0.95rem;
+    gap: 0.75rem;
+  }
+
+  .guest-submit {
+    min-height: 2.95rem;
+  }
+
+  .guest-preview-image {
+    max-height: 7.5rem;
   }
 }
 </style>

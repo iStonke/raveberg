@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
@@ -15,6 +15,8 @@ const isGuestRoute = computed(() => route.path.startsWith('/guest'))
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
+const isLogoutDialogOpen = ref(false)
+const isLoggingOut = ref(false)
 
 const adminWorkspaceItems = [
   { label: 'Modus', hash: '#modus' },
@@ -37,9 +39,30 @@ onMounted(async () => {
   }
 })
 
+function openLogoutDialog() {
+  isLogoutDialogOpen.value = true
+}
+
+function closeLogoutDialog() {
+  if (isLoggingOut.value) {
+    return
+  }
+  isLogoutDialogOpen.value = false
+}
+
 async function logout() {
-  await authStore.logout()
-  await router.push('/admin/login')
+  if (isLoggingOut.value) {
+    return
+  }
+
+  isLoggingOut.value = true
+  try {
+    await authStore.logout()
+    isLogoutDialogOpen.value = false
+    await router.push('/admin/login')
+  } finally {
+    isLoggingOut.value = false
+  }
 }
 
 function showUploadsBadge(hash: string) {
@@ -66,7 +89,7 @@ function showUploadsBadge(hash: string) {
             variant="text"
             class="logout-btn"
             prepend-icon="mdi-logout"
-            @click="logout()"
+            @click="openLogoutDialog"
           >
             Logout
           </v-btn>
@@ -101,7 +124,12 @@ function showUploadsBadge(hash: string) {
     </div>
 
     <v-main :class="[{ 'guest-main': isGuestRoute, 'admin-main': isAdminRoute }]">
-      <router-view v-if="isGuestRoute" />
+      <v-container
+        v-if="isGuestRoute"
+        class="shell-container guest-shell-container"
+      >
+        <router-view />
+      </v-container>
       <v-container
         v-else
         class="shell-container"
@@ -114,10 +142,57 @@ function showUploadsBadge(hash: string) {
         <router-view />
       </v-container>
     </v-main>
+
+    <v-dialog
+      v-model="isLogoutDialogOpen"
+      max-width="27.5rem"
+      :persistent="isLoggingOut"
+      scrim="rgba(2, 6, 12, 0.76)"
+      class="logout-confirm-overlay"
+      content-class="logout-confirm-dialog__content"
+    >
+      <v-card class="logout-confirm-dialog" variant="flat">
+        <div class="logout-confirm-dialog__label">Admin</div>
+        <div class="logout-confirm-dialog__title">Wirklich abmelden?</div>
+        <div class="logout-confirm-dialog__copy">
+          Du wirst aus dem Admin-Bereich abgemeldet.
+        </div>
+        <div class="logout-confirm-dialog__actions">
+          <v-btn
+            variant="outlined"
+            class="logout-confirm-dialog__button logout-confirm-dialog__button--cancel"
+            :disabled="isLoggingOut"
+            @click="closeLogoutDialog"
+          >
+            Abbrechen
+          </v-btn>
+          <v-btn
+            variant="flat"
+            class="logout-confirm-dialog__button logout-confirm-dialog__button--confirm"
+            :loading="isLoggingOut"
+            @click="logout"
+          >
+            Abmelden
+          </v-btn>
+        </div>
+      </v-card>
+    </v-dialog>
   </v-layout>
 </template>
 
 <style scoped>
+@keyframes logoutDialogRise {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .min-height-screen {
   min-height: 100vh;
   position: relative;
@@ -142,7 +217,17 @@ function showUploadsBadge(hash: string) {
 }
 
 .guest-main {
-  min-height: 100vh;
+  padding: 0 !important;
+  height: 100%;
+}
+
+.guest-shell-container {
+  width: 100%;
+  height: 100%;
+  max-width: none !important;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
 }
 
 .app-shell-bar {
@@ -323,6 +408,102 @@ function showUploadsBadge(hash: string) {
   min-width: 0;
 }
 
+.logout-confirm-dialog {
+  width: min(100%, 27.5rem);
+  border-radius: 22px !important;
+  padding: 1.85rem;
+  background:
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96)) !important;
+  border: 1px solid rgba(120, 170, 220, 0.18);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  animation: logoutDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
+}
+
+:deep(.logout-confirm-overlay .v-overlay__scrim) {
+  background: rgba(0, 0, 0, 0.9) !important;
+  backdrop-filter: blur(12px) saturate(0.62) brightness(0.5);
+}
+
+:deep(.logout-confirm-dialog__content) {
+  width: min(27.5rem, calc(100vw - 2rem));
+  margin: 1rem;
+}
+
+.logout-confirm-dialog__label {
+  color: rgba(194, 211, 228, 0.5);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.logout-confirm-dialog__title {
+  margin-top: 0.48rem;
+  color: rgba(247, 250, 255, 0.98);
+  font-size: 1.45rem;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.logout-confirm-dialog__copy {
+  margin-top: 0.8rem;
+  max-width: 24rem;
+  color: rgba(214, 224, 235, 0.76);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.logout-confirm-dialog__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1.45rem;
+}
+
+.logout-confirm-dialog__button {
+  min-height: 3.2rem;
+  border-radius: 14px;
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 150ms ease;
+}
+
+.logout-confirm-dialog__button--cancel {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 234, 242, 0.82);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.logout-confirm-dialog__button--cancel:hover {
+  border-color: rgba(164, 191, 218, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.logout-confirm-dialog__button--confirm {
+  color: rgba(243, 249, 255, 0.96);
+  background:
+    linear-gradient(180deg, #c74e4e, #982f2f) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(151, 47, 47, 0.28);
+}
+
+.logout-confirm-dialog__button--confirm:hover {
+  background:
+    linear-gradient(180deg, #d55b5b, #a73737) !important;
+}
+
+.logout-confirm-dialog__button:active {
+  transform: scale(0.988);
+}
+
 @media (max-width: 1100px) {
   .admin-workspace-container {
     max-width: none;
@@ -349,6 +530,27 @@ function showUploadsBadge(hash: string) {
 
   .admin-login-shell-container {
     padding: 0;
+  }
+
+  .logout-confirm-dialog {
+    padding: 1.35rem;
+  }
+
+  .logout-confirm-dialog__actions {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .logout-confirm-dialog__button {
+    min-height: 3.15rem;
+  }
+
+  .logout-confirm-dialog__title {
+    font-size: 1.3rem;
+  }
+
+  .logout-confirm-dialog__copy {
+    font-size: 0.94rem;
   }
 }
 </style>

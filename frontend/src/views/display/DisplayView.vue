@@ -70,6 +70,8 @@ const rendererProps = computed(() => {
       refreshToken: uploadRefreshToken.value,
       standbyReactionToken: idleReactionToken.value,
       playbackCommand: selfiePlaybackCommand.value,
+      overlayMode: selfieStore.overlayMode,
+      guestUploadUrl: publicRuntimeStore.urls.guest_upload_url,
       settings: {
         slideshow_enabled: selfieStore.slideshowEnabled,
         slideshow_interval_seconds: selfieStore.slideshowIntervalSeconds,
@@ -138,9 +140,6 @@ const showDisplayOverlay = computed(
     }
     if (appModeStore.mode === 'visualizer') {
       return visualizerStore.overlayMode === 'off' ? null : visualizerStore.overlayMode
-    }
-    if (appModeStore.mode === 'selfie') {
-      return selfieStore.overlayMode === 'off' ? null : selfieStore.overlayMode
     }
     if (appModeStore.mode === 'video') {
       return videoStore.overlayMode === 'off' ? null : videoStore.overlayMode
