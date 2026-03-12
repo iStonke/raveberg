@@ -14,16 +14,15 @@ const {
   successNotice,
   pendingPreviewUrl,
   isPendingPreviewReady,
-  commentDraft,
-  step,
-  commentLimit,
-  commentLength,
-  uploadMetaText,
-  uploadProgressValue,
-  handleFileSelection,
-  confirmUpload,
-  cancelConfirmation,
-  openLibrary,
+    commentDraft,
+    step,
+    commentLimit,
+    commentLength,
+    uploadMetaText,
+    handleFileSelection,
+    confirmUpload,
+    cancelConfirmation,
+    openLibrary,
   openCamera,
   updateCommentDraft,
   handlePendingPreviewLoad,
@@ -55,8 +54,9 @@ const {
     </Transition>
 
     <div class="guest-upload-panel">
-      <Transition name="guest-panel-switch" mode="out-in">
-        <div v-if="step === 'select'" key="select" class="guest-form">
+      <div class="guest-panel-stage">
+        <Transition name="guest-panel-switch">
+          <div v-if="step === 'select'" key="select" class="guest-form guest-panel-state">
           <div class="guest-select-header">
             <RavebergLogo mode="compact" class="guest-logo" />
             <div class="guest-confirm-copy guest-confirm-copy--select">
@@ -98,7 +98,7 @@ const {
           </div>
         </div>
 
-        <div v-else key="confirm" class="guest-form guest-form--confirm">
+          <div v-else key="confirm" class="guest-form guest-form--confirm guest-panel-state">
           <div class="guest-confirm-scroll">
             <Transition name="guest-preview" appear>
               <div
@@ -145,14 +145,6 @@ const {
               </div>
             </Transition>
 
-            <v-progress-linear
-              v-if="isUploading"
-              class="guest-progress"
-              color="primary"
-              rounded
-              height="8"
-              :model-value="uploadProgressValue"
-            />
           </div>
 
           <div class="guest-confirm-actions">
@@ -176,8 +168,9 @@ const {
               Hochladen
             </v-btn>
           </div>
-        </div>
-      </Transition>
+          </div>
+        </Transition>
+      </div>
 
       <v-alert
         v-if="errorMessage"
@@ -342,6 +335,13 @@ const {
   overflow: hidden;
 }
 
+.guest-panel-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+}
+
 .guest-logo {
   width: min(100%, 12rem);
   display: block;
@@ -377,8 +377,15 @@ const {
   min-height: 0;
 }
 
+.guest-panel-state {
+  grid-area: 1 / 1;
+  width: 100%;
+  align-self: start;
+}
+
 .guest-form--confirm {
   flex: 1 1 auto;
+  align-self: stretch;
 }
 
 .guest-actions {
@@ -476,10 +483,6 @@ const {
 
 .guest-field :deep(.v-field__overlay) {
   opacity: 0.04;
-}
-
-.guest-progress {
-  margin-top: 0.1rem;
 }
 
 .guest-comment-counter {
@@ -609,12 +612,29 @@ const {
 }
 
 .guest-success-banner-enter-active,
-.guest-success-banner-leave-active,
-.guest-panel-switch-enter-active,
-.guest-panel-switch-leave-active {
+.guest-success-banner-leave-active {
   transition:
     opacity 220ms ease,
     transform 240ms cubic-bezier(0.2, 0.76, 0.24, 1);
+}
+
+.guest-panel-switch-enter-active {
+  transition:
+    opacity 320ms ease,
+    transform 420ms cubic-bezier(0.2, 0.76, 0.24, 1),
+    filter 320ms ease;
+  will-change: opacity, transform, filter;
+}
+
+.guest-panel-switch-leave-active {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 220ms ease;
+  will-change: opacity, transform, filter;
 }
 
 .guest-success-banner-enter-from,
@@ -641,7 +661,22 @@ const {
 .guest-panel-switch-enter-from,
 .guest-panel-switch-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  filter: blur(8px);
+}
+
+.guest-panel-switch-enter-from {
+  transform: translateY(18px) scale(0.985);
+}
+
+.guest-panel-switch-leave-to {
+  transform: translateY(-10px) scale(0.992);
+}
+
+.guest-panel-switch-enter-to,
+.guest-panel-switch-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
