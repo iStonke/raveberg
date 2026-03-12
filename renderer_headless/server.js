@@ -289,9 +289,13 @@ function unregisterMjpegClient(client) {
   if (!mjpegClients.delete(client)) {
     return
   }
+  const durationMs = Date.now() - client.connectedAt
   state.mjpeg.lastClientDisconnectedAt = Date.now()
   updateMjpegClientCount()
-  console.log(`[renderer_headless] mjpeg client disconnected active_clients=${state.mjpeg.activeClients}`)
+  const logPrefix = durationMs < 5000 ? 'warn' : 'log'
+  console[logPrefix](
+    `[renderer_headless] mjpeg client disconnected active_clients=${state.mjpeg.activeClients} duration_ms=${durationMs} remote=${client.remoteAddress} ua=${JSON.stringify(client.userAgent)}`,
+  )
 }
 
 function writeMjpegFrame(response, frame, emittedAt) {
@@ -324,12 +328,19 @@ function broadcastMjpegFrame(frame, emittedAt) {
   }
 }
 
-function registerMjpegClient(response) {
-  const client = { response }
+function registerMjpegClient(request, response) {
+  const client = {
+    response,
+    connectedAt: Date.now(),
+    remoteAddress: request.ip ?? request.socket?.remoteAddress ?? 'unknown',
+    userAgent: request.get('user-agent') ?? 'unknown',
+  }
   mjpegClients.add(client)
   state.mjpeg.lastClientConnectedAt = Date.now()
   updateMjpegClientCount()
-  console.log(`[renderer_headless] mjpeg client connected active_clients=${state.mjpeg.activeClients}`)
+  console.log(
+    `[renderer_headless] mjpeg client connected active_clients=${state.mjpeg.activeClients} remote=${client.remoteAddress} ua=${JSON.stringify(client.userAgent)}`,
+  )
 
   response.on('close', () => {
     unregisterMjpegClient(client)
@@ -1270,7 +1281,7 @@ function createPreviewHtml() {
         <div>Render size: <code>${config.renderWidth}x${config.renderHeight}</code>, output size: <code>${config.outputWidth}x${config.outputHeight}</code></div>
         <div>Profile: <code>${config.profile}</code>, target: <code>${config.fps} FPS</code>, JPEG quality: <code>${config.jpegQuality}</code>, preset: <code>${config.preset}</code></div>
       </div>
-      <img id="previewImage" src="/stream" alt="Renderer preview stream" />
+      <img id="previewImage" alt="Renderer preview stream" />
       <div id="metrics" class="panel metrics">
         <div class="metric"><strong>Status</strong><span>Waiting for data</span></div>
       </div>
@@ -1282,7 +1293,9 @@ function createPreviewHtml() {
       const previewImage = document.getElementById('previewImage');
       const statusBox = document.getElementById('status');
       const metricsBox = document.getElementById('metrics');
+      const previewStreamUrl = '/stream';
       let mjpegLoaded = false;
+      let previewStreamAttached = false;
 
       function formatTime(timestamp) {
         if (!timestamp) {
@@ -1313,6 +1326,14 @@ function createPreviewHtml() {
         ].map(([label, value]) => '<div class="metric"><strong>' + label + '</strong><span>' + value + '</span></div>').join('');
       }
 
+      function attachPreviewStreamOnce() {
+        if (previewStreamAttached) {
+          return;
+        }
+        previewStreamAttached = true;
+        previewImage.src = previewStreamUrl;
+      }
+
       previewImage.addEventListener('load', () => {
         mjpegLoaded = true;
       });
@@ -1327,6 +1348,7 @@ function createPreviewHtml() {
           const output = payload.preferredOutput || {};
           const preview = payload.preview || {};
           renderMetrics(payload);
+          attachPreviewStreamOnce();
           if (payload.statusDetail === 'hls_stale') {
             statusBox.className = 'panel failed';
             statusBox.textContent = 'HLS output is stale. MJPEG preview may still show the last rendered frames.';
@@ -1367,8 +1389,9 @@ function createPreviewHtml() {
         }
       }
 
+      attachPreviewStreamOnce();
       refresh();
-      window.setInterval(refresh, 2000);
+      window.setInterval(refresh, 5000);
     </script>
   </body>
 </html>`
@@ -1384,8 +1407,9 @@ function escapeHtml(value) {
 }
 
 function sendNoCache(response) {
-  response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+  response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private, max-age=0, no-transform')
   response.setHeader('Pragma', 'no-cache')
+  response.setHeader('Expires', '0')
 }
 
 async function main() {
@@ -1445,14 +1469,19 @@ async function main() {
     response.type('html').send(createPreviewHtml())
   })
 
-  app.get('/stream', (_request, response) => {
+  app.get('/stream', (request, response) => {
     sendNoCache(response)
     response.status(200)
     response.setHeader('Connection', 'keep-alive')
+    response.setHeader('Keep-Alive', 'timeout=60, max=1000')
+    response.setHeader('Content-Disposition', 'inline; filename="renderer-preview.mjpg"')
+    response.setHeader('X-Content-Type-Options', 'nosniff')
     response.setHeader('X-Accel-Buffering', 'no')
     response.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`)
+    response.socket?.setKeepAlive(true, 10000)
+    response.socket?.setNoDelay(true)
     response.flushHeaders()
-    registerMjpegClient(response)
+    registerMjpegClient(request, response)
   })
 
   app.get('/snapshot.jpg', (_request, response) => {
