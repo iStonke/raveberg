@@ -6,6 +6,9 @@ export type VideoPlaybackOrder = 'upload_order' | 'random'
 export type VideoObjectFit = 'contain' | 'cover'
 export type VideoTransition = 'none' | 'fade'
 export type OverlayMode = 'logo' | 'qr' | 'off'
+export type RemoteVisualizerFallback = 'local' | 'none'
+export type DisplayRenderMode = 'local' | 'remote_headless'
+export type RemoteRendererFallback = 'local' | 'notice'
 
 export interface SessionUser {
   id: number
@@ -65,6 +68,16 @@ export interface SystemInfoResponse {
     event_name: string
     event_tagline: string
     display_overlay_enabled: boolean
+    remote_visualizer_enabled: boolean
+    remote_visualizer_url: string
+    remote_visualizer_reconnect_ms: number
+    remote_visualizer_fallback: RemoteVisualizerFallback
+    display_render_mode: DisplayRenderMode
+    remote_renderer_base_url: string
+    remote_renderer_output_path: string
+    remote_renderer_health_url: string
+    remote_renderer_reconnect_ms: number
+    remote_renderer_fallback: RemoteRendererFallback
     urls: {
       base_url: string
       guest_upload_url: string
@@ -91,6 +104,16 @@ export interface PublicRuntimeInfoResponse {
   event_name: string
   event_tagline: string
   display_overlay_enabled: boolean
+  remote_visualizer_enabled: boolean
+  remote_visualizer_url: string
+  remote_visualizer_reconnect_ms: number
+  remote_visualizer_fallback: RemoteVisualizerFallback
+  display_render_mode: DisplayRenderMode
+  remote_renderer_base_url: string
+  remote_renderer_output_path: string
+  remote_renderer_health_url: string
+  remote_renderer_reconnect_ms: number
+  remote_renderer_fallback: RemoteRendererFallback
   moderation_mode: ModerationMode
   upload_max_bytes: number
   video_upload_max_bytes: number
@@ -112,6 +135,19 @@ export interface PublicRuntimeInfoResponse {
 
 export interface SystemActionResponse {
   message: string
+}
+
+export interface RuntimeConfig {
+  remote_visualizer_enabled: boolean
+  remote_visualizer_url: string
+  remote_visualizer_reconnect_ms: number
+  remote_visualizer_fallback: RemoteVisualizerFallback
+  display_render_mode: DisplayRenderMode
+  remote_renderer_base_url: string
+  remote_renderer_output_path: string
+  remote_renderer_health_url: string
+  remote_renderer_reconnect_ms: number
+  remote_renderer_fallback: RemoteRendererFallback
 }
 
 export interface SelfiePlaybackEvent {
@@ -336,6 +372,20 @@ export function triggerSystemShutdown(token: string) {
 
 export function fetchPublicRuntimeInfo() {
   return request<PublicRuntimeInfoResponse>('/api/public-info')
+}
+
+export function fetchRuntimeConfig(token: string) {
+  return request<RuntimeConfig>('/api/system/runtime-config', {
+    headers: withAuth(token),
+  })
+}
+
+export function updateRuntimeConfig(payload: RuntimeConfig, token: string) {
+  return request<RuntimeConfig>('/api/system/runtime-config', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
+  })
 }
 
 export function loginAdmin(username: string, password: string) {

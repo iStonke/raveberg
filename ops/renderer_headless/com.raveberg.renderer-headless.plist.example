@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.raveberg.renderer-headless</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/sh</string>
+      <string>/Users/admin/Documents/raveBerg/ops/renderer_headless/start-renderer.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>RAVEBERG_RENDERER_ENV_FILE</key>
+      <string>/Users/admin/Documents/raveBerg/ops/renderer_headless/env.renderer</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/admin/Documents/raveBerg</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/raveberg-renderer-headless.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/raveberg-renderer-headless.err.log</string>
+  </dict>
+</plist>

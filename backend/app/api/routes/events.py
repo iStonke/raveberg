@@ -7,6 +7,7 @@ from app.services.event_service import event_service
 from app.services.mode_service import ModeService
 from app.services.selfie_service import SelfieService
 from app.services.standby_service import StandbyService
+from app.services.system_service import SystemService
 from app.services.video_service import VideoService
 from app.services.visualizer_service import VisualizerService
 
@@ -23,11 +24,13 @@ async def stream_events() -> StreamingResponse:
         video_state = VideoService(session).get_state()
         video_library = VideoService(session).list_assets()
         visualizer = VisualizerService(session).get_state()
+        public_runtime = SystemService(session).get_public_info()
 
     return StreamingResponse(
         event_service.stream(
             [
                 ("heartbeat_updated", display_status.model_dump(mode="json")),
+                ("public_runtime_snapshot", public_runtime.model_dump(mode="json")),
                 ("mode_snapshot", mode.model_dump(mode="json")),
                 ("selfie_snapshot", selfie.model_dump(mode="json")),
                 ("standby_snapshot", standby.model_dump(mode="json")),

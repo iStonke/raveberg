@@ -12,6 +12,8 @@ import { useVideoStore } from '../../stores/video'
 import { useVisualizerStore } from '../../stores/visualizer'
 import BlackoutRenderer from '../../components/display/BlackoutRenderer.vue'
 import IdleRenderer from '../../components/display/IdleRenderer.vue'
+import RemoteRendererPlayer from '../../components/display/RemoteRendererPlayer.vue'
+import RemoteVideoBackground from '../../components/display/RemoteVideoBackground.vue'
 import SelfieRenderer from '../../components/display/SelfieRenderer.vue'
 import StandbyRenderer from '../../components/display/StandbyRenderer.vue'
 import VideoRenderer from '../../components/display/VideoRenderer.vue'
@@ -32,6 +34,9 @@ const connectionState = ref<'connecting' | 'connected' | 'reconnecting'>('connec
 const reconnectAttempt = ref(0)
 const lastStateSyncAt = ref<string | null>(null)
 const rendererCrashMessage = ref('')
+const remoteVisualizerAvailable = ref(false)
+const remoteHeadlessAvailable = ref(false)
+const remoteHeadlessStatus = ref('idle')
 
 let eventSource: EventSource | null = null
 let reconnectTimer: number | undefined
@@ -42,6 +47,48 @@ const heartbeatIntervalMs = Math.max(
   5,
   Number(import.meta.env.VITE_DISPLAY_HEARTBEAT_INTERVAL_SECONDS ?? '15'),
 ) * 1000
+
+const remoteHeadlessModeEnabled = computed(
+  () => publicRuntimeStore.displayRenderMode === 'remote_headless',
+)
+
+const remoteVisualizerConfigured = computed(
+  () =>
+    publicRuntimeStore.remoteVisualizerEnabled &&
+    publicRuntimeStore.remoteVisualizerUrl.trim().length > 0,
+)
+
+const showRemoteVisualizerBackground = computed(
+  () =>
+    (
+      !remoteHeadlessModeEnabled.value ||
+      (!remoteHeadlessAvailable.value && publicRuntimeStore.remoteRendererFallback === 'local')
+    ) &&
+    remoteVisualizerConfigured.value &&
+    appModeStore.mode !== 'blackout',
+)
+
+const showPrimaryRenderer = computed(() => {
+  if (!hasInitialState.value) {
+    return true
+  }
+  if (remoteHeadlessModeEnabled.value) {
+    if (remoteHeadlessAvailable.value) {
+      return false
+    }
+    return publicRuntimeStore.remoteRendererFallback === 'local'
+  }
+  if (appModeStore.mode !== 'visualizer') {
+    return true
+  }
+  if (!showRemoteVisualizerBackground.value) {
+    return true
+  }
+  if (remoteVisualizerAvailable.value) {
+    return false
+  }
+  return publicRuntimeStore.remoteVisualizerFallback === 'local'
+})
 
 const activeRenderer = computed(() => {
   if (!hasInitialState.value) return StandbyRenderer
@@ -138,6 +185,9 @@ const showDisplayOverlay = computed(
     ) {
       return null
     }
+    if (remoteHeadlessModeEnabled.value && !showPrimaryRenderer.value) {
+      return null
+    }
     if (appModeStore.mode === 'visualizer') {
       return visualizerStore.overlayMode === 'off' ? null : visualizerStore.overlayMode
     }
@@ -186,6 +236,25 @@ watch(
   },
 )
 
+watch(showRemoteVisualizerBackground, (nextVisible) => {
+  if (!nextVisible) {
+    remoteVisualizerAvailable.value = false
+  }
+})
+
+watch(remoteHeadlessModeEnabled, (enabled) => {
+  if (!enabled) {
+    remoteHeadlessAvailable.value = false
+    remoteHeadlessStatus.value = 'idle'
+  }
+})
+
+watch(showPrimaryRenderer, (nextVisible) => {
+  if (!nextVisible) {
+    rendererCrashMessage.value = ''
+  }
+})
+
 onErrorCaptured((error) => {
   rendererCrashMessage.value =
     error instanceof Error ? error.message : 'Display-Renderer konnte nicht gestartet werden'
@@ -196,17 +265,13 @@ async function loadInitialState() {
   try {
     await Promise.all([
       appModeStore.refresh(),
+      publicRuntimeStore.refresh(),
       selfieStore.refresh(),
       standbyStore.refresh(),
       videoStore.refreshState(),
       videoStore.refreshPublicLibrary(),
       visualizerStore.refresh(),
     ])
-    if (!publicRuntimeStore.isLoaded) {
-      void publicRuntimeStore.refresh().catch(() => {
-        // Overlay branding is optional; renderer state should still boot without it.
-      })
-    }
     hasInitialState.value = true
     markStateSync()
   } catch {
@@ -239,6 +304,18 @@ function connectEvents() {
   source.addEventListener('mode_snapshot', (event) => {
     hasInitialState.value = true
     appModeStore.applyMode(JSON.parse((event as MessageEvent).data))
+    markStateSync()
+  })
+  source.addEventListener('public_runtime_snapshot', (event) => {
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    publicRuntimeStore.applyRuntimeInfo(payload)
+    markStateSync()
+  })
+  source.addEventListener('public_runtime_updated', (event) => {
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    publicRuntimeStore.applyRuntimeInfo(payload)
     markStateSync()
   })
   source.addEventListener('mode_changed', (event) => {
@@ -406,11 +483,59 @@ function markStateSync() {
 
 function currentRendererLabel() {
   if (!hasInitialState.value) return 'Idle Renderer'
+  if (remoteHeadlessModeEnabled.value) {
+    if (remoteHeadlessAvailable.value) {
+      return 'Remote Headless Renderer'
+    }
+    if (publicRuntimeStore.remoteRendererFallback === 'local') {
+      return `${localRendererLabel()} (Remote Headless Fallback)`
+    }
+    return `Remote Headless Renderer (${remoteHeadlessStatus.value || 'waiting'})`
+  }
+  const remoteLabelSuffix = showRemoteVisualizerBackground.value
+    ? remoteVisualizerAvailable.value
+      ? ' + Remote Background'
+      : ' + Remote Background (reconnecting)'
+    : ''
+  if (appModeStore.mode === 'visualizer' && showRemoteVisualizerBackground.value) {
+    if (remoteVisualizerAvailable.value) {
+      return 'Remote Visualizer Background'
+    }
+    if (publicRuntimeStore.remoteVisualizerFallback === 'local') {
+      return 'Visualizer Renderer (Remote Fallback)'
+    }
+    return 'Remote Visualizer Background (reconnecting)'
+  }
+  if (appModeStore.mode === 'selfie') return `Selfie Renderer${remoteLabelSuffix}`
+  if (appModeStore.mode === 'video') return `Video Renderer${remoteLabelSuffix}`
+  if (appModeStore.mode === 'blackout') return 'Blackout Renderer'
+  if (appModeStore.mode === 'idle') return `Idle Renderer${remoteLabelSuffix}`
+  return `Visualizer Renderer${remoteLabelSuffix}`
+}
+
+function localRendererLabel() {
   if (appModeStore.mode === 'selfie') return 'Selfie Renderer'
   if (appModeStore.mode === 'video') return 'Video Renderer'
   if (appModeStore.mode === 'blackout') return 'Blackout Renderer'
   if (appModeStore.mode === 'idle') return 'Idle Renderer'
   return 'Visualizer Renderer'
+}
+
+function handleRemoteVisualizerAvailability(nextAvailable: boolean) {
+  remoteVisualizerAvailable.value = nextAvailable
+}
+
+function handleRemoteHeadlessAvailability(nextAvailable: boolean) {
+  remoteHeadlessAvailable.value = nextAvailable
+}
+
+function handleRemoteHeadlessStatus(payload: {
+  available: boolean
+  state: string
+  detail: string
+}) {
+  remoteHeadlessAvailable.value = payload.available
+  remoteHeadlessStatus.value = payload.state
 }
 
 async function postHeartbeat(isConnected: boolean) {
@@ -429,6 +554,25 @@ async function postHeartbeat(isConnected: boolean) {
 
 <template>
   <div class="display-surface">
+    <RemoteRendererPlayer
+      v-if="remoteHeadlessModeEnabled"
+      class="display-remote-renderer"
+      :base-url="publicRuntimeStore.remoteRendererBaseUrl"
+      :output-path="publicRuntimeStore.remoteRendererOutputPath"
+      :health-url="publicRuntimeStore.remoteRendererHealthUrl"
+      :reconnect-ms="publicRuntimeStore.remoteRendererReconnectMs"
+      :fallback="publicRuntimeStore.remoteRendererFallback"
+      @availability-change="handleRemoteHeadlessAvailability"
+      @status-change="handleRemoteHeadlessStatus"
+    />
+    <RemoteVideoBackground
+      v-if="showRemoteVisualizerBackground"
+      class="display-remote-background"
+      :url="publicRuntimeStore.remoteVisualizerUrl"
+      :reconnect-ms="publicRuntimeStore.remoteVisualizerReconnectMs"
+      :fallback="publicRuntimeStore.remoteVisualizerFallback"
+      @availability-change="handleRemoteVisualizerAvailability"
+    />
     <div v-if="rendererCrashMessage" class="display-safe-fallback">
       <div class="display-safe-panel">
         <div class="display-safe-title">RAVEBERG</div>
@@ -438,6 +582,7 @@ async function postHeartbeat(isConnected: boolean) {
     <div v-else class="display-renderer-stage">
       <Transition name="display-renderer">
         <component
+          v-if="showPrimaryRenderer"
           :is="activeRenderer"
           :key="activeRendererKey"
           v-bind="rendererProps"
@@ -472,6 +617,15 @@ async function postHeartbeat(isConnected: boolean) {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  z-index: 1;
+}
+
+.display-remote-renderer {
+  z-index: 0;
+}
+
+.display-remote-background {
+  z-index: 0;
 }
 
 .display-renderer-layer {
@@ -509,6 +663,7 @@ async function postHeartbeat(isConnected: boolean) {
   inset: 0;
   display: grid;
   place-items: center;
+  z-index: 2;
   background:
     radial-gradient(circle at 50% 28%, rgba(52, 128, 194, 0.16), transparent 32%),
     linear-gradient(180deg, #060b12 0%, #030507 100%);
@@ -541,6 +696,7 @@ async function postHeartbeat(isConnected: boolean) {
   position: fixed;
   right: 1rem;
   bottom: 1rem;
+  z-index: 12;
   padding: 0.45rem 0.75rem;
   border-radius: 999px;
   background: rgba(5, 9, 14, 0.78);

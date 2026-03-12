@@ -1,0 +1,16 @@
+{
+  "name": "renderer_headless",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "start:prod": "NODE_ENV=production node server.js",
+    "healthcheck": "node scripts/healthcheck.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "playwright": "^1.53.1"
+  }
+}

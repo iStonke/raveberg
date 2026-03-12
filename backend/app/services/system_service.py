@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.upload import Upload
 from app.services.display_status_service import DisplayStatusService
+from app.services.runtime_config_service import RuntimeConfigService
 from app.schemas.system import (
     ApplianceInfo,
     ApplianceNetwork,
@@ -59,6 +60,7 @@ class SystemService:
         video_state = VideoService(self.db).get_state()
         visualizer_state = VisualizerService(self.db).get_state()
         display_status = DisplayStatusService(self.db).get_status()
+        runtime_config = RuntimeConfigService(self.db).get_remote_visualizer_config()
         runtime_diagnostics = runtime_service.diagnostics()
         telemetry = self._read_telemetry()
         display_state_stale = self._is_display_state_stale(display_status.last_heartbeat_at)
@@ -66,7 +68,7 @@ class SystemService:
         display_target = (
             display_status.renderer_label
             if display_live_connected and display_status.renderer_label
-            else self._display_target_label(current_mode)
+            else self._display_target_label(current_mode, runtime_config.display_render_mode)
         )
 
         return SystemInfoResponse(
@@ -103,6 +105,16 @@ class SystemService:
                 event_name=settings.event_name,
                 event_tagline=settings.event_tagline,
                 display_overlay_enabled=settings.display_overlay_enabled,
+                remote_visualizer_enabled=runtime_config.remote_visualizer_enabled,
+                remote_visualizer_url=runtime_config.remote_visualizer_url,
+                remote_visualizer_reconnect_ms=runtime_config.remote_visualizer_reconnect_ms,
+                remote_visualizer_fallback=runtime_config.remote_visualizer_fallback,
+                display_render_mode=runtime_config.display_render_mode,
+                remote_renderer_base_url=runtime_config.remote_renderer_base_url,
+                remote_renderer_output_path=runtime_config.remote_renderer_output_path,
+                remote_renderer_health_url=runtime_config.remote_renderer_health_url,
+                remote_renderer_reconnect_ms=runtime_config.remote_renderer_reconnect_ms,
+                remote_renderer_fallback=runtime_config.remote_renderer_fallback,
                 urls=ApplianceUrls(
                     base_url=settings.normalized_public_base_url,
                     guest_upload_url=settings.guest_upload_url,
@@ -126,11 +138,22 @@ class SystemService:
 
     def get_public_info(self) -> PublicRuntimeInfoResponse:
         selfie_state = SelfieService(self.db).get_state()
+        runtime_config = RuntimeConfigService(self.db).get_remote_visualizer_config()
         return PublicRuntimeInfoResponse(
             app_name=settings.app_name,
             event_name=settings.event_name,
             event_tagline=settings.event_tagline,
             display_overlay_enabled=settings.display_overlay_enabled,
+            remote_visualizer_enabled=runtime_config.remote_visualizer_enabled,
+            remote_visualizer_url=runtime_config.remote_visualizer_url,
+            remote_visualizer_reconnect_ms=runtime_config.remote_visualizer_reconnect_ms,
+            remote_visualizer_fallback=runtime_config.remote_visualizer_fallback,
+            display_render_mode=runtime_config.display_render_mode,
+            remote_renderer_base_url=runtime_config.remote_renderer_base_url,
+            remote_renderer_output_path=runtime_config.remote_renderer_output_path,
+            remote_renderer_health_url=runtime_config.remote_renderer_health_url,
+            remote_renderer_reconnect_ms=runtime_config.remote_renderer_reconnect_ms,
+            remote_renderer_fallback=runtime_config.remote_renderer_fallback,
             moderation_mode=selfie_state.moderation_mode,
             upload_max_bytes=settings.upload_max_bytes,
             video_upload_max_bytes=settings.video_upload_max_bytes,
@@ -169,7 +192,9 @@ class SystemService:
         return SystemActionResponse(message="Ausschalten wurde angefordert.")
 
     @staticmethod
-    def _display_target_label(mode: str) -> str:
+    def _display_target_label(mode: str, display_render_mode: str) -> str:
+        if display_render_mode == "remote_headless":
+            return "Remote Headless Renderer"
         if mode == "visualizer":
             return "Visualizer Renderer"
         if mode == "selfie":

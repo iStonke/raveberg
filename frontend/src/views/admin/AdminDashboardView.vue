@@ -5,8 +5,11 @@ import { useRoute } from 'vue-router'
 import type {
   AppMode,
   ColorScheme,
+  DisplayRenderMode,
   ModerationMode,
   OverlayMode,
+  RemoteRendererFallback,
+  RemoteVisualizerFallback,
   UploadItem,
   VideoAsset,
   VideoObjectFit,
@@ -62,6 +65,8 @@ const visualizerError = ref('')
 const selfieError = ref('')
 const standbyError = ref('')
 const videoError = ref('')
+const remoteVisualizerError = ref('')
+const remoteRendererError = ref('')
 const uploadError = ref('')
 const systemActionError = ref('')
 const systemActionMessage = ref('')
@@ -72,6 +77,8 @@ const isSavingVisualizer = ref(false)
 const isSavingSelfie = ref(false)
 const isSavingStandby = ref(false)
 const isSavingVideo = ref(false)
+const isSavingRemoteVisualizer = ref(false)
+const isSavingRemoteRenderer = ref(false)
 const isUploadingVideos = ref(false)
 const isShuttingDown = ref(false)
 const isDownloadingUploadArchive = ref(false)
@@ -86,6 +93,8 @@ const isHydratingVisualizerDraft = ref(true)
 const isHydratingSelfieDraft = ref(true)
 const isHydratingStandbyDraft = ref(true)
 const isHydratingVideoDraft = ref(true)
+const isHydratingRemoteVisualizerDraft = ref(true)
+const isHydratingRemoteRendererDraft = ref(true)
 const isRefreshingOperationalState = ref(false)
 const pendingOperationalRefresh = ref(false)
 const recentEvents = ref<RecentEventEntry[]>([])
@@ -168,6 +177,34 @@ const videoDraft = reactive<{
   active_video_id: null,
 })
 
+const remoteVisualizerDraft = reactive<{
+  remote_visualizer_enabled: boolean
+  remote_visualizer_url: string
+  remote_visualizer_reconnect_ms: number
+  remote_visualizer_fallback: RemoteVisualizerFallback
+}>({
+  remote_visualizer_enabled: false,
+  remote_visualizer_url: '',
+  remote_visualizer_reconnect_ms: 3000,
+  remote_visualizer_fallback: 'local',
+})
+
+const remoteRendererDraft = reactive<{
+  display_render_mode: DisplayRenderMode
+  remote_renderer_base_url: string
+  remote_renderer_output_path: string
+  remote_renderer_health_url: string
+  remote_renderer_reconnect_ms: number
+  remote_renderer_fallback: RemoteRendererFallback
+}>({
+  display_render_mode: 'local',
+  remote_renderer_base_url: '',
+  remote_renderer_output_path: '/preview',
+  remote_renderer_health_url: '',
+  remote_renderer_reconnect_ms: 3000,
+  remote_renderer_fallback: 'local',
+})
+
 const modeButtons: Array<{ label: string; value: AppMode }> = [
   { label: 'Visualizer', value: 'visualizer' },
   { label: 'Slideshow', value: 'selfie' },
@@ -186,6 +223,21 @@ const videoFitItems = [
   { title: 'Zuschneiden', value: 'cover' },
 ] as const
 
+const remoteVisualizerFallbackItems = [
+  { title: 'Lokaler Fallback', value: 'local' },
+  { title: 'Neutraler Hintergrund', value: 'none' },
+] as const
+
+const displayRenderModeItems = [
+  { title: 'Lokal rendern', value: 'local' },
+  { title: 'Remote Headless Renderer', value: 'remote_headless' },
+] as const
+
+const remoteRendererFallbackItems = [
+  { title: 'Lokaler Fallback', value: 'local' },
+  { title: 'Hinweis anzeigen', value: 'notice' },
+] as const
+
 const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   particles: 'Particles',
   kaleidoscope: 'Kaleidoscope',
@@ -201,6 +253,8 @@ let visualizerPersistTimer: number | undefined
 let selfiePersistTimer: number | undefined
 let standbyPersistTimer: number | undefined
 let videoPersistTimer: number | undefined
+let remoteVisualizerPersistTimer: number | undefined
+let remoteRendererPersistTimer: number | undefined
 
 const slideshowRunningLabel = computed(() =>
   selfieStore.slideshowEnabled ? 'läuft' : 'pausiert',
@@ -634,6 +688,8 @@ onMounted(async () => {
       syncSelfieDraftFromStore(),
       syncStandbyDraftFromStore(),
       syncVideoDraftFromStore(),
+      syncRemoteVisualizerDraftFromStore(),
+      syncRemoteRendererDraftFromStore(),
     ])
     await loadAdminThumbnails(latestUploads)
     await loadVideoMetadata(videoStore.assets)
@@ -658,6 +714,12 @@ onBeforeUnmount(() => {
   }
   if (videoPersistTimer) {
     window.clearTimeout(videoPersistTimer)
+  }
+  if (remoteVisualizerPersistTimer) {
+    window.clearTimeout(remoteVisualizerPersistTimer)
+  }
+  if (remoteRendererPersistTimer) {
+    window.clearTimeout(remoteRendererPersistTimer)
   }
   if (reconnectTimer.value) {
     window.clearTimeout(reconnectTimer.value)
@@ -748,6 +810,36 @@ watch(
   },
 )
 
+watch(
+  () => [
+    remoteVisualizerDraft.remote_visualizer_enabled,
+    remoteVisualizerDraft.remote_visualizer_url,
+    remoteVisualizerDraft.remote_visualizer_reconnect_ms,
+    remoteVisualizerDraft.remote_visualizer_fallback,
+  ],
+  () => {
+    if (!isHydratingRemoteVisualizerDraft.value) {
+      scheduleRemoteVisualizerPersist()
+    }
+  },
+)
+
+watch(
+  () => [
+    remoteRendererDraft.display_render_mode,
+    remoteRendererDraft.remote_renderer_base_url,
+    remoteRendererDraft.remote_renderer_output_path,
+    remoteRendererDraft.remote_renderer_health_url,
+    remoteRendererDraft.remote_renderer_reconnect_ms,
+    remoteRendererDraft.remote_renderer_fallback,
+  ],
+  () => {
+    if (!isHydratingRemoteRendererDraft.value) {
+      scheduleRemoteRendererPersist()
+    }
+  },
+)
+
 async function switchMode(mode: AppMode) {
   if (isSwitchingMode.value || mode === activeMode.value) {
     return
@@ -819,6 +911,28 @@ async function syncVideoDraftFromStore() {
   isHydratingVideoDraft.value = false
 }
 
+async function syncRemoteVisualizerDraftFromStore() {
+  isHydratingRemoteVisualizerDraft.value = true
+  remoteVisualizerDraft.remote_visualizer_enabled = publicRuntimeStore.remoteVisualizerEnabled
+  remoteVisualizerDraft.remote_visualizer_url = publicRuntimeStore.remoteVisualizerUrl
+  remoteVisualizerDraft.remote_visualizer_reconnect_ms = publicRuntimeStore.remoteVisualizerReconnectMs
+  remoteVisualizerDraft.remote_visualizer_fallback = publicRuntimeStore.remoteVisualizerFallback
+  await nextTick()
+  isHydratingRemoteVisualizerDraft.value = false
+}
+
+async function syncRemoteRendererDraftFromStore() {
+  isHydratingRemoteRendererDraft.value = true
+  remoteRendererDraft.display_render_mode = publicRuntimeStore.displayRenderMode
+  remoteRendererDraft.remote_renderer_base_url = publicRuntimeStore.remoteRendererBaseUrl
+  remoteRendererDraft.remote_renderer_output_path = publicRuntimeStore.remoteRendererOutputPath
+  remoteRendererDraft.remote_renderer_health_url = publicRuntimeStore.remoteRendererHealthUrl
+  remoteRendererDraft.remote_renderer_reconnect_ms = publicRuntimeStore.remoteRendererReconnectMs
+  remoteRendererDraft.remote_renderer_fallback = publicRuntimeStore.remoteRendererFallback
+  await nextTick()
+  isHydratingRemoteRendererDraft.value = false
+}
+
 function scheduleVisualizerPersist() {
   if (visualizerPersistTimer) {
     window.clearTimeout(visualizerPersistTimer)
@@ -857,6 +971,26 @@ function scheduleVideoPersist() {
   videoPersistTimer = window.setTimeout(() => {
     void saveVideoDraft()
   }, 180)
+}
+
+function scheduleRemoteVisualizerPersist() {
+  if (remoteVisualizerPersistTimer) {
+    window.clearTimeout(remoteVisualizerPersistTimer)
+  }
+
+  remoteVisualizerPersistTimer = window.setTimeout(() => {
+    void saveRemoteVisualizerDraft()
+  }, 260)
+}
+
+function scheduleRemoteRendererPersist() {
+  if (remoteRendererPersistTimer) {
+    window.clearTimeout(remoteRendererPersistTimer)
+  }
+
+  remoteRendererPersistTimer = window.setTimeout(() => {
+    void saveRemoteRendererDraft()
+  }, 260)
 }
 
 async function saveVisualizerDraft() {
@@ -943,6 +1077,73 @@ async function saveVideoDraft() {
   } finally {
     isSavingVideo.value = false
   }
+}
+
+async function saveRemoteVisualizerDraft() {
+  remoteVisualizerError.value = ''
+  isSavingRemoteVisualizer.value = true
+  try {
+    const reconnectMs = Number.isFinite(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
+      ? Math.round(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
+      : 3000
+    remoteVisualizerDraft.remote_visualizer_reconnect_ms = reconnectMs
+    remoteVisualizerDraft.remote_visualizer_url = remoteVisualizerDraft.remote_visualizer_url.trim()
+    await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
+    await refreshSystemOnly()
+  } catch (error) {
+    remoteVisualizerError.value =
+      error instanceof Error ? error.message : 'Remote-Visualizer konnte nicht gespeichert werden'
+  } finally {
+    isSavingRemoteVisualizer.value = false
+  }
+}
+
+async function saveRemoteRendererDraft() {
+  remoteRendererError.value = ''
+  isSavingRemoteRenderer.value = true
+  try {
+    const reconnectMs = Number.isFinite(remoteRendererDraft.remote_renderer_reconnect_ms)
+      ? Math.round(remoteRendererDraft.remote_renderer_reconnect_ms)
+      : 3000
+    remoteRendererDraft.remote_renderer_reconnect_ms = reconnectMs
+    remoteRendererDraft.remote_renderer_base_url = remoteRendererDraft.remote_renderer_base_url.trim()
+    remoteRendererDraft.remote_renderer_output_path = normalizeRuntimePath(
+      remoteRendererDraft.remote_renderer_output_path,
+      '/preview',
+    )
+    remoteRendererDraft.remote_renderer_health_url = remoteRendererDraft.remote_renderer_health_url.trim()
+    await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
+    await refreshSystemOnly()
+  } catch (error) {
+    remoteRendererError.value =
+      error instanceof Error ? error.message : 'Remote-Renderer konnte nicht gespeichert werden'
+  } finally {
+    isSavingRemoteRenderer.value = false
+  }
+}
+
+function buildRuntimeConfigPayload() {
+  return {
+    remote_visualizer_enabled: remoteVisualizerDraft.remote_visualizer_enabled,
+    remote_visualizer_url: remoteVisualizerDraft.remote_visualizer_url.trim(),
+    remote_visualizer_reconnect_ms: Number.isFinite(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
+      ? Math.round(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
+      : 3000,
+    remote_visualizer_fallback: remoteVisualizerDraft.remote_visualizer_fallback,
+    display_render_mode: remoteRendererDraft.display_render_mode,
+    remote_renderer_base_url: remoteRendererDraft.remote_renderer_base_url.trim(),
+    remote_renderer_output_path: normalizeRuntimePath(remoteRendererDraft.remote_renderer_output_path, '/preview'),
+    remote_renderer_health_url: remoteRendererDraft.remote_renderer_health_url.trim(),
+    remote_renderer_reconnect_ms: Number.isFinite(remoteRendererDraft.remote_renderer_reconnect_ms)
+      ? Math.round(remoteRendererDraft.remote_renderer_reconnect_ms)
+      : 3000,
+    remote_renderer_fallback: remoteRendererDraft.remote_renderer_fallback,
+  }
+}
+
+function normalizeRuntimePath(value: string, fallback: string) {
+  const normalized = value.trim() || fallback
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
 async function refreshSystemOnly() {
@@ -1453,6 +1654,27 @@ function connectLiveEvents() {
     if (!payload) return
     appModeStore.applyMode(payload)
     void refreshSystemOnly()
+  })
+
+  source.addEventListener('public_runtime_snapshot', async (event) => {
+    dashboardLiveActive.value = true
+    pushRecentEvent('public_runtime_snapshot')
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    publicRuntimeStore.applyRuntimeInfo(payload)
+    await syncRemoteVisualizerDraftFromStore()
+    await syncRemoteRendererDraftFromStore()
+    await refreshSystemOnly()
+  })
+
+  source.addEventListener('public_runtime_updated', async (event) => {
+    pushRecentEvent('public_runtime_updated')
+    const payload = parseEventPayload(event)
+    if (!payload) return
+    publicRuntimeStore.applyRuntimeInfo(payload)
+    await syncRemoteVisualizerDraftFromStore()
+    await syncRemoteRendererDraftFromStore()
+    await refreshSystemOnly()
   })
 
   source.addEventListener('mode_changed', (event) => {
@@ -2357,8 +2579,164 @@ function overlayModeLabel(mode: OverlayMode) {
               />
             </div>
               </div>
+              <div class="settings-divider" />
+
+              <div class="settings-group settings-group--spaced">
+                <div class="settings-group__label">Externer Hintergrund</div>
+                <div class="settings-toggle-row">
+                  <div>
+                    <div class="settings-control__label">Remote-Visualizer aktivieren</div>
+                    <div class="settings-copy">
+                      MJPEG-/HTTP-Stream vom Renderer-PC als Display-Hintergrund nutzen.
+                    </div>
+                  </div>
+                  <v-switch
+                    v-model="remoteVisualizerDraft.remote_visualizer_enabled"
+                    :loading="isSavingRemoteVisualizer"
+                    hide-details
+                    inset
+                    color="primary"
+                  />
+                </div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Stream-URL</div>
+                  <v-text-field
+                    v-model="remoteVisualizerDraft.remote_visualizer_url"
+                    class="admin-text-input"
+                    placeholder="http://192.168.178.50:9001/stream"
+                    :disabled="isBooting"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Reconnect-Intervall (ms)</div>
+                  <v-text-field
+                    v-model.number="remoteVisualizerDraft.remote_visualizer_reconnect_ms"
+                    class="admin-text-input"
+                    type="number"
+                    min="1000"
+                    max="60000"
+                    step="250"
+                    :disabled="isBooting"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Fallback bei Streamfehler</div>
+                  <v-select
+                    v-model="remoteVisualizerDraft.remote_visualizer_fallback"
+                    class="admin-select"
+                    :items="remoteVisualizerFallbackItems"
+                    item-title="title"
+                    item-value="value"
+                    :disabled="isBooting"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+              </div>
+              <div class="settings-divider" />
+
+              <div class="settings-group settings-group--spaced">
+                <div class="settings-group__label">Display-Renderer</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Render-Modus</div>
+                  <v-select
+                    v-model="remoteRendererDraft.display_render_mode"
+                    class="admin-select"
+                    :items="displayRenderModeItems"
+                    item-title="title"
+                    item-value="value"
+                    :disabled="isBooting"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+                <div class="settings-copy">
+                  Im Remote-Modus nutzt das Pi-Display den Output des separaten `renderer_headless`-Services statt lokal die schwere Display-Ansicht zu rendern.
+                </div>
+                <template v-if="remoteRendererDraft.display_render_mode === 'remote_headless'">
+                  <div class="settings-control">
+                    <div class="settings-control__label">Renderer-Basis-URL</div>
+                    <v-text-field
+                      v-model="remoteRendererDraft.remote_renderer_base_url"
+                      class="admin-text-input"
+                      placeholder="http://192.168.178.22:9012"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Bevorzugter Output-Pfad</div>
+                    <v-text-field
+                      v-model="remoteRendererDraft.remote_renderer_output_path"
+                      class="admin-text-input"
+                      placeholder="/preview oder /hls/playlist.m3u8"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Health-URL (optional)</div>
+                    <v-text-field
+                      v-model="remoteRendererDraft.remote_renderer_health_url"
+                      class="admin-text-input"
+                      placeholder="leer = /health an der Basis-URL"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Reconnect-Intervall (ms)</div>
+                    <v-text-field
+                      v-model.number="remoteRendererDraft.remote_renderer_reconnect_ms"
+                      class="admin-text-input"
+                      type="number"
+                      min="1000"
+                      max="60000"
+                      step="250"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Fallback bei Rendererfehler</div>
+                    <v-select
+                      v-model="remoteRendererDraft.remote_renderer_fallback"
+                      class="admin-select"
+                      :items="remoteRendererFallbackItems"
+                      item-title="title"
+                      item-value="value"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                </template>
+              </div>
               <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
                 {{ visualizerError }}
+              </v-alert>
+              <v-alert v-if="remoteVisualizerError" type="error" variant="tonal" class="mt-4">
+                {{ remoteVisualizerError }}
+              </v-alert>
+              <v-alert v-if="remoteRendererError" type="error" variant="tonal" class="mt-4">
+                {{ remoteRendererError }}
               </v-alert>
                 </section>
               </v-expand-transition>

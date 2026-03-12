@@ -9,6 +9,7 @@ from app.schemas.mode import ModeRead
 from app.schemas.runtime import CleanupCompletedEvent, RateLimitTriggeredEvent, SelfiePlaybackEvent
 from app.schemas.selfie import SelfieStateRead
 from app.schemas.standby import StandbyStateRead
+from app.schemas.system import PublicRuntimeInfoResponse
 from app.schemas.upload import UploadDeletedEvent, UploadEvent
 from app.schemas.video import VideoAssetRead, VideoStateRead
 from app.schemas.visualizer import VisualizerStateRead
@@ -79,6 +80,9 @@ class EventService:
 
     async def publish_heartbeat_updated(self, payload: DisplayStatusRead) -> None:
         await self.publish("heartbeat_updated", payload.model_dump(mode="json"))
+
+    async def publish_public_runtime_info(self, payload: PublicRuntimeInfoResponse) -> None:
+        await self.publish("public_runtime_updated", payload.model_dump(mode="json"))
 
     async def stream(self, initial_events: list[tuple[str, dict]]) -> AsyncIterator[str]:
         queue: asyncio.Queue[str] = asyncio.Queue()

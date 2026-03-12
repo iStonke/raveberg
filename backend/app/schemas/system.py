@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.schemas.mode import ModeType
+from app.schemas.runtime import DisplayRenderMode, RemoteRendererFallback, RemoteVisualizerFallback
 from app.schemas.selfie import ModerationMode
 
 
@@ -76,6 +77,16 @@ class ApplianceInfo(BaseModel):
     event_name: str
     event_tagline: str
     display_overlay_enabled: bool
+    remote_visualizer_enabled: bool
+    remote_visualizer_url: str
+    remote_visualizer_reconnect_ms: int
+    remote_visualizer_fallback: RemoteVisualizerFallback
+    display_render_mode: DisplayRenderMode
+    remote_renderer_base_url: str
+    remote_renderer_output_path: str
+    remote_renderer_health_url: str
+    remote_renderer_reconnect_ms: int
+    remote_renderer_fallback: RemoteRendererFallback
     urls: ApplianceUrls
     network: ApplianceNetwork
     storage: ApplianceStorage
@@ -86,6 +97,16 @@ class PublicRuntimeInfoResponse(BaseModel):
     event_name: str
     event_tagline: str
     display_overlay_enabled: bool
+    remote_visualizer_enabled: bool
+    remote_visualizer_url: str
+    remote_visualizer_reconnect_ms: int
+    remote_visualizer_fallback: RemoteVisualizerFallback
+    display_render_mode: DisplayRenderMode
+    remote_renderer_base_url: str
+    remote_renderer_output_path: str
+    remote_renderer_health_url: str
+    remote_renderer_reconnect_ms: int
+    remote_renderer_fallback: RemoteRendererFallback
     moderation_mode: ModerationMode
     upload_max_bytes: int
     video_upload_max_bytes: int
