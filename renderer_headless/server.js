@@ -1397,6 +1397,41 @@ function createPreviewHtml() {
 </html>`
 }
 
+function createPreviewLiteHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>RaveBerg Renderer Preview Lite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      img {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="/stream" alt="Renderer preview stream">
+  </body>
+</html>`
+}
+
 function escapeHtml(value) {
   return value
     .replaceAll('&', '&amp;')
@@ -1469,6 +1504,11 @@ async function main() {
     response.type('html').send(createPreviewHtml())
   })
 
+  app.get('/preview-lite', (_request, response) => {
+    sendNoCache(response)
+    response.type('html').send(createPreviewLiteHtml())
+  })
+
   app.get('/stream', (request, response) => {
     sendNoCache(response)
     response.status(200)
@@ -1513,6 +1553,7 @@ async function main() {
 
   const server = app.listen(config.port, config.host, () => {
     console.log(`[renderer_headless] preview: http://${config.host}:${config.port}/preview`)
+    console.log(`[renderer_headless] preview lite: http://${config.host}:${config.port}/preview-lite`)
     console.log(`[renderer_headless] health: http://${config.host}:${config.port}/health`)
     console.log(`[renderer_headless] mjpeg stream: http://${config.host}:${config.port}/stream`)
     console.log(`[renderer_headless] snapshot: http://${config.host}:${config.port}/snapshot.jpg`)

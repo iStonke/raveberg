@@ -258,14 +258,16 @@ Empfohlener erster echter Erfolgstest:
 - `HEADLESS_RENDERER_FPS=6`
 - `HEADLESS_RENDERER_JPEG_QUALITY=52`
 - `HEADLESS_RENDERER_PRESET=ultrafast`
-- auf dem Pi bevorzugt `Output-Pfad = /preview`
+- auf dem Pi bevorzugt `Output-Pfad = /preview-lite`
 
 ## Endpunkte
 
 - `/health`
   Zeigt Browser-, Display-, Render- und Output-Status.
 - `/preview`
-  Pi-kompatible Preview-Seite mit MJPEG-`<img>` und Statusanzeige.
+  Debug-Preview-Seite mit MJPEG-Bild, Status und Metriken.
+- `/preview-lite`
+  Minimalistische Pi-Kiosk-Seite mit genau einem `<img src="/stream">`.
 - `/stream`
   MJPEG-Kompatibilitaetspfad als `multipart/x-mixed-replace`.
 - `/video`
@@ -351,6 +353,7 @@ Gesamtstatus:
 Nach dem Start:
 
 - Preview: `http://localhost:9012/preview`
+- Preview Lite: `http://localhost:9012/preview-lite`
 - Playlist: `http://localhost:9012/hls/playlist.m3u8`
 - Health: `http://localhost:9012/health`
 
@@ -411,17 +414,17 @@ Empfohlene Runtime-Konfiguration in RaveBerg:
 
 - `Render-Modus = remote_headless`
 - `Renderer-Basis-URL = http://<RENDERER-IP>:9012`
-- `Output-Pfad = /preview`
+- `Output-Pfad = /preview-lite`
 - optional `Health-URL = leer`, dann wird automatisch `/health` genutzt
 - `Fallback = local` oder `notice`
 
 Der Pi konsumiert dann intern den Renderer-Output, zum Beispiel:
 
 ```text
-http://<RENDERER-IP>:9012/preview
+http://<RENDERER-IP>:9012/preview-lite
 ```
 
-Fuer Chromium auf dem Pi ist jetzt `/preview` der pragmatischste erste Pfad, weil diese Seite intern den MJPEG-Kompatibilitaetspfad `/stream` nutzt. Wenn du einen nackten Bildstream testen willst, kannst du alternativ direkt `/stream` oeffnen. `/hls/playlist.m3u8` bleibt der HLS-Hauptpfad, ist fuer die Pi-Preview aber nicht mehr erforderlich.
+Fuer Chromium auf dem Pi ist `/preview-lite` jetzt der bevorzugte Pfad, weil diese Seite wirklich nur aus einem MJPEG-`<img>` besteht. `/preview` bleibt als Debug-Seite mit Status und Metriken erhalten. Wenn du einen nackten Bildstream testen willst, kannst du alternativ direkt `/stream` oeffnen. `/hls/playlist.m3u8` bleibt der HLS-Hauptpfad, ist fuer die Pi-Preview aber nicht mehr erforderlich.
 
 Wenn der Renderer ausfaellt:
 
@@ -433,6 +436,7 @@ Pruefen auf dem Pi:
 1. Renderer-Gesundheit auf dem Renderer-Rechner pruefen: `/health`
 2. In RaveBerg `Render-Modus = remote_headless` setzen
 3. Direkt testen:
+   - `http://<RENDERER-IP>:9012/preview-lite`
    - `http://<RENDERER-IP>:9012/preview`
    - optional `http://<RENDERER-IP>:9012/stream`
 4. Im integrierten Betrieb auf dem Pi weiter `/display` oeffnen
@@ -442,7 +446,7 @@ Pruefen auf dem Pi:
 
 - Der Service nutzt weiterhin eine Frame-Schleife ueber Headless-Chromium-Screenshots. Das ist aber Browser-internes Headless-Rendering, keine Desktop-Aufnahme.
 - Das ist noch keine echte GPU-direkte Video-Renderpipeline.
-- Die Preview-Seite nutzt fuer Chromium-basierte Browser bei Bedarf `hls.js` aus einem CDN.
+- `/preview` ist bewusst eine Debug-Seite; fuer den Pi-Kiosk sollte `/preview-lite` genutzt werden.
 - Der Service wird noch nicht automatisch aus `docker-compose.yml` gestartet.
 - Audio wird nicht uebertragen.
 
