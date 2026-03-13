@@ -453,7 +453,6 @@ function scheduleReconnect() {
     if (disposed) {
       return
     }
-    await loadInitialState()
     connectEvents()
   }, delay)
 }
@@ -484,7 +483,6 @@ function parseEventPayload(event: Event) {
 
 function markStateSync() {
   lastStateSyncAt.value = new Date().toISOString()
-  void postHeartbeat(connectionState.value === 'connected')
 }
 
 function currentRendererLabel() {

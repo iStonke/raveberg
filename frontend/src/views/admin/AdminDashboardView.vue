@@ -230,7 +230,7 @@ const remoteVisualizerFallbackItems = [
 
 const displayRenderModeItems = [
   { title: 'Lokal rendern', value: 'local' },
-  { title: 'Remote Headless Renderer', value: 'remote_headless' },
+  { title: 'Remote Headless Renderer (Reserve)', value: 'remote_headless' },
 ] as const
 
 const remoteRendererFallbackItems = [
@@ -2659,7 +2659,7 @@ function overlayModeLabel(mode: OverlayMode) {
                   />
                 </div>
                 <div class="settings-copy">
-                  Im Remote-Modus nutzt das Pi-Display den Output des separaten `renderer_headless`-Services statt lokal die schwere Display-Ansicht zu rendern.
+                  Produktiv auf einem starken Mac/PC sollte die normale Display-Seite direkt unter `/display` laufen und den Pi nur als Backend- und Event-Server nutzen. Der Remote-Headless-Modus bleibt als Reserve-/Experimentpfad erhalten.
                 </div>
                 <template v-if="remoteRendererDraft.display_render_mode === 'remote_headless'">
                   <div class="settings-control">

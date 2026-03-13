@@ -157,7 +157,7 @@ const particles = [
 
             <div class="idle-qr-module">
               <div class="idle-qr-haze" aria-hidden="true" />
-              <QrCodeMatrix class="idle-qr-code" :text="guestUploadUrl" />
+              <QrCodeMatrix class="idle-qr-code" :text="guestUploadUrl" :quiet-zone="5" />
               <div class="idle-qr-label">QR-Code scannen</div>
             </div>
           </div>
@@ -493,9 +493,17 @@ const particles = [
 }
 
 .idle-qr-code {
+  display: block;
   width: clamp(14rem, 21vw, 17.6rem);
   position: relative;
   z-index: 1;
+  padding: 0.72rem;
+  border-radius: 1.3rem;
+  background: #fff;
+  color: #111;
+  box-shadow:
+    inset 0 0 0 1px rgba(10, 16, 24, 0.04),
+    0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
 .idle-qr-label {

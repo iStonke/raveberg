@@ -17,12 +17,19 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://127.0.0.1:8085}
+GUEST_UPLOAD_URL=${GUEST_UPLOAD_URL:-}
 GUEST_UPLOAD_PATH=${GUEST_UPLOAD_PATH:-/guest/upload}
 ADMIN_PATH=${ADMIN_PATH:-/admin/login}
 
 mkdir -p "$OUTPUT_DIR"
 
-qrencode -o "$OUTPUT_DIR/guest-upload.png" "${PUBLIC_BASE_URL%/}${GUEST_UPLOAD_PATH}"
+if [ -n "$GUEST_UPLOAD_URL" ]; then
+  GUEST_UPLOAD_TARGET=$GUEST_UPLOAD_URL
+else
+  GUEST_UPLOAD_TARGET="${PUBLIC_BASE_URL%/}${GUEST_UPLOAD_PATH}"
+fi
+
+qrencode -o "$OUTPUT_DIR/guest-upload.png" "$GUEST_UPLOAD_TARGET"
 qrencode -o "$OUTPUT_DIR/admin-login.png" "${PUBLIC_BASE_URL%/}${ADMIN_PATH}"
 
 printf '%s\n' "Generated:"

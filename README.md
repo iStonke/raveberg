@@ -18,7 +18,7 @@ Nicht verwendet werden die im Projektbrief ausgeschlossenen Standardports wie `5
 - `frontend/`: Vue-Client mit Vuetify, Pinia, Auth-Guards, Guest-Upload, Event-Branding, Live-Dashboard, Quick Controls, Display-Overlays und Display-Renderern
 - `backend/`: FastAPI-API mit Konfiguration, Datenbankschicht, Auth, Upload-Pipeline, Moderation, Visualizer-State, Selfie-State, Runtime-Limits, Heartbeat, SSE, Appliance-Metadaten und Alembic
 - `proxy/`: Nginx-Konfiguration fuer den gebuendelten Einstiegspunkt
-- `ops/`: Pi-/Appliance-Skripte, systemd-Units und AP-Beispielkonfigurationen
+- `ops/`: Pi-/Appliance-Skripte, Mac-Display-Startpfade, systemd-Units und AP-Beispielkonfigurationen
 - `docs/`: technische Orientierung fuer AP0 bis AP7
 
 ## Start
@@ -150,6 +150,37 @@ Die Display-Seite laedt ihren Startzustand weiterhin aus dem Backend und haelt d
 - periodischen Heartbeat mit Renderer- und Sync-Status
 - stabilen Wechsel zwischen `visualizer`, `selfie`, `idle` und `blackout`, ohne alte Timer oder Animation-Loops weiterlaufen zu lassen
 
+Die produktive Display-Architektur ist damit direkt:
+
+1. der Raspberry Pi bleibt Source of Truth fuer Uploads, Moderation, Admin, API und Zustande
+2. der Display-Client auf dem Mac oeffnet direkt `http://<PI-IP>:8085/display`
+3. nach dem initialen Laden synchronisiert sich das Frontend ueber `GET /api/events/stream`
+4. eingehende Events aktualisieren nur den lokalen Pinia-State; die Seite laedt nicht komplett neu
+
+Display-relevante Live-Events auf dem zentralen SSE-Stream sind unter anderem:
+
+- `public_runtime_snapshot`
+- `public_runtime_updated`
+- `mode_snapshot`
+- `mode_changed`
+- `selfie_snapshot`
+- `selfie_settings_updated`
+- `selfie_playback_updated`
+- `standby_snapshot`
+- `standby_settings_updated`
+- `video_snapshot`
+- `video_settings_updated`
+- `video_library_snapshot`
+- `video_library_updated`
+- `visualizer_snapshot`
+- `visualizer_updated`
+- `visualizer_preset_changed`
+- `visualizer_auto_cycle_updated`
+- `upload_created`
+- `upload_approved`
+- `upload_rejected`
+- `upload_deleted`
+
 ## Appliance-Flow
 
 AP5 etabliert einen separaten Zielbetrieb fuer den Raspberry Pi:
@@ -161,6 +192,55 @@ AP5 etabliert einen separaten Zielbetrieb fuer den Raspberry Pi:
 5. `raveberg-kiosk.service` startet Chromium im Fullscreen-Kiosk auf `/display`
 
 Die vorbereiteten Dateien liegen unter [ops/README.md](ops/README.md), [env.appliance.example](ops/pi/env.appliance.example), [start-kiosk.sh](ops/pi/start-kiosk.sh), [raveberg-stack.service](ops/systemd/raveberg-stack.service) und [raveberg-kiosk.service](ops/systemd/raveberg-kiosk.service).
+
+## Mac-Display
+
+Der bevorzugte Produktivpfad fuer einen starken Mac/PC ist kein Stream-Relay, sondern die direkte Display-Seite des Pi:
+
+```text
+http://<PI-IP>:8085/display
+```
+
+Empfohlene Betriebsweise:
+
+1. im Adminbereich `Render-Modus = local` lassen
+2. auf dem Mac Chrome oder Chromium im Vollbild/Kiosk auf `/display` starten
+3. der Pi bleibt Backend-/Event-Server; der Mac rendert die Buehne direkt im Browser
+
+Manueller Start:
+
+```text
+http://<PI-IP>:8085/display
+```
+
+Pragmatisches macOS-Startskript:
+
+```bash
+chmod +x ops/mac/start-display-client.sh
+ops/mac/start-display-client.sh http://<PI-IP>:8085/display
+```
+
+Das Skript oeffnet Chrome oder Chromium in einem neuen Vollbild-Fenster. Es ist bewusst leichtgewichtig und ersetzt keine groessere native macOS-Automation.
+
+Warum dieser Pfad fluessiger ist:
+
+- kein Screenshot-/MJPEG-/HLS-Zwischenschritt
+- kein zweiter Renderprozess
+- direkte GPU-/Browser-Renderpipeline auf dem Mac
+- State-Aktualisierung nur ueber kleine SSE-Events statt per Stream-Reencoding
+
+Fallback im Eventbetrieb:
+
+- der Pi bleibt jederzeit Source of Truth
+- wenn der Mac oder der Browser abstuerzt, wird auf dem Mac einfach erneut `http://<PI-IP>:8085/display` geoeffnet
+- Uploads, Moderation und Admin laufen waehrenddessen auf dem Pi weiter
+- als schnelle Reserve bleibt die lokale Pi-Display-URL verfuegbar:
+
+```text
+http://localhost:8085/display
+```
+
+Der bestehende `renderer_headless` bleibt im Repo als experimenteller oder alternativer Pfad erhalten, ist aber nicht mehr der primaere Produktivweg fuer die Buehne.
 
 ## AP7-Grenzen
 

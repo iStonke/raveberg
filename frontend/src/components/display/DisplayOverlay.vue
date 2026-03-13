@@ -77,8 +77,8 @@ defineProps<{
   width: 100%;
   height: auto;
   color: #111;
-  opacity: 0.9;
-  filter: contrast(0.9);
+  opacity: 1;
+  filter: none;
 }
 
 .overlay-qr-caption {
