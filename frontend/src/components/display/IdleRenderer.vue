@@ -477,6 +477,12 @@ const particles = [
   justify-items: center;
   gap: 1rem;
   margin-top: 0.8rem;
+  isolation: isolate;
+  transform: translate3d(0, 0, 1.5rem);
+  transform-style: flat;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+  will-change: transform;
 }
 
 .idle-qr-haze {
@@ -501,6 +507,12 @@ const particles = [
   border-radius: 1.3rem;
   background: #fff;
   color: #111;
+  overflow: hidden;
+  contain: paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
   box-shadow:
     inset 0 0 0 1px rgba(10, 16, 24, 0.04),
     0 18px 48px rgba(0, 0, 0, 0.24);
