@@ -49,7 +49,25 @@ Pragmatischer Event-Start mit Cloudflare Quick Tunnel:
 bash ops/pi/start-event.sh
 ```
 
-Das Skript startet `cloudflared`, extrahiert die neue `trycloudflare.com`-URL aus dem Log, schreibt `GUEST_UPLOAD_URL=<tunnel>/guest/upload` in `ops/pi/env.appliance` und startet den Pi-Stack anschliessend erneut mit dieser Env-Datei. Die finale oeffentliche Upload-URL wird direkt im Terminal ausgegeben.
+Das Skript startet `cloudflared`, extrahiert die neue `trycloudflare.com`-URL aus dem Log, schreibt `GUEST_UPLOAD_URL=<tunnel>/guest/upload` in `ops/pi/env.appliance`, startet den Pi-Stack anschliessend erneut mit dieser Env-Datei und schreibt die wichtigsten Event-Infos nach `ops/pi/runtime/event-info.txt`.
+
+Ein typischer Event-Ablauf ist damit:
+
+1. auf dem Pi:
+
+```bash
+cd /opt/raveberg
+bash ops/pi/start-event.sh
+```
+
+2. auf dem Mac:
+
+```bash
+cd /opt/raveberg
+bash ops/mac/start-event-display.sh <PI-IP>
+```
+
+Der Pi bleibt Backend-/Event-Server, der Mac rendert direkt `http://<PI-IP>:8085/display`.
 
 ## Frontend-Routen
 
@@ -236,7 +254,14 @@ chmod +x ops/mac/start-display-client.sh
 ops/mac/start-display-client.sh http://<PI-IP>:8085/display
 ```
 
-Das Skript oeffnet Chrome oder Chromium in einem neuen Vollbild-Fenster. Es ist bewusst leichtgewichtig und ersetzt keine groessere native macOS-Automation.
+Noch einfacher fuer Standard-Setups:
+
+```bash
+chmod +x ops/mac/start-event-display.sh
+ops/mac/start-event-display.sh <PI-IP>
+```
+
+Das Skript ergaenzt automatisch `http://<PI-IP>:8085/display` und oeffnet Chrome oder Chromium im Kiosk-/Vollbildmodus. Es ist bewusst leichtgewichtig und ersetzt keine groessere native macOS-Automation.
 
 Warum dieser Pfad fluessiger ist:
 

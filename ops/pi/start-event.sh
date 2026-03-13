@@ -7,6 +7,7 @@ EXAMPLE_FILE="$ROOT_DIR/ops/pi/env.appliance.example"
 RUNTIME_DIR=${RAVEBERG_RUNTIME_DIR:-"$ROOT_DIR/ops/pi/runtime"}
 LOG_FILE=${RAVEBERG_CLOUDFLARED_LOG:-"$RUNTIME_DIR/cloudflared.log"}
 PID_FILE=${RAVEBERG_CLOUDFLARED_PID_FILE:-"$RUNTIME_DIR/cloudflared.pid"}
+EVENT_INFO_FILE=${RAVEBERG_EVENT_INFO_FILE:-"$RUNTIME_DIR/event-info.txt"}
 LOCAL_PROXY_URL=${RAVEBERG_LOCAL_PROXY_URL:-http://localhost:8085}
 GUEST_UPLOAD_PATH=${RAVEBERG_GUEST_UPLOAD_PATH:-/guest/upload}
 WAIT_SECONDS=${RAVEBERG_QUICK_TUNNEL_WAIT_SECONDS:-30}
@@ -34,6 +35,14 @@ ensure_env_file() {
     else
       : > "$ENV_FILE"
     fi
+  fi
+}
+
+load_env_file() {
+  if [ -f "$ENV_FILE" ]; then
+    set -a
+    . "$ENV_FILE"
+    set +a
   fi
 }
 
@@ -103,6 +112,22 @@ wait_for_tunnel_url() {
   fail "No trycloudflare URL found within ${WAIT_SECONDS}s. See $LOG_FILE"
 }
 
+write_event_info() {
+  STARTED_AT=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  cat > "$EVENT_INFO_FILE" <<EOF
+RAVEBERG Event Info
+Started at: $STARTED_AT
+Public guest upload: $FINAL_UPLOAD_URL
+Local display: $LOCAL_DISPLAY_URL
+Local admin: $LOCAL_ADMIN_URL
+Tunnel base URL: $TUNNEL_URL
+Tunnel log: $LOG_FILE
+Tunnel pid file: $PID_FILE
+Stop command: bash ops/pi/stop-event.sh
+Mac display start: bash ops/mac/start-event-display.sh $DISPLAY_HOST_HINT
+EOF
+}
+
 main() {
   require_command docker
   require_command cloudflared
@@ -111,6 +136,7 @@ main() {
 
   mkdir -p "$RUNTIME_DIR"
   ensure_env_file
+  load_env_file
 
   log "Starting appliance stack with $ENV_FILE"
   compose_up
@@ -122,17 +148,30 @@ main() {
   FINAL_UPLOAD_URL="${TUNNEL_URL%/}${GUEST_UPLOAD_PATH}"
 
   log "Setting guest upload URL to $FINAL_UPLOAD_URL"
-  "$ROOT_DIR/ops/pi/set-guest-upload-url.sh" "$FINAL_UPLOAD_URL"
+  sh "$ROOT_DIR/ops/pi/set-guest-upload-url.sh" "$FINAL_UPLOAD_URL"
+  load_env_file
 
   log "Restarting appliance stack so frontend/backend pick up the new runtime URL"
   compose_up
 
+  PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://127.0.0.1:8085}
+  ADMIN_PATH=${ADMIN_PATH:-/admin/login}
+  DISPLAY_PATH=${DISPLAY_PATH:-/display}
+  LOCAL_DISPLAY_URL="${PUBLIC_BASE_URL%/}${DISPLAY_PATH}"
+  LOCAL_ADMIN_URL="${PUBLIC_BASE_URL%/}${ADMIN_PATH}"
+  DISPLAY_HOST_HINT=$(printf '%s\n' "$PUBLIC_BASE_URL" | sed -E 's#^https?://([^/:]+).*$#\1#')
+  write_event_info
+
   printf '\n'
   printf 'RAVEBERG event start complete.\n'
-  printf 'Quick tunnel base URL: %s\n' "$TUNNEL_URL"
-  printf 'Guest upload URL: %s\n' "$FINAL_UPLOAD_URL"
-  printf 'cloudflared log: %s\n' "$LOG_FILE"
-  printf 'cloudflared pid file: %s\n' "$PID_FILE"
+  printf 'Public guest upload: %s\n' "$FINAL_UPLOAD_URL"
+  printf 'Local display:       %s\n' "$LOCAL_DISPLAY_URL"
+  printf 'Local admin:         %s\n' "$LOCAL_ADMIN_URL"
+  printf 'Tunnel base URL:     %s\n' "$TUNNEL_URL"
+  printf 'Tunnel log:          %s\n' "$LOG_FILE"
+  printf 'Event info:          %s\n' "$EVENT_INFO_FILE"
+  printf 'Stop command:        bash ops/pi/stop-event.sh\n'
+  printf 'Mac display start:   bash ops/mac/start-event-display.sh %s\n' "$DISPLAY_HOST_HINT"
 }
 
 main "$@"

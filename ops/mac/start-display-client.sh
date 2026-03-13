@@ -1,7 +1,13 @@
 #!/bin/sh
 set -eu
 
-DISPLAY_URL=${1:-${RAVEBERG_DISPLAY_URL:-http://127.0.0.1:8085/display}}
+DISPLAY_URL=${1:-${RAVEBERG_DISPLAY_URL:-}}
+
+if [ -z "$DISPLAY_URL" ]; then
+  echo "[raveberg-mac-display] Usage: $0 <http://<PI-IP>:8085/display>" >&2
+  echo "[raveberg-mac-display] Example: $0 http://192.168.178.92:8085/display" >&2
+  exit 1
+fi
 
 CHROME_APP=""
 for candidate in "Google Chrome" "Chromium" "Google Chrome Canary"; do
@@ -20,7 +26,7 @@ fi
 echo "[raveberg-mac-display] opening $DISPLAY_URL with $CHROME_APP"
 
 exec open -na "$CHROME_APP" --args \
-  --new-window \
+  --kiosk \
   --start-fullscreen \
   --autoplay-policy=no-user-gesture-required \
   --disable-session-crashed-bubble \

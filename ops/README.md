@@ -54,14 +54,16 @@ Das Skript macht in dieser Reihenfolge:
 4. daraus `https://...trycloudflare.com/guest/upload` bilden
 5. `GUEST_UPLOAD_URL=...` in `ops/pi/env.appliance` setzen oder aktualisieren
 6. den Stack mit derselben Env-Datei erneut `up -d --build` starten
+7. eine Statusdatei unter `ops/pi/runtime/event-info.txt` schreiben
 
 Wichtige Dateien:
 
 - Tunnel-Log: `ops/pi/runtime/cloudflared.log`
 - PID-Datei: `ops/pi/runtime/cloudflared.pid`
+- Event-Info: `ops/pi/runtime/event-info.txt`
 - gesetzte Upload-URL: `ops/pi/env.appliance`
 
-Die finale Upload-URL wird nach dem Start im Terminal ausgegeben.
+Die finale Upload-URL wird nach dem Start im Terminal und in `event-info.txt` ausgegeben.
 
 Quick Tunnel stoppen:
 
@@ -100,6 +102,50 @@ ops/mac/start-display-client.sh http://<PI-IP>:8085/display
 ```
 
 Das Skript sucht nach Chrome oder Chromium in `/Applications` und oeffnet die Display-Seite in einem neuen Vollbild-Fenster.
+
+Noch einfacher fuer den Eventbetrieb:
+
+```bash
+chmod +x ops/mac/start-event-display.sh
+ops/mac/start-event-display.sh 192.168.178.92
+```
+
+Das Convenience-Skript akzeptiert entweder nur die Pi-IP bzw. den Hostnamen oder direkt eine volle Display-URL.
+
+## Event-Ablauf
+
+A) Pi vorbereiten
+
+```bash
+cd /opt/raveberg
+bash ops/pi/start-event.sh
+```
+
+B) Mac Display starten
+
+```bash
+cd /opt/raveberg
+bash ops/mac/start-event-display.sh <PI-IP>
+```
+
+oder direkt:
+
+```text
+http://<PI-IP>:8085/display
+```
+
+C) QR-/Upload-Test
+
+1. Smartphone ueber Mobilfunk oder externes Netz nutzen
+2. QR-Code auf dem Display scannen
+3. Testbild hochladen und auf dem Mac-Display pruefen
+
+D) Stoppen
+
+```bash
+cd /opt/raveberg
+bash ops/pi/stop-event.sh
+```
 
 Fallback-Modell:
 
