@@ -6,6 +6,8 @@ import type {
   AppMode,
   ColorScheme,
   DisplayRenderMode,
+  HydraPaletteMode,
+  HydraQuality,
   ModerationMode,
   OverlayMode,
   RemoteRendererFallback,
@@ -25,11 +27,10 @@ import {
   fetchAdminUploads,
   rejectUpload,
   reorderVideoAssets,
-  connectWifi,
+  startSetupMode,
+  stopSetupMode,
   triggerSystemRestart,
   triggerSystemShutdown,
-  triggerSelfieNext,
-  triggerSelfieReload,
   uploadAdminVideo,
 } from '../../services/api'
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
@@ -72,8 +73,6 @@ const remoteRendererError = ref('')
 const uploadError = ref('')
 const systemActionError = ref('')
 const systemActionMessage = ref('')
-const wifiActionError = ref('')
-const wifiActionMessage = ref('')
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const optimisticMode = ref<AppMode | null>(null)
@@ -86,7 +85,7 @@ const isSavingRemoteRenderer = ref(false)
 const isUploadingVideos = ref(false)
 const isShuttingDown = ref(false)
 const isRestartingSystem = ref(false)
-const isConnectingWifi = ref(false)
+const isTogglingSetupMode = ref(false)
 const isDownloadingUploadArchive = ref(false)
 const dashboardLiveActive = ref(false)
 const uploads = ref<UploadItem[]>([])
@@ -110,12 +109,7 @@ const videoMetadataLoading = ref<Record<number, boolean>>({})
 const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
 const isGuestQrDialogOpen = ref(false)
-const isWifiDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
-const wifiDraft = reactive({
-  ssid: '',
-  password: '',
-})
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -123,18 +117,32 @@ const visualizerDraft = reactive<{
   speed: number
   brightness: number
   color_scheme: ColorScheme
+  hydra_colorfulness: number
+  hydra_scene_change_rate: number
+  hydra_symmetry_amount: number
+  hydra_feedback_amount: number
+  hydra_quality: HydraQuality
+  hydra_audio_reactivity_enabled: boolean
+  hydra_palette_mode: HydraPaletteMode
   overlay_mode: OverlayMode
   auto_cycle_enabled: boolean
-  auto_cycle_interval_seconds: number
+  auto_cycle_interval_minutes: number
 }>({
   active_preset: 'warehouse',
   intensity: 65,
   speed: 55,
   brightness: 70,
   color_scheme: 'acid',
+  hydra_colorfulness: 78,
+  hydra_scene_change_rate: 46,
+  hydra_symmetry_amount: 38,
+  hydra_feedback_amount: 24,
+  hydra_quality: 'medium',
+  hydra_audio_reactivity_enabled: true,
+  hydra_palette_mode: 'auto',
   overlay_mode: 'logo',
   auto_cycle_enabled: false,
-  auto_cycle_interval_seconds: 45,
+  auto_cycle_interval_minutes: 10,
 })
 
 const selfieDraft = reactive<{
@@ -252,11 +260,25 @@ const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   particles: 'Particles',
   kaleidoscope: 'Kaleidoscope',
   warehouse: 'Warehouse',
-  swarm_collision: 'Swarm Collision',
-  vanta_fog: 'Vanta FOG',
+  nebel: 'Nebel',
   vanta_halo: 'Vanta HALO',
   hydra_rave: 'Hydra Rave',
+  hydra_chromaflow: 'Hydra Chromaflow',
   particle_swarm: 'Particle Swarm',
+}
+
+const hydraQualityLabels: Record<HydraQuality, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+}
+
+const hydraPaletteModeLabels: Record<HydraPaletteMode, string> = {
+  auto: 'Auto',
+  neon: 'Neon',
+  warm: 'Warm',
+  cold: 'Cold',
+  acid: 'Acid',
 }
 
 let visualizerPersistTimer: number | undefined
@@ -465,28 +487,6 @@ const contextActions = computed(() => {
   if (activeMode.value === 'selfie') {
     return [
       {
-        id: 'selfie:toggle',
-        label: selfieDraft.slideshow_enabled ? 'Slideshow aktiv' : 'Slideshow pausiert',
-        color: 'primary' as const,
-        loading: isBusy('selfie:toggle'),
-        disabled: isBooting.value,
-        active: selfieDraft.slideshow_enabled,
-      },
-      {
-        id: 'selfie:next',
-        label: 'Nächstes Bild',
-        color: 'primary' as const,
-        loading: isBusy('selfie:next'),
-        disabled: isBooting.value,
-      },
-      {
-        id: 'selfie:reload_pool',
-        label: 'Pool neu laden',
-        color: 'primary' as const,
-        loading: isBusy('selfie:reload_pool'),
-        disabled: isBooting.value,
-      },
-      {
         id: 'selfie:moderation',
         label: selfieDraft.moderation_mode === 'auto_approve' ? 'Freigabe auto' : 'Freigabe manuell',
         color: 'primary' as const,
@@ -517,6 +517,14 @@ const contextActions = computed(() => {
         loading: isBusy('selfie:overlay-mode'),
         disabled: isBooting.value,
         active: selfieDraft.overlay_mode !== 'off',
+      },
+      {
+        id: 'selfie:guest-qr',
+        label: 'Gäste-Upload QR-Code',
+        color: 'primary' as const,
+        loading: false,
+        disabled: isBooting.value || !guestUploadUrl.value,
+        active: false,
       },
     ]
   }
@@ -608,13 +616,43 @@ const visualizerTelemetryLabel = computed(
 const visualizerPresetItems = computed(() => {
   const presets: VisualizerPreset[] = visualizerStore.presets.length
     ? [...visualizerStore.presets]
-    : ['particles', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
+    : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow', 'particle_swarm']
 
   return presets.map((preset) => ({
     title: visualizerPresetLabels[preset] ?? preset,
     value: preset,
   }))
 })
+
+const hydraQualityItems = computed(() => {
+  const qualities: HydraQuality[] = visualizerStore.hydraQualities.length
+    ? [...visualizerStore.hydraQualities]
+    : ['low', 'medium', 'high']
+
+  return qualities.map((quality) => ({
+    title: hydraQualityLabels[quality] ?? quality,
+    value: quality,
+  }))
+})
+
+const hydraPaletteModeItems = computed(() => {
+  const modes: HydraPaletteMode[] = visualizerStore.hydraPaletteModes.length
+    ? [...visualizerStore.hydraPaletteModes]
+    : ['auto', 'neon', 'warm', 'cold', 'acid']
+
+  return modes.map((mode) => ({
+    title: hydraPaletteModeLabels[mode] ?? mode,
+    value: mode,
+  }))
+})
+
+const isHydraChromaflowPreset = computed(
+  () => visualizerDraft.active_preset === 'hydra_chromaflow',
+)
+
+function clampAutoCycleMinutes(value: number) {
+  return Math.max(5, Math.min(30, value))
+}
 
 const isBlackoutMode = computed(() => activeMode.value === 'blackout')
 
@@ -689,23 +727,50 @@ const temperatureHintClass = computed(() => {
 })
 
 const internetStatusLabel = computed(() =>
-  systemStatusStore.internetReachable ? 'Online' : 'Offline',
+  systemStatusStore.setupModeStatus.enabled
+    ? 'Setup-Modus aktiv'
+    : systemStatusStore.networkStatus.online
+      ? 'Online'
+      : 'Offline',
 )
 
 const internetStatusHint = computed(() =>
-  systemStatusStore.internetReachable
-    ? 'Externe Verbindung verfügbar'
-    : 'Keine Internetverbindung erkannt',
+  systemStatusStore.setupModeStatus.enabled
+    ? 'Mit dem Setup-WLAN verbinden, um das Event-Netzwerk auszuwählen.'
+    : systemStatusStore.networkStatus.online
+      ? 'Externe Verbindung verfügbar'
+      : 'Keine externe Verbindung erkannt',
 )
 
 const internetStatusClass = computed(() =>
-  systemStatusStore.internetReachable
-    ? 'device-metric-card__value--online'
-    : 'device-metric-card__value--offline',
+  systemStatusStore.setupModeStatus.enabled
+    ? 'device-metric-card__value--warning'
+    : systemStatusStore.networkStatus.online
+      ? 'device-metric-card__value--online'
+      : 'device-metric-card__value--offline',
 )
 
-const wifiActionLabel = computed(() =>
-  systemStatusStore.internetReachable ? 'Netzwerk wechseln' : 'WLAN verbinden',
+const internetSsidLabel = computed(() =>
+  systemStatusStore.setupModeStatus.enabled
+    ? systemStatusStore.setupModeStatus.ssid
+    : systemStatusStore.networkStatus.ssid || 'Nicht verbunden',
+)
+
+const internetIpLabel = computed(() =>
+  systemStatusStore.setupModeStatus.enabled
+    ? systemStatusStore.setupModeStatus.ip
+    : systemStatusStore.networkStatus.ip || 'Nicht verfügbar',
+)
+
+const internetSignalLabel = computed(() => {
+  if (systemStatusStore.setupModeStatus.enabled || systemStatusStore.networkStatus.signal_percent == null) {
+    return 'Nicht verfügbar'
+  }
+  return `${renderSignalGlyph(systemStatusStore.networkStatus.signal_bars)} ${systemStatusStore.networkStatus.signal_percent}%`
+})
+
+const setupModeActionLabel = computed(() =>
+  systemStatusStore.setupModeStatus.enabled ? 'Setup-Modus beenden' : 'Setup-Modus starten',
 )
 
 const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
@@ -784,9 +849,16 @@ watch(
     visualizerDraft.speed,
     visualizerDraft.brightness,
     visualizerDraft.color_scheme,
+    visualizerDraft.hydra_colorfulness,
+    visualizerDraft.hydra_scene_change_rate,
+    visualizerDraft.hydra_symmetry_amount,
+    visualizerDraft.hydra_feedback_amount,
+    visualizerDraft.hydra_quality,
+    visualizerDraft.hydra_audio_reactivity_enabled,
+    visualizerDraft.hydra_palette_mode,
     visualizerDraft.overlay_mode,
     visualizerDraft.auto_cycle_enabled,
-    visualizerDraft.auto_cycle_interval_seconds,
+    visualizerDraft.auto_cycle_interval_minutes,
   ],
   () => {
     if (!isHydratingVisualizerDraft.value) {
@@ -916,9 +988,18 @@ async function syncVisualizerDraftFromStore() {
   visualizerDraft.speed = visualizerStore.speed
   visualizerDraft.brightness = visualizerStore.brightness
   visualizerDraft.color_scheme = visualizerStore.colorScheme
+  visualizerDraft.hydra_colorfulness = visualizerStore.hydraColorfulness
+  visualizerDraft.hydra_scene_change_rate = visualizerStore.hydraSceneChangeRate
+  visualizerDraft.hydra_symmetry_amount = visualizerStore.hydraSymmetryAmount
+  visualizerDraft.hydra_feedback_amount = visualizerStore.hydraFeedbackAmount
+  visualizerDraft.hydra_quality = visualizerStore.hydraQuality
+  visualizerDraft.hydra_audio_reactivity_enabled = visualizerStore.hydraAudioReactivityEnabled
+  visualizerDraft.hydra_palette_mode = visualizerStore.hydraPaletteMode
   visualizerDraft.overlay_mode = visualizerStore.overlayMode
   visualizerDraft.auto_cycle_enabled = visualizerStore.autoCycleEnabled
-  visualizerDraft.auto_cycle_interval_seconds = visualizerStore.autoCycleIntervalSeconds
+  visualizerDraft.auto_cycle_interval_minutes = clampAutoCycleMinutes(
+    Math.round(visualizerStore.autoCycleIntervalSeconds / 60),
+  )
   await nextTick()
   isHydratingVisualizerDraft.value = false
 }
@@ -928,7 +1009,9 @@ async function syncSelfieDraftFromStore() {
   selfieDraft.slideshow_enabled = selfieStore.slideshowEnabled
   selfieDraft.slideshow_interval_seconds = selfieStore.slideshowIntervalSeconds
   selfieDraft.slideshow_max_visible_photos = selfieStore.slideshowMaxVisiblePhotos
-  selfieDraft.slideshow_min_uploads_to_start = selfieStore.slideshowMinUploadsToStart
+  selfieDraft.slideshow_min_uploads_to_start = clampSlideshowUploadThreshold(
+    selfieStore.slideshowMinUploadsToStart,
+  )
   selfieDraft.slideshow_shuffle = selfieStore.slideshowShuffle
   selfieDraft.overlay_mode = selfieStore.overlayMode
   selfieDraft.vintage_look_enabled = selfieStore.vintageLookEnabled
@@ -1052,9 +1135,16 @@ async function saveVisualizerDraft() {
       speed: visualizerDraft.speed,
       brightness: visualizerDraft.brightness,
       color_scheme: visualizerDraft.color_scheme,
+      hydra_colorfulness: visualizerDraft.hydra_colorfulness,
+      hydra_scene_change_rate: visualizerDraft.hydra_scene_change_rate,
+      hydra_symmetry_amount: visualizerDraft.hydra_symmetry_amount,
+      hydra_feedback_amount: visualizerDraft.hydra_feedback_amount,
+      hydra_quality: visualizerDraft.hydra_quality,
+      hydra_audio_reactivity_enabled: visualizerDraft.hydra_audio_reactivity_enabled,
+      hydra_palette_mode: visualizerDraft.hydra_palette_mode,
       overlay_mode: visualizerDraft.overlay_mode,
       auto_cycle_enabled: visualizerDraft.auto_cycle_enabled,
-      auto_cycle_interval_seconds: visualizerDraft.auto_cycle_interval_seconds,
+      auto_cycle_interval_seconds: visualizerDraft.auto_cycle_interval_minutes * 60,
     })
     await refreshSystemOnly()
   } catch (error) {
@@ -1073,7 +1163,9 @@ async function saveSelfieDraft() {
       slideshow_enabled: selfieDraft.slideshow_enabled,
       slideshow_interval_seconds: selfieDraft.slideshow_interval_seconds,
       slideshow_max_visible_photos: selfieDraft.slideshow_max_visible_photos,
-      slideshow_min_uploads_to_start: selfieDraft.slideshow_min_uploads_to_start,
+      slideshow_min_uploads_to_start: clampSlideshowUploadThreshold(
+        selfieDraft.slideshow_min_uploads_to_start,
+      ),
       slideshow_shuffle: selfieDraft.slideshow_shuffle,
       overlay_mode: selfieDraft.overlay_mode,
       vintage_look_enabled: selfieDraft.vintage_look_enabled,
@@ -1195,6 +1287,11 @@ function normalizeRuntimePath(value: string, fallback: string) {
   return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
+function renderSignalGlyph(bars: number) {
+  const normalized = Math.max(0, Math.min(bars, 5))
+  return `${'█'.repeat(normalized)}${'░'.repeat(5 - normalized)}`
+}
+
 async function refreshSystemOnly() {
   if (!authStore.token) {
     return
@@ -1279,40 +1376,26 @@ async function restartSystem() {
   }
 }
 
-function openWifiDialog() {
-  wifiActionError.value = ''
-  wifiActionMessage.value = ''
-  wifiDraft.password = ''
-  isWifiDialogOpen.value = true
-}
-
-async function submitWifiConnection() {
-  if (!authStore.token || isConnectingWifi.value) {
+async function toggleSetupMode() {
+  if (!authStore.token || isTogglingSetupMode.value) {
     return
   }
 
-  wifiActionError.value = ''
-  wifiActionMessage.value = ''
-  isConnectingWifi.value = true
+  systemActionError.value = ''
+  systemActionMessage.value = ''
+  isTogglingSetupMode.value = true
 
   try {
-    const response = await connectWifi(
-      {
-        ssid: wifiDraft.ssid.trim(),
-        password: wifiDraft.password,
-      },
-      authStore.token,
-    )
-    wifiActionMessage.value = response.message
+    const response = systemStatusStore.setupModeStatus.enabled
+      ? await stopSetupMode(authStore.token)
+      : await startSetupMode(authStore.token)
     systemActionMessage.value = response.message
-    wifiDraft.password = ''
     await refreshSystemOnly()
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'WLAN-Verbindung konnte nicht hergestellt werden'
-    wifiActionError.value = message
-    systemActionError.value = message
+    systemActionError.value =
+      error instanceof Error ? error.message : 'Setup-Modus konnte nicht umgeschaltet werden'
   } finally {
-    isConnectingWifi.value = false
+    isTogglingSetupMode.value = false
   }
 }
 
@@ -1379,45 +1462,6 @@ async function downloadCurrentUploadArchive() {
   }
 }
 
-async function toggleSlideshowQuick() {
-  const key = 'selfie:toggle'
-  setBusy(key, true)
-  try {
-    if (selfiePersistTimer) {
-      window.clearTimeout(selfiePersistTimer)
-    }
-    isHydratingSelfieDraft.value = true
-    selfieDraft.slideshow_enabled = !selfieDraft.slideshow_enabled
-    await nextTick()
-    isHydratingSelfieDraft.value = false
-    await saveSelfieDraft()
-  } finally {
-    setBusy(key, false)
-  }
-}
-
-async function runSelfieQuickAction(action: 'next' | 'reload_pool') {
-  if (!authStore.token) {
-    return
-  }
-
-  const key = `selfie:${action}`
-  setBusy(key, true)
-  selfieError.value = ''
-
-  try {
-    if (action === 'next') {
-      await triggerSelfieNext(authStore.token)
-    } else {
-      await triggerSelfieReload(authStore.token)
-    }
-  } catch (error) {
-    selfieError.value = error instanceof Error ? error.message : 'Selfie-Aktion fehlgeschlagen'
-  } finally {
-    setBusy(key, false)
-  }
-}
-
 async function toggleSelfieSettingQuick(setting: 'slideshow_shuffle' | 'vintage_look_enabled') {
   const key = setting === 'slideshow_shuffle' ? 'selfie:shuffle' : 'selfie:vintage'
   setBusy(key, true)
@@ -1446,7 +1490,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['particles', 'kaleidoscope', 'warehouse', 'swarm_collision', 'vanta_fog', 'vanta_halo', 'hydra_rave', 'particle_swarm']
+      : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow', 'particle_swarm']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]
@@ -1527,18 +1571,6 @@ async function cycleVideoOverlayModeQuick() {
 }
 
 async function runHeaderAction(actionId: string) {
-  if (actionId === 'selfie:toggle') {
-    await toggleSlideshowQuick()
-    return
-  }
-  if (actionId === 'selfie:next') {
-    await runSelfieQuickAction('next')
-    return
-  }
-  if (actionId === 'selfie:reload_pool') {
-    await runSelfieQuickAction('reload_pool')
-    return
-  }
   if (actionId === 'selfie:moderation') {
     const key = 'selfie:moderation'
     setBusy(key, true)
@@ -1560,6 +1592,10 @@ async function runHeaderAction(actionId: string) {
   }
   if (actionId === 'selfie:overlay-mode') {
     await cycleSelfieOverlayModeQuick()
+    return
+  }
+  if (actionId === 'selfie:guest-qr') {
+    openGuestQrDialog()
     return
   }
   if (actionId === 'visualizer:next-preset') {
@@ -2207,6 +2243,15 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+function clampSlideshowUploadThreshold(value: number) {
+  return Math.min(10, Math.max(1, Math.round(value)))
+}
+
+function formatUploadThreshold(value: number) {
+  const threshold = clampSlideshowUploadThreshold(value)
+  return threshold === 1 ? '1 Upload' : `${threshold} Uploads`
+}
+
 function formatImageMimeLabel(value: string) {
   if (value === 'image/jpeg') return 'JPEG'
   if (value === 'image/png') return 'PNG'
@@ -2557,30 +2602,20 @@ function overlayModeLabel(mode: OverlayMode) {
                     hide-details
                   />
                 </div>
-                <div class="settings-control settings-control--spaced">
-                  <div class="settings-control__label">Uploads bis Slideshow startet</div>
-                  <v-text-field
-                    v-model.number="selfieDraft.slideshow_min_uploads_to_start"
-                    class="admin-text-input"
-                    type="number"
+                <div class="settings-slider-row settings-slider-row--wide">
+                  <div class="settings-slider-row__header">
+                    <div class="settings-slider-row__label">Slideshow startet nach</div>
+                    <div class="settings-slider-row__value">
+                      {{ formatUploadThreshold(selfieDraft.slideshow_min_uploads_to_start) }}
+                    </div>
+                  </div>
+                  <v-slider
+                    v-model="selfieDraft.slideshow_min_uploads_to_start"
                     min="1"
-                    max="50"
+                    max="10"
+                    step="1"
                     hide-details
-                    variant="solo"
-                    density="comfortable"
                   />
-                </div>
-                <div class="settings-action settings-action--spaced">
-                  <v-btn
-                    variant="text"
-                    color="primary"
-                    class="settings-action__button settings-action__button--qr"
-                    prepend-icon="mdi-qrcode"
-                    :disabled="!guestUploadUrl"
-                    @click="openGuestQrDialog"
-                  >
-                    Gäste-Upload QR-Code
-                  </v-btn>
                 </div>
               </div>
               <v-alert v-if="selfieError" type="error" variant="tonal" class="mt-4">
@@ -2612,7 +2647,7 @@ function overlayModeLabel(mode: OverlayMode) {
               </div>
 
               <div class="settings-group">
-                <div class="settings-control">
+                <div v-if="!isHydraChromaflowPreset" class="settings-control">
                   <div class="settings-control__label">Farbwelt</div>
                   <v-select
                     v-model="visualizerDraft.color_scheme"
@@ -2624,24 +2659,68 @@ function overlayModeLabel(mode: OverlayMode) {
                     density="comfortable"
                   />
                 </div>
+                <template v-else>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Palette</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_palette_mode"
+                      class="admin-select"
+                      :items="hydraPaletteModeItems"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control settings-control--spaced">
+                    <div class="settings-control__label">Qualität</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_quality"
+                      class="admin-select"
+                      :items="hydraQualityItems"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control settings-control--spaced">
+                    <div class="settings-control__label">Audio-Reaktivität</div>
+                    <v-switch
+                      v-model="visualizerDraft.hydra_audio_reactivity_enabled"
+                      color="primary"
+                      hide-details
+                      inset
+                    />
+                  </div>
+                </template>
               </div>
 
               <div class="settings-divider" />
 
               <div class="settings-group settings-group--sliders">
-                <div class="settings-slider-row settings-slider-row--wide">
-                  <div class="settings-slider-row__header">
-                    <div class="settings-slider-row__label">Automatikwechsel</div>
-                    <div class="settings-slider-row__value">{{ visualizerDraft.auto_cycle_interval_seconds }}s</div>
+                <v-expand-transition>
+                  <div
+                    v-if="visualizerDraft.auto_cycle_enabled"
+                    class="settings-slider-row settings-slider-row--wide"
+                  >
+                    <div class="settings-slider-row__header">
+                      <div class="settings-slider-row__label">Presetwechsel alle</div>
+                      <div class="settings-slider-row__value">{{ visualizerDraft.auto_cycle_interval_minutes }} min</div>
+                    </div>
+                    <v-slider
+                      v-model="visualizerDraft.auto_cycle_interval_minutes"
+                      min="5"
+                      max="30"
+                      step="1"
+                      hide-details
+                    />
                   </div>
-                  <v-slider
-                    v-model="visualizerDraft.auto_cycle_interval_seconds"
-                    min="15"
-                    max="600"
-                    step="15"
-                    hide-details
-                  />
-                </div>
+                </v-expand-transition>
             <div class="settings-slider-row">
               <div class="settings-slider-row__header">
                 <div class="settings-slider-row__label">Tempo</div>
@@ -2681,6 +2760,60 @@ function overlayModeLabel(mode: OverlayMode) {
                 hide-details
               />
             </div>
+            <template v-if="isHydraChromaflowPreset">
+              <div class="settings-slider-row">
+                <div class="settings-slider-row__header">
+                  <div class="settings-slider-row__label">Colorfulness</div>
+                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_colorfulness }}</div>
+                </div>
+                <v-slider
+                  v-model="visualizerDraft.hydra_colorfulness"
+                  min="0"
+                  max="100"
+                  step="1"
+                  hide-details
+                />
+              </div>
+              <div class="settings-slider-row">
+                <div class="settings-slider-row__header">
+                  <div class="settings-slider-row__label">Scene Change Rate</div>
+                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_scene_change_rate }}</div>
+                </div>
+                <v-slider
+                  v-model="visualizerDraft.hydra_scene_change_rate"
+                  min="0"
+                  max="100"
+                  step="1"
+                  hide-details
+                />
+              </div>
+              <div class="settings-slider-row">
+                <div class="settings-slider-row__header">
+                  <div class="settings-slider-row__label">Symmetry Amount</div>
+                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_symmetry_amount }}</div>
+                </div>
+                <v-slider
+                  v-model="visualizerDraft.hydra_symmetry_amount"
+                  min="0"
+                  max="100"
+                  step="1"
+                  hide-details
+                />
+              </div>
+              <div class="settings-slider-row">
+                <div class="settings-slider-row__header">
+                  <div class="settings-slider-row__label">Feedback Amount</div>
+                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_feedback_amount }}</div>
+                </div>
+                <v-slider
+                  v-model="visualizerDraft.hydra_feedback_amount"
+                  min="0"
+                  max="100"
+                  step="1"
+                  hide-details
+                />
+              </div>
+            </template>
               </div>
               <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
                 {{ visualizerError }}
@@ -2759,6 +2892,18 @@ function overlayModeLabel(mode: OverlayMode) {
               <div class="device-metric-card__label">Internet</div>
               <div class="device-metric-card__value" :class="internetStatusClass">{{ internetStatusLabel }}</div>
               <div class="device-metric-card__meta">{{ internetStatusHint }}</div>
+              <div class="device-metric-card__network-detail">
+                <span class="device-metric-card__network-key">SSID</span>
+                <span class="device-metric-card__network-value">{{ internetSsidLabel }}</span>
+              </div>
+              <div class="device-metric-card__network-detail">
+                <span class="device-metric-card__network-key">IP-Adresse</span>
+                <span class="device-metric-card__network-value">{{ internetIpLabel }}</span>
+              </div>
+              <div class="device-metric-card__network-detail">
+                <span class="device-metric-card__network-key">Signal</span>
+                <span class="device-metric-card__network-value">{{ internetSignalLabel }}</span>
+              </div>
               <div class="device-metric-card__actions">
                 <v-btn
                   size="small"
@@ -2766,9 +2911,21 @@ function overlayModeLabel(mode: OverlayMode) {
                   color="primary"
                   class="device-metric-card__action"
                   prepend-icon="mdi-wifi-cog"
-                  @click="openWifiDialog"
+                  :loading="isTogglingSetupMode"
+                  @click="toggleSetupMode"
                 >
-                  {{ wifiActionLabel }}
+                  {{ setupModeActionLabel }}
+                </v-btn>
+                <v-btn
+                  v-if="systemStatusStore.setupModeStatus.enabled"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  class="device-metric-card__action"
+                  prepend-icon="mdi-open-in-new"
+                  to="/setup"
+                >
+                  Setup-Seite
                 </v-btn>
               </div>
             </article>
@@ -3033,78 +3190,6 @@ function overlayModeLabel(mode: OverlayMode) {
         </template>
       </v-row>
     </div>
-
-    <v-dialog
-      v-model="isWifiDialogOpen"
-      max-width="27.5rem"
-      :persistent="isConnectingWifi"
-      scrim="rgba(2, 6, 12, 0.76)"
-      class="wifi-connect-overlay"
-      content-class="wifi-connect-dialog__content"
-    >
-      <v-card class="wifi-connect-dialog" variant="flat">
-        <div class="wifi-connect-dialog__label">Netzwerk</div>
-        <div class="wifi-connect-dialog__title">WLAN verbinden</div>
-        <div class="wifi-connect-dialog__copy">
-          Gib Netzwerkname und Passwort ein, um die Verbindung des Raspberry Pi herzustellen oder zu wechseln.
-        </div>
-
-        <div class="wifi-connect-dialog__body">
-          <div class="wifi-connect-dialog__field">
-            <div class="wifi-connect-dialog__field-label">WLAN-Netzwerk</div>
-            <v-text-field
-              v-model="wifiDraft.ssid"
-              class="admin-text-input"
-              placeholder="SSID"
-              hide-details
-              variant="solo"
-              density="comfortable"
-            />
-          </div>
-
-          <div class="wifi-connect-dialog__field">
-            <div class="wifi-connect-dialog__field-label">Passwort</div>
-            <v-text-field
-              v-model="wifiDraft.password"
-              class="admin-text-input"
-              type="password"
-              autocomplete="current-password"
-              placeholder="Passwort"
-              hide-details
-              variant="solo"
-              density="comfortable"
-            />
-          </div>
-
-          <v-alert v-if="wifiActionError" type="error" variant="tonal" class="wifi-connect-dialog__feedback">
-            {{ wifiActionError }}
-          </v-alert>
-          <div v-else-if="wifiActionMessage" class="inline-note wifi-connect-dialog__feedback">
-            {{ wifiActionMessage }}
-          </div>
-        </div>
-
-        <div class="wifi-connect-dialog__actions">
-          <v-btn
-            variant="outlined"
-            class="wifi-connect-dialog__button wifi-connect-dialog__button--cancel"
-            :disabled="isConnectingWifi"
-            @click="isWifiDialogOpen = false"
-          >
-            Abbrechen
-          </v-btn>
-          <v-btn
-            variant="flat"
-            class="wifi-connect-dialog__button wifi-connect-dialog__button--confirm"
-            :loading="isConnectingWifi"
-            :disabled="!wifiDraft.ssid.trim()"
-            @click="submitWifiConnection"
-          >
-            Verbinden
-          </v-btn>
-        </div>
-      </v-card>
-    </v-dialog>
 
     <v-dialog
       v-model="isGuestQrDialogOpen"
@@ -3570,6 +3655,9 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .device-metric-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
   margin-top: 0.2rem;
 }
 
@@ -3604,6 +3692,28 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .device-metric-card__value--offline {
   color: rgba(255, 162, 162, 0.94);
+}
+
+.device-metric-card__value--warning {
+  color: rgba(255, 206, 113, 0.94);
+}
+
+.device-metric-card__network-detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-top: 0.24rem;
+  font-size: 0.82rem;
+}
+
+.device-metric-card__network-key {
+  color: rgba(194, 211, 228, 0.5);
+}
+
+.device-metric-card__network-value {
+  color: rgba(239, 245, 251, 0.92);
+  font-family: "SFMono-Regular", "Roboto Mono", monospace;
+  text-align: right;
 }
 
 .device-metric-card__meta,
@@ -3692,121 +3802,6 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .device-danger-zone__button--restart {
   color: rgba(255, 203, 128, 0.96) !important;
-}
-
-.wifi-connect-dialog {
-  width: min(100%, 27.5rem);
-  border-radius: 22px !important;
-  padding: 1.85rem;
-  background:
-    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96)) !important;
-  border: 1px solid rgba(120, 170, 220, 0.18);
-  box-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.6),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
-  animation: wifiConnectDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
-}
-
-:deep(.wifi-connect-overlay .v-overlay__scrim) {
-  background: rgba(0, 0, 0, 0.9) !important;
-  backdrop-filter: blur(12px) saturate(0.62) brightness(0.5);
-}
-
-:deep(.wifi-connect-dialog__content) {
-  width: min(27.5rem, calc(100vw - 2rem));
-  margin: 1rem;
-}
-
-.wifi-connect-dialog__label {
-  color: rgba(194, 211, 228, 0.5);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.wifi-connect-dialog__title {
-  margin-top: 0.48rem;
-  color: rgba(247, 250, 255, 0.98);
-  font-size: 1.45rem;
-  font-weight: 760;
-  line-height: 1.15;
-}
-
-.wifi-connect-dialog__copy {
-  margin-top: 0.8rem;
-  max-width: 24rem;
-  color: rgba(214, 224, 235, 0.76);
-  font-size: 0.98rem;
-  line-height: 1.5;
-}
-
-.wifi-connect-dialog__body {
-  display: grid;
-  gap: 0.85rem;
-  margin-top: 1rem;
-}
-
-.wifi-connect-dialog__field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.wifi-connect-dialog__field-label {
-  color: rgba(194, 211, 228, 0.6);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.wifi-connect-dialog__actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-top: 1.45rem;
-}
-
-.wifi-connect-dialog__button {
-  min-height: 3.2rem;
-  border-radius: 14px;
-  text-transform: none;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    box-shadow 180ms ease,
-    transform 150ms ease;
-}
-
-.wifi-connect-dialog__button--cancel {
-  border-color: rgba(255, 255, 255, 0.08);
-  color: rgba(226, 234, 242, 0.82);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.wifi-connect-dialog__button--cancel:hover {
-  border-color: rgba(164, 191, 218, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.wifi-connect-dialog__button--confirm {
-  color: rgba(243, 249, 255, 0.96);
-  background:
-    linear-gradient(180deg, #4d7cc7, #2d5298) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 8px 24px rgba(45, 82, 152, 0.28);
-}
-
-.wifi-connect-dialog__button--confirm:hover {
-  background:
-    linear-gradient(180deg, #5b8ad5, #375ea7) !important;
-}
-
-.wifi-connect-dialog__feedback {
-  margin-top: 0.2rem;
 }
 
 .workspace-panel {
@@ -5039,27 +5034,6 @@ function overlayModeLabel(mode: OverlayMode) {
 
   .device-danger-zone__button {
     width: 100%;
-  }
-
-  .wifi-connect-dialog {
-    padding: 1.35rem;
-  }
-
-  .wifi-connect-dialog__actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
-
-  .wifi-connect-dialog__button {
-    min-height: 3.15rem;
-  }
-
-  .wifi-connect-dialog__title {
-    font-size: 1.3rem;
-  }
-
-  .wifi-connect-dialog__copy {
-    font-size: 0.94rem;
   }
 
   .event-log-row {

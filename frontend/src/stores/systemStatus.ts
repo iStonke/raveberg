@@ -24,6 +24,26 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
   const lastCleanupRemoved = ref(0)
   const lastDisplayHeartbeatAt = ref<string | null>(null)
   const lastDisplayStateSyncAt = ref<string | null>(null)
+  const networkStatus = ref({
+    online: false,
+    connected: false,
+    ssid: null as string | null,
+    ip: null as string | null,
+    signal_percent: null as number | null,
+    signal_bars: 0,
+    setup_mode: false,
+    network_mode: 'normal' as 'normal' | 'setup',
+  })
+  const setupModeStatus = ref({
+    enabled: false,
+    ssid: '',
+    ip: '',
+    portal_url: '',
+    last_error: null as string | null,
+    connect_state: 'idle' as 'idle' | 'pending' | 'failed' | 'succeeded',
+    connecting_to_ssid: null as string | null,
+    last_transition_at: null as string | null,
+  })
   const cpuLoadPercent = ref<number | null>(null)
   const memoryUsedBytes = ref<number | null>(null)
   const memoryTotalBytes = ref<number | null>(null)
@@ -97,6 +117,8 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     lastCleanupRemoved.value = systemResponse.status.last_cleanup_removed
     lastDisplayHeartbeatAt.value = systemResponse.status.last_display_heartbeat_at
     lastDisplayStateSyncAt.value = systemResponse.status.last_display_state_sync_at
+    networkStatus.value = systemResponse.network_status
+    setupModeStatus.value = systemResponse.setup_mode_status
     cpuLoadPercent.value = systemResponse.telemetry.cpu_load_percent
     memoryUsedBytes.value = systemResponse.telemetry.memory_used_bytes
     memoryTotalBytes.value = systemResponse.telemetry.memory_total_bytes
@@ -130,6 +152,8 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     lastCleanupRemoved,
     lastDisplayHeartbeatAt,
     lastDisplayStateSyncAt,
+    networkStatus,
+    setupModeStatus,
     cpuLoadPercent,
     memoryUsedBytes,
     memoryTotalBytes,

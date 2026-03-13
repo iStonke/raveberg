@@ -13,6 +13,7 @@ const adminUploadsBadgeStore = useAdminUploadsBadgeStore()
 const publicRuntimeStore = usePublicRuntimeStore()
 const isGuestRoute = computed(() => route.path.startsWith('/guest'))
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+const isSetupRoute = computed(() => route.path.startsWith('/setup'))
 const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
 const isLogoutDialogOpen = ref(false)
@@ -73,7 +74,7 @@ function showUploadsBadge(hash: string) {
 <template>
   <v-layout class="min-height-screen">
     <v-app-bar
-      v-if="!isGuestRoute && !isAdminLogin"
+      v-if="!isGuestRoute && !isAdminLogin && !isSetupRoute"
       color="surface"
       class="app-shell-bar"
       flat
@@ -123,7 +124,7 @@ function showUploadsBadge(hash: string) {
       </div>
     </div>
 
-    <v-main :class="[{ 'guest-main': isGuestRoute, 'admin-main': isAdminRoute }]">
+    <v-main :class="[{ 'guest-main': isGuestRoute, 'admin-main': isAdminRoute, 'setup-main': isSetupRoute }]">
       <v-container
         v-if="isGuestRoute"
         class="shell-container guest-shell-container"
@@ -137,6 +138,7 @@ function showUploadsBadge(hash: string) {
           'admin-shell-container': isAdminRoute,
           'admin-workspace-container': isAdminDashboard,
           'admin-login-shell-container': isAdminLogin,
+          'setup-shell-container': isSetupRoute,
         }"
       >
         <router-view />
@@ -393,6 +395,16 @@ function showUploadsBadge(hash: string) {
   box-sizing: border-box;
 }
 
+.setup-main {
+  padding: 0 !important;
+}
+
+.setup-shell-container {
+  max-width: 720px !important;
+  min-height: 100vh;
+  padding: 1.2rem 1rem 1.5rem;
+}
+
 .admin-shell-container {
   padding-top: 5rem;
 }
@@ -517,6 +529,10 @@ function showUploadsBadge(hash: string) {
 
   .admin-nav-strip {
     padding-inline: 0.5rem;
+  }
+
+  .setup-shell-container {
+    padding-inline: 0.75rem;
   }
 
   .shell-container {

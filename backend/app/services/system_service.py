@@ -1,6 +1,5 @@
 import os
 import re
-import socket
 import shlex
 import subprocess
 from pathlib import Path
@@ -13,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.upload import Upload
 from app.services.display_status_service import DisplayStatusService
+from app.services.network_setup_service import NetworkSetupService
+from app.services.network_status_service import NetworkStatusService
 from app.services.runtime_config_service import RuntimeConfigService
 from app.schemas.system import (
     ApplianceInfo,
@@ -25,7 +26,6 @@ from app.schemas.system import (
     SystemInfoResponse,
     SystemStatus,
     SystemTelemetry,
-    WifiConnectRequest,
 )
 from app.services.mode_service import ModeService
 from app.services.runtime_service import runtime_service
@@ -72,6 +72,8 @@ class SystemService:
             if display_live_connected and display_status.renderer_label
             else self._display_target_label(current_mode, runtime_config.display_render_mode)
         )
+        network_status = NetworkStatusService().get_status()
+        setup_mode_status = NetworkSetupService().get_setup_mode_status()
 
         return SystemInfoResponse(
             app_name=settings.app_name,
@@ -81,7 +83,7 @@ class SystemService:
             status=SystemStatus(
                 backend_reachable=True,
                 db_reachable=db_reachable,
-                internet_reachable=self._internet_reachable(),
+                internet_reachable=network_status.online,
                 upload_count=upload_count,
                 current_mode=current_mode,
                 moderation_mode=selfie_state.moderation_mode,
@@ -98,6 +100,8 @@ class SystemService:
                 last_display_heartbeat_at=display_status.last_heartbeat_at,
                 last_display_state_sync_at=display_status.last_state_sync_at,
             ),
+            network_status=network_status,
+            setup_mode_status=setup_mode_status,
             telemetry=telemetry,
             storage=StoragePaths(
                 app_data_path=settings.app_data_path,
@@ -206,36 +210,6 @@ class SystemService:
     @staticmethod
     def restart_response() -> SystemActionResponse:
         return SystemActionResponse(message="Neustart wurde angefordert.")
-
-    @staticmethod
-    def connect_wifi(payload: WifiConnectRequest) -> SystemActionResponse:
-        ssid = payload.ssid.strip()
-        password = payload.password
-        if not ssid:
-            raise RuntimeError("SSID fehlt")
-
-        nmcli = which("nmcli")
-        if not nmcli:
-            raise RuntimeError("Kein WLAN-Manager verfügbar (nmcli fehlt)")
-
-        commands: list[list[str]] = [
-            [nmcli, "radio", "wifi", "on"],
-            [nmcli, "device", "wifi", "rescan", "ifname", settings.wifi_interface],
-        ]
-
-        connect_command = [nmcli, "device", "wifi", "connect", ssid, "ifname", settings.wifi_interface]
-        if password:
-            connect_command.extend(["password", password])
-        commands.append(connect_command)
-
-        for command in commands:
-            try:
-                subprocess.run(command, check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as exc:
-                message = (exc.stderr or exc.stdout or "").strip() or "WLAN-Verbindung konnte nicht hergestellt werden."
-                raise RuntimeError(message) from exc
-
-        return SystemActionResponse(message=f"WLAN-Verbindung zu '{ssid}' wird hergestellt.")
 
     @staticmethod
     def _display_target_label(mode: str, display_render_mode: str) -> str:
@@ -365,16 +339,6 @@ class SystemService:
             return (None, None)
 
         return (None, None)
-
-    @staticmethod
-    def _internet_reachable() -> bool:
-        for host, port in (("1.1.1.1", 443), ("8.8.8.8", 53)):
-            try:
-                with socket.create_connection((host, port), timeout=1.5):
-                    return True
-            except OSError:
-                continue
-        return False
 
     @staticmethod
     def _resolve_shutdown_command() -> list[str]:

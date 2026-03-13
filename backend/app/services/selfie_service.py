@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.selfie_state import SelfieState
 from app.schemas.selfie import SelfieStateRead, SelfieStateUpdate
+from app.services.mode_service import ModeService
 
 
 class SelfieService:
@@ -35,11 +36,16 @@ class SelfieService:
 
     def get_state(self) -> SelfieStateRead:
         state = self.ensure_state()
+        if ModeService(self.db).get_mode().mode == "selfie":
+            self.ensure_slideshow_running()
+            state = self.ensure_state()
         return SelfieStateRead.model_validate(state, from_attributes=True)
 
     def update_state(self, payload: SelfieStateUpdate) -> SelfieStateRead:
         state = self.ensure_state()
         state.slideshow_enabled = payload.slideshow_enabled
+        if ModeService(self.db).get_mode().mode == "selfie":
+            state.slideshow_enabled = True
         state.slideshow_interval_seconds = payload.slideshow_interval_seconds
         state.slideshow_max_visible_photos = payload.slideshow_max_visible_photos
         state.slideshow_min_uploads_to_start = payload.slideshow_min_uploads_to_start
@@ -48,6 +54,18 @@ class SelfieService:
         state.logo_overlay_enabled = payload.overlay_mode == "logo"
         state.vintage_look_enabled = payload.vintage_look_enabled
         state.moderation_mode = payload.moderation_mode
+        state.slideshow_updated_at = datetime.now(timezone.utc)
+        self.db.add(state)
+        self.db.commit()
+        self.db.refresh(state)
+        return SelfieStateRead.model_validate(state, from_attributes=True)
+
+    def ensure_slideshow_running(self) -> SelfieStateRead | None:
+        state = self.ensure_state()
+        if state.slideshow_enabled:
+            return None
+
+        state.slideshow_enabled = True
         state.slideshow_updated_at = datetime.now(timezone.utc)
         self.db.add(state)
         self.db.commit()

@@ -4,7 +4,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { VisualizerPreset, VisualizerState } from '../../services/api'
 import ClassicVisualizerCanvas from './ClassicVisualizerCanvas.vue'
 import ExternalVisualizerHost from './ExternalVisualizerHost.vue'
-import SwarmCollisionVisualizer from './SwarmCollisionVisualizer.vue'
 import { isExternalVisualizerPreset } from './visualizer/runtime'
 
 const props = withDefaults(
@@ -22,7 +21,6 @@ const runtimeError = ref('')
 
 let fadeFrameId = 0
 
-const isSwarmCollision = computed(() => props.visualizer.active_preset === 'swarm_collision')
 const isExternalPreset = computed(
   () => isExternalVisualizerPreset(props.visualizer.active_preset) && !runtimeError.value,
 )
@@ -66,13 +64,8 @@ function handleRuntimeError(message: string) {
 
 <template>
   <div class="visualizer-shell">
-    <SwarmCollisionVisualizer
-      v-if="isSwarmCollision"
-      :visualizer="props.visualizer"
-      :event-token="props.eventToken"
-    />
     <ExternalVisualizerHost
-      v-else-if="isExternalPreset"
+      v-if="isExternalPreset"
       :key="props.visualizer.active_preset"
       :visualizer="props.visualizer"
       :event-token="props.eventToken"

@@ -147,17 +147,36 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `logo_overlay_enabled` und `updated_at`. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `swarm_collision`, `vanta_fog`, `vanta_halo`, `hydra_rave` und `particle_swarm`.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `overlay_mode`, `auto_cycle_enabled`, `auto_cycle_interval_seconds` und `updated_at`. Fuer den neuen Hydra-Modus `hydra_chromaflow` kommen persistierte Parameter fuer `hydra_colorfulness`, `hydra_scene_change_rate`, `hydra_symmetry_amount`, `hydra_feedback_amount`, `hydra_quality`, `hydra_audio_reactivity_enabled` und `hydra_palette_mode` dazu. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `nebel`, `vanta_halo`, `hydra_rave`, `hydra_chromaflow` und `particle_swarm`.
 
 ## Open-Source-Visualizer
 
 RAVEBERG bindet externe Visualizer nur innerhalb der bestehenden Visualizer-Runtime ein. Produktiv genutzt werden aktuell:
 
-- `vanta` fuer `vanta_fog` und `vanta_halo`
-- `hydra-synth` fuer `hydra_rave`
+- `vanta` fuer `nebel` und `vanta_halo`
+- `hydra-synth` fuer `hydra_rave` und `hydra_chromaflow`
 - `tsparticles` und `@tsparticles/engine` fuer `particle_swarm`
 
 Wichtig fuer Entwickler: `hydra-synth` steht unter AGPL-3.0. Die Bibliothek bleibt als Open-Source-Abhaengigkeit sichtbar eingebunden und wird nicht als proprietaere Eigenentwicklung dargestellt.
+
+## Hydra Chromaflow
+
+`hydra_chromaflow` ist ein flaechiger, farbintensiver Hydra-Renderer mit kuratierten Szenenfamilien statt klassischer Linien- oder Partikeloptik. Die Runtime lebt bewusst innerhalb derselben Preset-Mechanik wie die anderen Visualizer:
+
+- Backend-Registrierung und Validierung: `backend/app/schemas/visualizer.py`, `backend/app/services/visualizer_service.py`, `backend/app/models/visualizer_state.py`
+- Frontend-API und Store: `frontend/src/services/api.ts`, `frontend/src/stores/visualizer.ts`
+- Admin-UI: `frontend/src/views/admin/AdminDashboardView.vue`
+- Display-Runtime: `frontend/src/components/display/visualizer/runtime.ts`
+- Hydra-Engine und Szenen: `frontend/src/components/display/visualizer/hydraRenderer.ts`, `hydraScenes.ts`, `hydraPalettes.ts`, `hydraDefaults.ts`
+
+Der Renderer kombiniert kuratierte Look-Familien fuer `Liquid Color Wash`, `Blob Fields`, `Kaleido Bursts`, `Mirror Feedback Flow` und kontrollierte `Color Cut`-Akzente. `hydraQuality` steuert Aufloesung, Ziel-FPS und Feedback-Grenzen. Wenn keine echte Audioquelle anliegt, arbeitet die Runtime mit internen LFOs und dezenten Burst-Huellkurven weiter.
+
+Neue Hydra-Szenen ergaenzen:
+
+1. Szene in `frontend/src/components/display/visualizer/hydraScenes.ts` anlegen oder erweitern.
+2. Falls neue Farbwelten noetig sind, Paletten in `frontend/src/components/display/visualizer/hydraPalettes.ts` ergaenzen.
+3. Kuratierte Gewichtung oder Qualitaetsgrenzen in `frontend/src/components/display/visualizer/hydraDefaults.ts` anpassen.
+4. Falls neue persistierte Regler noetig sind, denselben Pfad wie bestehend erweitern: Backend-Schema/Service, Frontend-API, Store, Admin-UI.
 
 ## Moderations-Flow
 

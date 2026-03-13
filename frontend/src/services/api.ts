@@ -9,6 +9,8 @@ export type OverlayMode = 'logo' | 'qr' | 'off'
 export type RemoteVisualizerFallback = 'local' | 'none'
 export type DisplayRenderMode = 'local' | 'remote_headless'
 export type RemoteRendererFallback = 'local' | 'notice'
+export type HydraQuality = 'low' | 'medium' | 'high'
+export type HydraPaletteMode = 'auto' | 'neon' | 'warm' | 'cold' | 'acid'
 
 export interface SessionUser {
   id: number
@@ -53,6 +55,8 @@ export interface SystemInfoResponse {
     last_display_heartbeat_at: string | null
     last_display_state_sync_at: string | null
   }
+  network_status: NetworkStatus
+  setup_mode_status: SetupModeStatus
   telemetry: {
     cpu_load_percent: number | null
     memory_used_bytes: number | null
@@ -138,11 +142,43 @@ export interface PublicRuntimeInfoResponse {
 
 export interface SystemActionResponse {
   message: string
+  pending: boolean
+  network_status: NetworkStatus | null
+  setup_mode_status: SetupModeStatus | null
 }
 
 export interface WifiConnectPayload {
   ssid: string
   password: string
+}
+
+export interface WifiScanResult {
+  ssid: string
+  signal: number
+  security: string
+  active: boolean
+}
+
+export interface NetworkStatus {
+  online: boolean
+  connected: boolean
+  ssid: string | null
+  ip: string | null
+  signal_percent: number | null
+  signal_bars: number
+  setup_mode: boolean
+  network_mode: 'normal' | 'setup'
+}
+
+export interface SetupModeStatus {
+  enabled: boolean
+  ssid: string
+  ip: string
+  portal_url: string
+  last_error: string | null
+  connect_state: 'idle' | 'pending' | 'failed' | 'succeeded'
+  connecting_to_ssid: string | null
+  last_transition_at: string | null
 }
 
 export interface RuntimeConfig {
@@ -230,10 +266,10 @@ export type VisualizerPreset =
   | 'particles'
   | 'kaleidoscope'
   | 'warehouse'
-  | 'swarm_collision'
-  | 'vanta_fog'
+  | 'nebel'
   | 'vanta_halo'
   | 'hydra_rave'
+  | 'hydra_chromaflow'
   | 'particle_swarm'
 export type ColorScheme = 'mono' | 'acid' | 'ultraviolet' | 'redline'
 
@@ -243,6 +279,13 @@ export interface VisualizerState {
   speed: number
   brightness: number
   color_scheme: ColorScheme
+  hydra_colorfulness: number
+  hydra_scene_change_rate: number
+  hydra_symmetry_amount: number
+  hydra_feedback_amount: number
+  hydra_quality: HydraQuality
+  hydra_audio_reactivity_enabled: boolean
+  hydra_palette_mode: HydraPaletteMode
   overlay_mode: OverlayMode
   auto_cycle_enabled: boolean
   auto_cycle_interval_seconds: number
@@ -252,6 +295,8 @@ export interface VisualizerState {
 export interface VisualizerOptionsResponse {
   presets: VisualizerPreset[]
   color_schemes: ColorScheme[]
+  hydra_qualities: HydraQuality[]
+  hydra_palette_modes: HydraPaletteMode[]
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -423,6 +468,45 @@ export function connectWifi(payload: WifiConnectPayload, token: string) {
     method: 'POST',
     headers: withAuth(token),
     body: JSON.stringify(payload),
+  })
+}
+
+export function connectWifiFromSetup(payload: WifiConnectPayload) {
+  return request<SystemActionResponse>('/api/system/wifi/connect', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function fetchWifiScan(token?: string) {
+  return request<WifiScanResult[]>('/api/system/wifi/scan', {
+    headers: token ? withAuth(token) : undefined,
+  })
+}
+
+export function fetchNetworkStatus(token?: string) {
+  return request<NetworkStatus>('/api/system/network-status', {
+    headers: token ? withAuth(token) : undefined,
+  })
+}
+
+export function fetchSetupModeStatus(token?: string) {
+  return request<SetupModeStatus>('/api/system/setup-mode/status', {
+    headers: token ? withAuth(token) : undefined,
+  })
+}
+
+export function startSetupMode(token: string) {
+  return request<SystemActionResponse>('/api/system/setup-mode/start', {
+    method: 'POST',
+    headers: withAuth(token),
+  })
+}
+
+export function stopSetupMode(token?: string) {
+  return request<SystemActionResponse>('/api/system/setup-mode/stop', {
+    method: 'POST',
+    headers: token ? withAuth(token) : undefined,
   })
 }
 

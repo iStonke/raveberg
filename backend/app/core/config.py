@@ -1,6 +1,7 @@
 from functools import lru_cache
+import ipaddress
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.schemas.mode import ModeType
@@ -51,6 +52,41 @@ class Settings(BaseSettings):
     ap_address: str = Field(default="10.77.0.1", alias="AP_ADDRESS")
     local_hostname: str = Field(default="raveberg.local", alias="LOCAL_HOSTNAME")
     wifi_interface: str = Field(default="wlan0", alias="WIFI_INTERFACE")
+    setup_mode_ssid: str = Field(default="RaveBerg-Setup", alias="SETUP_MODE_SSID")
+    setup_mode_address: str = Field(default="192.168.4.1", alias="SETUP_MODE_ADDRESS")
+    setup_mode_prefix_length: int = Field(default=24, alias="SETUP_MODE_PREFIX_LENGTH")
+    setup_mode_dhcp_start: str = Field(default="192.168.4.10", alias="SETUP_MODE_DHCP_START")
+    setup_mode_dhcp_end: str = Field(default="192.168.4.50", alias="SETUP_MODE_DHCP_END")
+    setup_mode_connection_name: str = Field(
+        default="raveberg-setup-ap",
+        alias="SETUP_MODE_CONNECTION_NAME",
+    )
+    setup_mode_service_name: str = Field(
+        default="raveberg-setup-mode.service",
+        alias="SETUP_MODE_SERVICE_NAME",
+    )
+    setup_mode_runtime_dir: str = Field(
+        default="/opt/raveberg/ops/pi/runtime/setup-mode",
+        alias="SETUP_MODE_RUNTIME_DIR",
+    )
+    setup_mode_portal_path: str = Field(default="/setup", alias="SETUP_MODE_PORTAL_PATH")
+    auto_setup_mode_enabled: bool = Field(default=False, alias="AUTO_SETUP_MODE_ENABLED")
+    auto_setup_mode_initial_delay_seconds: int = Field(
+        default=25,
+        alias="AUTO_SETUP_MODE_INITIAL_DELAY_SECONDS",
+    )
+    auto_setup_mode_check_interval_seconds: int = Field(
+        default=15,
+        alias="AUTO_SETUP_MODE_CHECK_INTERVAL_SECONDS",
+    )
+    auto_setup_mode_failure_threshold: int = Field(
+        default=2,
+        alias="AUTO_SETUP_MODE_FAILURE_THRESHOLD",
+    )
+    auto_setup_mode_cooldown_seconds: int = Field(
+        default=120,
+        alias="AUTO_SETUP_MODE_COOLDOWN_SECONDS",
+    )
     default_moderation_mode: ModerationMode = Field(
         default="auto_approve",
         alias="DEFAULT_MODERATION_MODE",
@@ -81,7 +117,7 @@ class Settings(BaseSettings):
         alias="DEFAULT_VISUALIZER_AUTO_CYCLE_ENABLED",
     )
     default_visualizer_auto_cycle_interval_seconds: int = Field(
-        default=45,
+        default=600,
         alias="DEFAULT_VISUALIZER_AUTO_CYCLE_INTERVAL_SECONDS",
     )
     upload_rate_limit_count: int = Field(default=8, alias="UPLOAD_RATE_LIMIT_COUNT")
@@ -132,6 +168,30 @@ class Settings(BaseSettings):
     @property
     def resolved_kiosk_start_url(self) -> str:
         return self.kiosk_start_url or self.display_url
+
+    @property
+    def setup_mode_address_cidr(self) -> str:
+        return f"{self.setup_mode_address}/{self.setup_mode_prefix_length}"
+
+    @property
+    def setup_mode_portal_url(self) -> str:
+        return f"http://{self.setup_mode_address}{self.setup_mode_portal_path}"
+
+    @property
+    def setup_mode_network(self) -> ipaddress.IPv4Network:
+        return ipaddress.ip_network(self.setup_mode_address_cidr, strict=False)
+
+    @field_validator("default_visualizer_auto_cycle_interval_seconds", mode="before")
+    @classmethod
+    def normalize_visualizer_auto_cycle_interval_seconds(cls, value: object) -> int:
+        if value in (None, ""):
+            return 600
+        interval_seconds = int(value)
+        # Legacy setups still use short second-based values like 45/60; fall back to the new default
+        # instead of crashing application startup or Alembic.
+        if interval_seconds < 300:
+            return 600
+        return min(max(interval_seconds, 300), 1800)
 
 
 @lru_cache

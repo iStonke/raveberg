@@ -6,28 +6,13 @@ import type {
 } from '@tsparticles/engine'
 
 import type { ColorScheme, VisualizerPreset, VisualizerState } from '../../../services/api'
+import { HydraVisualizerRuntime, isHydraVisualizerPreset } from './hydraRenderer'
+import type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
+import { clamp, normalize } from './runtimeUtils'
 
-export interface VisualizerRuntimeOptions {
-  preset: VisualizerPreset
-  intensity: number
-  speed: number
-  brightness: number
-  colorScheme: ColorScheme
-}
+export type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
 
-export interface VisualizerRuntimeController {
-  init(container: HTMLElement, options: VisualizerRuntimeOptions): Promise<void> | void
-  start(): Promise<void> | void
-  stop(): void
-  destroy(): void
-  resize(width: number, height: number): void
-  updateOptions(partialOptions: Partial<VisualizerRuntimeOptions>): Promise<void> | void
-  triggerEvent(name: string, payload?: unknown): void
-  setErrorHandler(handler: ((error: Error) => void) | null): void
-}
-
-type VantaPreset = Extract<VisualizerPreset, 'vanta_fog' | 'vanta_halo'>
-type HydraPreset = Extract<VisualizerPreset, 'hydra_rave'>
+type VantaPreset = Extract<VisualizerPreset, 'nebel' | 'vanta_halo'>
 type TsParticlesPreset = Extract<VisualizerPreset, 'particle_swarm'>
 type VantaFactory = (options: Record<string, unknown>) => VantaEffect
 type VantaEffect = {
@@ -36,116 +21,167 @@ type VantaEffect = {
   setOptions?: (options: Record<string, unknown>) => void
 }
 
-type HydraFactory = new (options: Record<string, unknown>) => HydraInstance
-type HydraInstance = {
-  canvas: HTMLCanvasElement
-  synth: HydraSynth
-  tick: (dt: number) => void
-  setResolution: (width: number, height: number) => void
-  hush: () => void
-  regl?: {
-    destroy?: () => void
-  }
-}
-
-type HydraOutput = Record<string, unknown>
-type HydraChain = {
-  out: (output?: HydraOutput) => HydraChain
-  blend: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  add: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  diff: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  mult: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  modulate: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  modulateScale: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  modulateRotate: (source: HydraChain, amount?: number | (() => number)) => HydraChain
-  color: (...args: Array<number | (() => number)>) => HydraChain
-  colorama: (amount?: number | (() => number)) => HydraChain
-  saturate: (amount?: number | (() => number)) => HydraChain
-  contrast: (amount?: number | (() => number)) => HydraChain
-  brightness: (amount?: number | (() => number)) => HydraChain
-  rotate: (...args: Array<number | (() => number)>) => HydraChain
-  scale: (...args: Array<number | (() => number)>) => HydraChain
-  scrollX: (...args: Array<number | (() => number)>) => HydraChain
-  scrollY: (...args: Array<number | (() => number)>) => HydraChain
-  kaleid: (segments?: number | (() => number)) => HydraChain
-  posterize: (...args: Array<number | (() => number)>) => HydraChain
-  thresh: (...args: Array<number | (() => number)>) => HydraChain
-  luma: (...args: Array<number | (() => number)>) => HydraChain
-  repeat: (...args: Array<number | (() => number)>) => HydraChain
-  pixelate: (...args: Array<number | (() => number)>) => HydraChain
-}
-
-type HydraSynth = {
-  speed: number
-  o0: HydraOutput
-  o1: HydraOutput
-  o2: HydraOutput
-  o3: HydraOutput
-  render: (output?: HydraOutput) => void
-  osc: (...args: Array<number | (() => number)>) => HydraChain
-  noise: (...args: Array<number | (() => number)>) => HydraChain
-  voronoi: (...args: Array<number | (() => number)>) => HydraChain
-  shape: (...args: Array<number | (() => number)>) => HydraChain
-  gradient: (...args: Array<number | (() => number)>) => HydraChain
-  solid: (...args: Array<number | (() => number)>) => HydraChain
-  src: (source: HydraOutput) => HydraChain
-}
-
 const EXTERNAL_PRESETS = new Set<VisualizerPreset>([
-  'vanta_fog',
+  'nebel',
   'vanta_halo',
   'hydra_rave',
+  'hydra_chromaflow',
   'particle_swarm',
 ])
 
 const PALETTES: Record<
   ColorScheme,
   {
-    fogBase: number
-    fogLow: number
-    fogMid: number
-    fogHighlight: number
+    nebelBase: number
+    nebelLow: number
+    nebelMid: number
+    nebelHighlight: number
     haloBase: number
     haloAccent: number
     background: number
   }
 > = {
   mono: {
-    fogBase: 0x07111c,
-    fogLow: 0x122233,
-    fogMid: 0x314a62,
-    fogHighlight: 0x7e96ad,
+    nebelBase: 0x091018,
+    nebelLow: 0x122634,
+    nebelMid: 0x1d4250,
+    nebelHighlight: 0x4d8192,
     haloBase: 0x2e4358,
     haloAccent: 0xa6bbcf,
     background: 0x04090f,
   },
   acid: {
-    fogBase: 0x04101b,
-    fogLow: 0x0d2340,
-    fogMid: 0x114f7b,
-    fogHighlight: 0x61b6d7,
+    nebelBase: 0x05121a,
+    nebelLow: 0x0d2b36,
+    nebelMid: 0x13605c,
+    nebelHighlight: 0x54a7a0,
     haloBase: 0x174d8a,
     haloAccent: 0x89dfff,
     background: 0x030811,
   },
   ultraviolet: {
-    fogBase: 0x080817,
-    fogLow: 0x1a1740,
-    fogMid: 0x23396d,
-    fogHighlight: 0x8f93d8,
+    nebelBase: 0x070f19,
+    nebelLow: 0x16253b,
+    nebelMid: 0x28495d,
+    nebelHighlight: 0x6870ad,
     haloBase: 0x574ea5,
     haloAccent: 0x8ac7ff,
     background: 0x050711,
   },
   redline: {
-    fogBase: 0x12070d,
-    fogLow: 0x32101c,
-    fogMid: 0x5f2333,
-    fogHighlight: 0xc46b80,
+    nebelBase: 0x0b1017,
+    nebelLow: 0x182735,
+    nebelMid: 0x25484f,
+    nebelHighlight: 0x73584f,
     haloBase: 0x7d263c,
     haloAccent: 0xf08a92,
     background: 0x090507,
   },
+}
+
+interface NebelPalette {
+  background: number
+  deepBlue: number
+  petrol: number
+  darkTurquoise: number
+  violet: number
+  cyan: number
+  ember: number
+}
+
+interface NebelMotionState {
+  timeSeconds: number
+  breathScale: number
+  brightnessPulse: number
+  brightnessBoost: number
+  turbulence: number
+  rotationDeg: number
+  driftX: number
+  driftY: number
+  palette: NebelPalette
+}
+
+const NEBEL_PALETTE_SETS: Record<ColorScheme, NebelPalette[]> = {
+  mono: [
+    {
+      background: 0x04090f,
+      deepBlue: 0x0a1622,
+      petrol: 0x12333f,
+      darkTurquoise: 0x1d5663,
+      violet: 0x3d3a70,
+      cyan: 0x4c8aa1,
+      ember: 0x4a3225,
+    },
+    {
+      background: 0x030a10,
+      deepBlue: 0x08141f,
+      petrol: 0x15303a,
+      darkTurquoise: 0x275763,
+      violet: 0x50427d,
+      cyan: 0x5aa6b4,
+      ember: 0x5a3d29,
+    },
+  ],
+  acid: [
+    {
+      background: 0x030910,
+      deepBlue: 0x071a24,
+      petrol: 0x0c3640,
+      darkTurquoise: 0x147370,
+      violet: 0x534487,
+      cyan: 0x57d4d7,
+      ember: 0x5a331f,
+    },
+    {
+      background: 0x040911,
+      deepBlue: 0x091824,
+      petrol: 0x0d3946,
+      darkTurquoise: 0x1b666c,
+      violet: 0x4e4280,
+      cyan: 0x67dde3,
+      ember: 0x633a20,
+    },
+  ],
+  ultraviolet: [
+    {
+      background: 0x040811,
+      deepBlue: 0x09151f,
+      petrol: 0x17313e,
+      darkTurquoise: 0x1b5560,
+      violet: 0x6d54a8,
+      cyan: 0x4ab0cf,
+      ember: 0x553122,
+    },
+    {
+      background: 0x050912,
+      deepBlue: 0x0a1823,
+      petrol: 0x173746,
+      darkTurquoise: 0x1d5d70,
+      violet: 0x7e62bf,
+      cyan: 0x60cbe8,
+      ember: 0x613721,
+    },
+  ],
+  redline: [
+    {
+      background: 0x05080f,
+      deepBlue: 0x0b151d,
+      petrol: 0x17303a,
+      darkTurquoise: 0x215660,
+      violet: 0x5c4b87,
+      cyan: 0x4f9caf,
+      ember: 0x704128,
+    },
+    {
+      background: 0x050810,
+      deepBlue: 0x0c161f,
+      petrol: 0x173643,
+      darkTurquoise: 0x245c6a,
+      violet: 0x665091,
+      cyan: 0x58bdd1,
+      ember: 0x7e492a,
+    },
+  ],
 }
 
 export function isExternalVisualizerPreset(preset: VisualizerPreset) {
@@ -155,11 +191,11 @@ export function isExternalVisualizerPreset(preset: VisualizerPreset) {
 export function createVisualizerRuntime(
   visualizer: VisualizerState,
 ): VisualizerRuntimeController | null {
-  if (visualizer.active_preset === 'vanta_fog' || visualizer.active_preset === 'vanta_halo') {
+  if (visualizer.active_preset === 'nebel' || visualizer.active_preset === 'vanta_halo') {
     return new VantaVisualizerRuntime(visualizer.active_preset)
   }
-  if (visualizer.active_preset === 'hydra_rave') {
-    return new HydraVisualizerRuntime('hydra_rave')
+  if (isHydraVisualizerPreset(visualizer.active_preset)) {
+    return new HydraVisualizerRuntime(visualizer.active_preset)
   }
   if (visualizer.active_preset === 'particle_swarm') {
     return new TsParticlesVisualizerRuntime('particle_swarm')
@@ -173,6 +209,13 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
   private options: VisualizerRuntimeOptions
   private readonly preset: VantaPreset
   private readonly burstTimeouts = new Set<number>()
+  private animationFrameId = 0
+  private effectStartedAt = 0
+  private lastAnimationAt = 0
+  private lastNebulaUpdateAt = 0
+  private pulseBoost = 0
+  private readonly overlayLayers: HTMLDivElement[] = []
+  private vignetteLayer: HTMLDivElement | null = null
   private errorHandler: ((error: Error) => void) | null = null
 
   constructor(preset: VantaPreset) {
@@ -183,6 +226,13 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
       speed: 55,
       brightness: 70,
       colorScheme: 'acid',
+      hydraColorfulness: 78,
+      hydraSceneChangeRate: 46,
+      hydraSymmetryAmount: 38,
+      hydraFeedbackAmount: 24,
+      hydraQuality: 'medium',
+      hydraAudioReactivityEnabled: true,
+      hydraPaletteMode: 'auto',
     }
   }
 
@@ -209,6 +259,13 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
       ...resolveVantaOptions(this.preset, this.options),
     })
     this.resize(this.container.clientWidth, this.container.clientHeight)
+    if (this.preset === 'nebel') {
+      this.effectStartedAt = performance.now()
+      this.lastAnimationAt = this.effectStartedAt
+      this.lastNebulaUpdateAt = 0
+      this.setupNebelLayers()
+      this.animationFrameId = window.requestAnimationFrame(this.animateNebel)
+    }
   }
 
   stop() {
@@ -232,10 +289,22 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
     }
     this.effect.setOptions(resolveVantaOptions(this.preset, this.options))
     this.effect.resize?.()
+    if (this.preset === 'nebel') {
+      this.updateNebelLayerPalette(resolveNebelMotionState(this.options, performance.now(), this.effectStartedAt))
+    }
   }
 
   triggerEvent(name: string) {
-    if (name !== 'mode_change' || !this.effect?.setOptions) {
+    if (name !== 'mode_change') {
+      return
+    }
+
+    if (this.preset === 'nebel') {
+      this.pulseBoost = Math.min(1, this.pulseBoost + 0.72)
+      return
+    }
+
+    if (!this.effect?.setOptions) {
       return
     }
 
@@ -256,12 +325,16 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
   }
 
   private destroyEffect() {
+    window.cancelAnimationFrame(this.animationFrameId)
+    this.animationFrameId = 0
+    this.clearNebelLayers()
     try {
       this.effect?.destroy?.()
     } finally {
       if (this.container) {
         this.container.querySelectorAll('.vanta-canvas').forEach((node) => node.remove())
         this.container.style.removeProperty('background')
+        this.container.style.removeProperty('filter')
       }
     }
     this.effect = null
@@ -271,378 +344,118 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
     this.burstTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
     this.burstTimeouts.clear()
   }
-}
 
-interface HydraPalette {
-  base: [number, number, number]
-  secondary: [number, number, number]
-  accent: [number, number, number]
-  pulse: [number, number, number]
-  highlight: [number, number, number]
-  glow: [number, number, number]
-}
-
-const HYDRA_PALETTES: Record<ColorScheme, HydraPalette> = {
-  mono: {
-    base: [0.76, 0.82, 0.92],
-    secondary: [0.48, 0.63, 0.82],
-    accent: [0.31, 0.56, 0.78],
-    pulse: [0.7, 0.83, 0.95],
-    highlight: [0.9, 0.94, 1],
-    glow: [0.36, 0.57, 0.82],
-  },
-  acid: {
-    base: [0.16, 0.82, 1],
-    secondary: [0.97, 0.19, 0.82],
-    accent: [0.34, 0.47, 1],
-    pulse: [0.08, 1, 0.83],
-    highlight: [0.98, 0.9, 0.22],
-    glow: [0.53, 0.14, 1],
-  },
-  ultraviolet: {
-    base: [0.48, 0.29, 1],
-    secondary: [0.07, 0.78, 1],
-    accent: [0.94, 0.17, 0.78],
-    pulse: [0.24, 0.93, 0.88],
-    highlight: [0.84, 0.67, 1],
-    glow: [0.22, 0.53, 1],
-  },
-  redline: {
-    base: [1, 0.24, 0.49],
-    secondary: [0.4, 0.82, 1],
-    accent: [0.89, 0.08, 0.68],
-    pulse: [1, 0.54, 0.24],
-    highlight: [0.96, 0.91, 0.32],
-    glow: [0.46, 0.21, 0.98],
-  },
-}
-
-class HydraVisualizerRuntime implements VisualizerRuntimeController {
-  private container: HTMLElement | null = null
-  private canvas: HTMLCanvasElement | null = null
-  private hydra: HydraInstance | null = null
-  private readonly preset: HydraPreset
-  private options: VisualizerRuntimeOptions
-  private frameId = 0
-  private lastFrameAt = 0
-  private burstLevel = 0
-  private sceneClock = 0
-  private errorHandler: ((error: Error) => void) | null = null
-  private isDisposed = false
-
-  constructor(preset: HydraPreset) {
-    this.preset = preset
-    this.options = {
-      preset,
-      intensity: 65,
-      speed: 55,
-      brightness: 70,
-      colorScheme: 'acid',
-    }
-  }
-
-  async init(container: HTMLElement, options: VisualizerRuntimeOptions) {
-    this.container = container
-    this.options = { ...options }
-    this.isDisposed = false
-    await this.start()
-  }
-
-  async start() {
-    if (!this.container || this.hydra) {
+  private animateNebel = (timestamp: number) => {
+    if (this.preset !== 'nebel' || !this.container || !this.effect) {
       return
     }
 
-    const canvas = document.createElement('canvas')
-    canvas.className = 'hydra-canvas'
-    Object.assign(canvas.style, {
+    const deltaMs = clamp(timestamp - this.lastAnimationAt, 1000 / 120, 1000 / 20)
+    this.lastAnimationAt = timestamp
+    this.pulseBoost = Math.max(0, this.pulseBoost * Math.exp(-deltaMs / 2400))
+
+    const state = resolveNebelMotionState(this.options, timestamp, this.effectStartedAt, this.pulseBoost)
+    const canvas = this.container.querySelector('.vanta-canvas') as HTMLElement | null
+    if (canvas) {
+      canvas.style.transform = `translate3d(${state.driftX.toFixed(2)}px, ${state.driftY.toFixed(2)}px, 0) rotate(${state.rotationDeg.toFixed(3)}deg) scale(${state.breathScale.toFixed(4)})`
+      canvas.style.transformOrigin = '50% 50%'
+      canvas.style.opacity = `${(0.9 + state.brightnessBoost * 0.06).toFixed(3)}`
+      canvas.style.willChange = 'transform, opacity'
+    }
+
+    if (timestamp - this.lastNebulaUpdateAt >= 140) {
+      this.effect.setOptions?.(resolveVantaOptions(this.preset, this.options, state))
+      this.updateNebelLayerPalette(state)
+      this.lastNebulaUpdateAt = timestamp
+    }
+
+    this.updateNebelLayerTransforms(state)
+    this.container.style.background = `linear-gradient(180deg, ${intToRgba(state.palette.background, 0.96)}, rgba(2, 5, 10, 1))`
+    this.container.style.filter = `brightness(${(0.98 + state.brightnessBoost * 0.08).toFixed(3)})`
+    this.animationFrameId = window.requestAnimationFrame(this.animateNebel)
+  }
+
+  private setupNebelLayers() {
+    if (!this.container || this.overlayLayers.length) {
+      return
+    }
+
+    for (let index = 0; index < 3; index += 1) {
+      const layer = document.createElement('div')
+      layer.className = `nebel-depth-layer nebel-depth-layer--${index + 1}`
+      Object.assign(layer.style, {
+        position: 'absolute',
+        inset: '-16%',
+        pointerEvents: 'none',
+        opacity: index === 0 ? '0.22' : index === 1 ? '0.18' : '0.14',
+        mixBlendMode: index === 2 ? 'screen' : 'soft-light',
+        backgroundRepeat: 'no-repeat',
+        willChange: 'transform, opacity, background',
+      })
+      this.container.appendChild(layer)
+      this.overlayLayers.push(layer)
+    }
+
+    const vignette = document.createElement('div')
+    vignette.className = 'nebel-vignette'
+    Object.assign(vignette.style, {
       position: 'absolute',
       inset: '0',
-      width: '100%',
-      height: '100%',
-      display: 'block',
       pointerEvents: 'none',
+      background:
+        'radial-gradient(circle at 50% 48%, rgba(0,0,0,0) 42%, rgba(2,4,8,0.14) 70%, rgba(0,0,0,0.34) 100%)',
+      willChange: 'opacity',
     })
-    this.container.appendChild(canvas)
-    this.canvas = canvas
-
-    const handleContextLost = (event: Event) => {
-      event.preventDefault()
-      this.reportError(new Error('Hydra WebGL-Kontext verloren'))
-    }
-    canvas.addEventListener('webglcontextlost', handleContextLost, { passive: false })
-
-    try {
-      const Hydra = await loadHydraFactory()
-      if (this.isDisposed) {
-        canvas.removeEventListener('webglcontextlost', handleContextLost)
-        return
-      }
-
-      const { cssWidth, cssHeight, pixelWidth, pixelHeight } = this.resolveSize()
-      const hydra = new Hydra({
-        canvas,
-        width: pixelWidth,
-        height: pixelHeight,
-        autoLoop: false,
-        makeGlobal: false,
-        detectAudio: false,
-        enableStreamCapture: false,
-        numSources: 4,
-        numOutputs: 4,
-        precision: 'mediump',
-      })
-
-      this.hydra = hydra
-      this.configureHydraScene()
-      this.resize(cssWidth, cssHeight)
-      this.lastFrameAt = performance.now()
-      this.frameId = window.requestAnimationFrame(this.loop)
-    } catch (error) {
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      throw error
-    }
+    this.container.appendChild(vignette)
+    this.vignetteLayer = vignette
+    this.updateNebelLayerPalette(resolveNebelMotionState(this.options, performance.now(), this.effectStartedAt))
   }
 
-  stop() {
-    this.cleanupHydra()
-  }
-
-  destroy() {
-    this.isDisposed = true
-    this.cleanupHydra()
-    this.container = null
-  }
-
-  resize(width: number, height: number) {
-    if (!this.hydra || !this.canvas) {
+  private updateNebelLayerPalette(state: NebelMotionState) {
+    if (!this.overlayLayers.length) {
       return
     }
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const scaledWidth = Math.max(1, Math.floor(width * dpr))
-    const scaledHeight = Math.max(1, Math.floor(height * dpr))
-    this.canvas.width = scaledWidth
-    this.canvas.height = scaledHeight
-    this.canvas.style.width = `${width}px`
-    this.canvas.style.height = `${height}px`
-    this.hydra.setResolution(scaledWidth, scaledHeight)
-  }
-
-  updateOptions(partialOptions: Partial<VisualizerRuntimeOptions>) {
-    this.options = { ...this.options, ...partialOptions }
-    if (!this.hydra) {
-      return
+    const [backgroundLayer, midLayer, foregroundLayer] = this.overlayLayers
+    backgroundLayer.style.background = [
+      `radial-gradient(circle at 24% 30%, ${intToRgba(state.palette.deepBlue, 0.24 + state.brightnessPulse * 0.03)}, rgba(0,0,0,0) 56%)`,
+      `radial-gradient(circle at 72% 62%, ${intToRgba(state.palette.petrol, 0.18 + state.turbulence * 0.04)}, rgba(0,0,0,0) 60%)`,
+      `radial-gradient(circle at 46% 44%, ${intToRgba(state.palette.darkTurquoise, 0.14)}, rgba(0,0,0,0) 68%)`,
+    ].join(',')
+    midLayer.style.background = [
+      `radial-gradient(circle at 34% 52%, ${intToRgba(state.palette.petrol, 0.18 + state.brightnessPulse * 0.04)}, rgba(0,0,0,0) 34%)`,
+      `radial-gradient(circle at 68% 38%, ${intToRgba(state.palette.violet, 0.09)}, rgba(0,0,0,0) 28%)`,
+      `radial-gradient(circle at 58% 66%, ${intToRgba(state.palette.cyan, 0.1)}, rgba(0,0,0,0) 26%)`,
+    ].join(',')
+    foregroundLayer.style.background = [
+      `radial-gradient(circle at 42% 42%, ${intToRgba(state.palette.cyan, 0.1 + state.brightnessPulse * 0.05)}, rgba(0,0,0,0) 18%)`,
+      `radial-gradient(circle at 60% 52%, ${intToRgba(state.palette.darkTurquoise, 0.12)}, rgba(0,0,0,0) 16%)`,
+      `radial-gradient(circle at 54% 48%, ${intToRgba(state.palette.ember, 0.055)}, rgba(0,0,0,0) 14%)`,
+    ].join(',')
+    if (this.vignetteLayer) {
+      this.vignetteLayer.style.opacity = `${(0.92 + state.turbulence * 0.05).toFixed(3)}`
     }
-    this.configureHydraScene()
   }
 
-  triggerEvent(name: string) {
-    if (name !== 'mode_change') {
-      return
-    }
-    this.burstLevel = Math.min(1.4, this.burstLevel + 0.92)
-  }
-
-  setErrorHandler(handler: ((error: Error) => void) | null) {
-    this.errorHandler = handler
-  }
-
-  private loop = (timestamp: number) => {
-    if (!this.hydra || this.isDisposed) {
+  private updateNebelLayerTransforms(state: NebelMotionState) {
+    if (this.overlayLayers.length < 3) {
       return
     }
 
-    const deltaMs = clamp(timestamp - this.lastFrameAt, 1000 / 120, 1000 / 20)
-    this.lastFrameAt = timestamp
-    this.sceneClock += (deltaMs / 1000) * (0.72 + this.speedFactor() * 0.68)
-    this.burstLevel = Math.max(0, this.burstLevel * Math.exp(-deltaMs / 950))
-
-    try {
-      this.hydra.synth.speed = 0.62 + this.speedFactor() * 0.95
-      this.hydra.tick(deltaMs)
-      this.frameId = window.requestAnimationFrame(this.loop)
-    } catch (error) {
-      this.reportError(error instanceof Error ? error : new Error('Hydra tick fehlgeschlagen'))
-    }
+    const t = state.timeSeconds
+    this.overlayLayers[0].style.transform = `translate3d(${(Math.sin(t * 0.045) * 18).toFixed(2)}px, ${(Math.cos(t * 0.034) * 14).toFixed(2)}px, 0) scale(${(1.04 + Math.sin(t * 0.022) * 0.03).toFixed(4)})`
+    this.overlayLayers[1].style.transform = `translate3d(${(Math.cos(t * 0.074) * 26).toFixed(2)}px, ${(Math.sin(t * 0.062) * 18).toFixed(2)}px, 0) scale(${(1.08 + Math.cos(t * 0.038) * 0.04).toFixed(4)})`
+    this.overlayLayers[2].style.transform = `translate3d(${(Math.sin(t * 0.11) * 34).toFixed(2)}px, ${(Math.cos(t * 0.095) * 24).toFixed(2)}px, 0) scale(${(1.12 + Math.sin(t * 0.058) * 0.05).toFixed(4)})`
+    this.overlayLayers[0].style.opacity = `${(0.18 + state.brightnessPulse * 0.05).toFixed(3)}`
+    this.overlayLayers[1].style.opacity = `${(0.15 + state.turbulence * 0.04).toFixed(3)}`
+    this.overlayLayers[2].style.opacity = `${(0.11 + state.brightnessPulse * 0.08).toFixed(3)}`
   }
 
-  private configureHydraScene() {
-    if (!this.hydra) {
-      return
-    }
-
-    const h = this.hydra.synth
-    const palette = HYDRA_PALETTES[this.options.colorScheme]
-
-    const mirrorScene = h
-      .osc(
-        () => 8 + this.speedFactor() * 20 + this.phaseWeight(0.12, 0.2) * 6,
-        () => 0.04 + this.phaseWeight(0.12, 0.2) * 0.035,
-        () => 0.28 + this.burstLevel * 0.12,
-      )
-      .kaleid(() => 5 + Math.floor(this.intensityFactor() * 5 + this.phaseWeight(0.12, 0.2) * 8))
-      .rotate(
-        () => this.sceneClock * 0.08 + this.burstLevel * 0.05,
-        () => 0.012 + this.speedFactor() * 0.028,
-      )
-      .modulate(
-        h.noise(() => 2.4 + this.intensityFactor() * 2.6, () => 0.08 + this.speedFactor() * 0.14),
-        () => 0.05 + this.intensityFactor() * 0.16,
-      )
-      .color(...palette.base)
-      .saturate(() => 1.2 + this.brightnessFactor() * 0.4)
-      .contrast(() => 1.18 + this.intensityFactor() * 0.28)
-
-    const latticeScene = h
-      .voronoi(
-        () => 3.2 + this.intensityFactor() * 9 + this.burstLevel * 4,
-        () => 0.16 + this.speedFactor() * 0.38,
-        () => 0.22 + this.phaseWeight(0.38, 0.22) * 0.48,
-      )
-      .thresh(
-        () => 0.38 + this.phaseWeight(0.38, 0.22) * 0.16,
-        () => 0.05 + this.burstLevel * 0.03,
-      )
-      .posterize(
-        () => 3 + this.intensityFactor() * 2 + this.phaseWeight(0.38, 0.22) * 2,
-        () => 0.24 + this.brightnessFactor() * 0.3,
-      )
-      .rotate(() => -this.sceneClock * 0.04, () => 0.01 + this.speedFactor() * 0.03)
-      .modulateScale(
-        h.osc(() => 6 + this.speedFactor() * 6, () => 0.03, () => 0.6).kaleid(3),
-        () => 0.08 + this.intensityFactor() * 0.15,
-      )
-      .color(...palette.secondary)
-      .brightness(() => -0.06 + this.brightnessFactor() * 0.08)
-
-    const waveScene = h
-      .gradient(() => 0.12 + this.speedFactor() * 0.22)
-      .color(...palette.accent)
-      .colorama(() => 0.001 + this.phaseWeight(0.64, 0.2) * 0.012 + this.burstLevel * 0.01)
-      .modulate(
-        h.osc(() => 4 + this.speedFactor() * 5, () => 0.04, () => 0.1 + this.intensityFactor() * 0.22),
-        () => 0.08 + this.phaseWeight(0.64, 0.2) * 0.12,
-      )
-      .scrollY(() => Math.sin(this.sceneClock * 0.22) * 0.03, () => 0.02 + this.speedFactor() * 0.02)
-      .contrast(() => 1.06 + this.brightnessFactor() * 0.16)
-
-    const surgeScene = h
-      .shape(
-        () => 4 + Math.floor(this.phaseWeight(0.86, 0.16) * 6),
-        () => 0.34 + this.phaseWeight(0.86, 0.16) * 0.12,
-        () => 0.001 + this.burstLevel * 0.004,
-      )
-      .repeat(
-        () => 1 + this.phaseWeight(0.86, 0.16) * 2,
-        () => 1 + this.phaseWeight(0.86, 0.16) * 2,
-      )
-      .rotate(() => this.sceneClock * 0.11, () => 0.025 + this.speedFactor() * 0.035)
-      .modulateRotate(
-        h.voronoi(() => 5 + this.burstLevel * 5, () => 0.15, () => 0.2 + this.intensityFactor() * 0.18),
-        () => 0.16 + this.burstLevel * 0.18,
-      )
-      .color(...palette.pulse)
-      .luma(() => 0.18 + this.phaseWeight(0.86, 0.16) * 0.2, 0.12)
-      .saturate(() => 1.22 + this.intensityFactor() * 0.48)
-
-    mirrorScene
-      .blend(latticeScene, () => 0.18 + this.phaseWeight(0.38, 0.22) * 0.74)
-      .blend(waveScene, () => 0.12 + this.phaseWeight(0.64, 0.2) * 0.62)
-      .add(surgeScene, () => 0.06 + this.phaseWeight(0.86, 0.16) * 0.52 + this.burstLevel * 0.12)
-      .blend(
-        h
-          .src(h.o1)
-          .scale(() => 0.996 - this.feedbackFactor() * 0.012)
-          .rotate(() => this.feedbackFactor() * 0.08)
-          .color(...palette.highlight),
-        () => 0.04 + this.feedbackFactor() * 0.16,
-      )
-      .brightness(() => -0.12 + this.brightnessFactor() * 0.18)
-      .contrast(() => 1.18 + this.intensityFactor() * 0.34)
-      .saturate(() => 1.24 + this.brightnessFactor() * 0.38)
-      .out(h.o0)
-
-    h.src(h.o0)
-      .blend(
-        h
-          .src(h.o1)
-          .scale(() => 0.998 - this.feedbackFactor() * 0.01)
-          .rotate(() => -0.015 - this.feedbackFactor() * 0.05)
-          .color(...palette.glow),
-        () => 0.08 + this.feedbackFactor() * 0.24,
-      )
-      .modulate(
-        h.noise(() => 2.1 + this.intensityFactor() * 2.2, () => 0.02 + this.speedFactor() * 0.05),
-        () => 0.01 + this.burstLevel * 0.035,
-      )
-      .brightness(() => -0.08 + this.brightnessFactor() * 0.14)
-      .contrast(() => 1.06 + this.intensityFactor() * 0.18)
-      .out(h.o1)
-
-    h.render(h.o1)
-  }
-
-  private resolveSize() {
-    const cssWidth = Math.max(1, this.container?.clientWidth ?? window.innerWidth)
-    const cssHeight = Math.max(1, this.container?.clientHeight ?? window.innerHeight)
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    return {
-      cssWidth,
-      cssHeight,
-      pixelWidth: Math.floor(cssWidth * dpr),
-      pixelHeight: Math.floor(cssHeight * dpr),
-    }
-  }
-
-  private intensityFactor() {
-    return normalize(this.options.intensity)
-  }
-
-  private speedFactor() {
-    return normalize(this.options.speed)
-  }
-
-  private brightnessFactor() {
-    return normalize(this.options.brightness)
-  }
-
-  private feedbackFactor() {
-    return 0.08 + this.intensityFactor() * 0.18 + this.burstLevel * 0.12
-  }
-
-  private phaseWeight(center: number, width: number) {
-    const cycle = (this.sceneClock / 28) % 1
-    const distance = circularDistance(cycle, center)
-    if (distance >= width) {
-      return 0
-    }
-    const normalized = distance / width
-    return 0.5 + Math.cos(normalized * Math.PI) * 0.5
-  }
-
-  private cleanupHydra() {
-    window.cancelAnimationFrame(this.frameId)
-    this.frameId = 0
-
-    if (this.hydra) {
-      try {
-        this.hydra.hush()
-      } catch {
-        // ignore cleanup failures while tearing down external visualizers
-      }
-      this.hydra.regl?.destroy?.()
-      this.hydra = null
-    }
-
-    if (this.canvas) {
-      this.canvas.remove()
-      this.canvas = null
-    }
-  }
-
-  private reportError(error: Error) {
-    this.errorHandler?.(error)
+  private clearNebelLayers() {
+    this.overlayLayers.forEach((layer) => layer.remove())
+    this.overlayLayers.length = 0
+    this.vignetteLayer?.remove()
+    this.vignetteLayer = null
   }
 }
 
@@ -694,6 +507,13 @@ class TsParticlesVisualizerRuntime implements VisualizerRuntimeController {
       speed: 55,
       brightness: 70,
       colorScheme: 'acid',
+      hydraColorfulness: 78,
+      hydraSceneChangeRate: 46,
+      hydraSymmetryAmount: 38,
+      hydraFeedbackAmount: 24,
+      hydraQuality: 'medium',
+      hydraAudioReactivityEnabled: true,
+      hydraPaletteMode: 'auto',
     }
   }
 
@@ -863,13 +683,6 @@ async function loadVantaFactory(preset: VantaPreset): Promise<VantaFactory> {
   return module.default as VantaFactory
 }
 
-async function loadHydraFactory(): Promise<HydraFactory> {
-  const runtimeGlobal = globalThis as typeof globalThis & { global?: typeof globalThis }
-  runtimeGlobal.global ??= runtimeGlobal
-  const module = await import('hydra-synth')
-  return module.default as HydraFactory
-}
-
 let tsParticlesEnginePromise: Promise<TsParticlesEngine> | null = null
 
 async function loadTsParticlesEngine(): Promise<TsParticlesEngine> {
@@ -890,6 +703,7 @@ async function loadTsParticlesEngine(): Promise<TsParticlesEngine> {
 function resolveVantaOptions(
   preset: VantaPreset,
   options: VisualizerRuntimeOptions,
+  nebelState?: NebelMotionState,
 ): Record<string, unknown> {
   const palette = PALETTES[options.colorScheme]
   const intensity = normalize(options.intensity)
@@ -913,16 +727,20 @@ function resolveVantaOptions(
     }
   }
 
+  const state =
+    nebelState ??
+    resolveNebelMotionState(options, performance.now(), performance.now())
+
   return {
-    baseColor: palette.fogBase,
-    lowlightColor: palette.fogLow,
-    midtoneColor: palette.fogMid,
-    highlightColor: palette.fogHighlight,
-    blurFactor: 0.52 - intensity * 0.18,
-    speed: 0.12 + speed * 0.42,
-    zoom: 0.74 + intensity * 0.18,
-    scale: 2.8 - brightness * 0.45,
-    scaleMobile: 3.8 - brightness * 0.55,
+    baseColor: state.palette.deepBlue,
+    lowlightColor: state.palette.petrol,
+    midtoneColor: state.palette.darkTurquoise,
+    highlightColor: lerpColorInt(state.palette.cyan, state.palette.violet, 0.22 + state.brightnessPulse * 0.12),
+    blurFactor: 0.44 - intensity * 0.08 + state.turbulence * 0.04,
+    speed: 0.2 + speed * 0.44 + state.turbulence * 0.08,
+    zoom: 0.68 + intensity * 0.12 + (state.breathScale - 1) * 0.42,
+    scale: 2.3 - brightness * 0.24,
+    scaleMobile: 2.85 - brightness * 0.3,
   }
 }
 
@@ -943,10 +761,88 @@ function buildVantaBurstOptions(
   }
 
   return {
-    blurFactor: 0.44 - intensity * 0.16,
-    speed: 0.18 + speed * 0.5,
-    zoom: 0.82 + intensity * 0.2,
+    blurFactor: 0.36 - intensity * 0.08,
+    speed: 0.3 + speed * 0.58,
+    zoom: 0.72 + intensity * 0.12 + brightness * 0.03,
   }
+}
+
+function resolveNebelMotionState(
+  options: VisualizerRuntimeOptions,
+  timestamp: number,
+  startedAt: number,
+  pulseBoost = 0,
+): NebelMotionState {
+  const timeSeconds = Math.max(0, (timestamp - startedAt) / 1000)
+  const speed = normalize(options.speed)
+  const intensity = normalize(options.intensity)
+  const brightness = normalize(options.brightness)
+  const breathScale = 1 + Math.sin(timeSeconds * 0.05) * 0.05
+  const brightnessPulse =
+    Math.pow(Math.max(0, Math.sin(timeSeconds * ((Math.PI * 2) / 7.8) + 0.9)), 4.5) * 0.85
+  const brightnessBoost = clamp(brightnessPulse + pulseBoost * 0.65, 0, 1)
+  const turbulence = 0.18 + Math.sin(timeSeconds * 0.18) * 0.07 + intensity * 0.14
+  const rotationDeg = Math.sin(timeSeconds * 0.07) * (0.8 + speed * 0.8)
+  const driftX = Math.cos(timeSeconds * 0.11) * (6 + speed * 10)
+  const driftY = Math.sin(timeSeconds * 0.09) * (4 + speed * 8)
+
+  return {
+    timeSeconds,
+    breathScale,
+    brightnessPulse,
+    brightnessBoost,
+    turbulence,
+    rotationDeg,
+    driftX,
+    driftY,
+    palette: resolveNebelPalette(options.colorScheme, timeSeconds, brightness),
+  }
+}
+
+function resolveNebelPalette(colorScheme: ColorScheme, timeSeconds: number, brightness: number): NebelPalette {
+  const sequence = NEBEL_PALETTE_SETS[colorScheme]
+  const phase = timeSeconds * 0.032
+  const index = Math.floor(phase) % sequence.length
+  const nextIndex = (index + 1) % sequence.length
+  const mix = smoothMix(phase - Math.floor(phase))
+  const from = sequence[index]
+  const to = sequence[nextIndex]
+
+  return {
+    background: lerpColorInt(from.background, to.background, mix),
+    deepBlue: lerpColorInt(from.deepBlue, to.deepBlue, mix),
+    petrol: lerpColorInt(from.petrol, to.petrol, mix),
+    darkTurquoise: lerpColorInt(from.darkTurquoise, to.darkTurquoise, mix),
+    violet: lerpColorInt(from.violet, to.violet, mix),
+    cyan: lerpColorInt(from.cyan, to.cyan, mix + brightness * 0.04),
+    ember: lerpColorInt(from.ember, to.ember, mix),
+  }
+}
+
+function lerpColorInt(from: number, to: number, amount: number) {
+  const t = clamp(amount, 0, 1)
+  const fr = (from >> 16) & 0xff
+  const fg = (from >> 8) & 0xff
+  const fb = from & 0xff
+  const tr = (to >> 16) & 0xff
+  const tg = (to >> 8) & 0xff
+  const tb = to & 0xff
+  const r = Math.round(fr + (tr - fr) * t)
+  const g = Math.round(fg + (tg - fg) * t)
+  const b = Math.round(fb + (tb - fb) * t)
+  return (r << 16) | (g << 8) | b
+}
+
+function intToRgba(color: number, alpha: number) {
+  const r = (color >> 16) & 0xff
+  const g = (color >> 8) & 0xff
+  const b = color & 0xff
+  return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1).toFixed(3)})`
+}
+
+function smoothMix(value: number) {
+  const t = clamp(value, 0, 1)
+  return t * t * (3 - 2 * t)
 }
 
 function resolveTsParticlesOptions(
@@ -1128,17 +1024,4 @@ function resolveTsParticlesBurstParticles(
       },
     },
   }
-}
-
-function normalize(value: number) {
-  return Math.max(0, Math.min(value, 100)) / 100
-}
-
-function circularDistance(value: number, target: number) {
-  const rawDistance = Math.abs(value - target)
-  return Math.min(rawDistance, 1 - rawDistance)
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value))
 }

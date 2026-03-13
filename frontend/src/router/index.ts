@@ -5,6 +5,7 @@ import DisplayLayout from '../layouts/DisplayLayout.vue'
 import AdminDashboardView from '../views/admin/AdminDashboardView.vue'
 import AdminLoginView from '../views/admin/AdminLoginView.vue'
 import GuestUploadView from '../views/guest/GuestUploadView.vue'
+import SetupView from '../views/setup/SetupView.vue'
 import DisplayView from '../views/display/DisplayView.vue'
 import { useAuthStore } from '../stores/auth'
 
@@ -36,6 +37,12 @@ const router = createRouter({
           name: 'admin-dashboard',
           component: AdminDashboardView,
           meta: { audience: 'admin', requiresAuth: true, requiredRole: 'admin' },
+        },
+        {
+          path: 'setup',
+          name: 'setup',
+          component: SetupView,
+          meta: { audience: 'setup' },
         },
       ],
     },

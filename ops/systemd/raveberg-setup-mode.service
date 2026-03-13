@@ -1,0 +1,16 @@
+[Unit]
+Description=RaveBerg Setup AP and Captive Portal
+After=NetworkManager.service network.target
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/raveberg-setup-mode
+ExecStart=/bin/sh /opt/raveberg/ops/pi/setup/start-setup-mode.sh
+ExecStop=/bin/sh /opt/raveberg/ops/pi/setup/stop-setup-mode.sh
+TimeoutStartSec=45
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

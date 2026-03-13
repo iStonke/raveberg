@@ -3,6 +3,7 @@
 Dieser Bereich buendelt den vorbereiteten Appliance-Betrieb fuer den Raspberry Pi.
 
 - `pi/`: Start-, Kiosk- und QR-Skripte fuer den Eventbetrieb
+- `pi/setup/`: Setup-Hotspot, Captive-Portal und Installationspfad fuer die WLAN-Einrichtung
 - `mac/`: einfacher Startpfad fuer den produktiven Display-/Beamer-Client auf macOS
 - `renderer_headless/`: Env-, Start- und Autostart-Vorlagen fuer den separaten Renderer-Rechner
 - `systemd/`: vorbereitete Unit-Files fuer Stack- und Kiosk-Autostart
@@ -106,14 +107,39 @@ Wichtig:
 - der Dienst startet den bestehenden Event-Workflow, statt eine zweite Logik daneben aufzubauen
 - fuer einen manuellen Neustart des Event-Betriebs bleibt `bash ops/pi/start-event.sh` weiter gueltig
 
-## WLAN im Adminbereich
+## Setup-Modus und Captive Portal
 
-Im Status-Bereich kann der Pi eine WLAN-Verbindung neu aufbauen oder auf ein anderes Netzwerk wechseln. Der Dialog fragt SSID und Passwort ab und nutzt serverseitig `nmcli`.
+Der Pi hat jetzt einen dedizierten Setup-Modus fuer WLAN-Einrichtung ueber `nmcli`, `dnsmasq` und `NoDogSplash`.
 
-Voraussetzung:
+Kurzfassung:
 
-- auf dem Pi muss NetworkManager bzw. `nmcli` verfuegbar sein
-- das Ziel-Interface ist ueber `WIFI_INTERFACE` konfigurierbar, Standard `wlan0`
+1. Host-Abhaengigkeiten und Unit installieren:
+
+```bash
+cd /opt/raveberg
+sudo bash ops/pi/setup/install-setup-deps.sh
+```
+
+2. Host-Config pruefen:
+
+```bash
+sudo nano /etc/default/raveberg-setup-mode
+```
+
+3. Appliance-Env pruefen:
+
+- `ops/pi/env.appliance`
+- fuer Captive Portal sollte `PROXY_HOST_PORT=80` gesetzt sein
+- `AUTO_SETUP_MODE_ENABLED=true` aktiviert den Boot-Fallback
+
+4. Diagnose:
+
+```bash
+bash ops/pi/setup/check-network.sh
+systemctl status raveberg-setup-mode.service
+```
+
+Die Detaildoku liegt unter [`ops/pi/setup/README.md`](/Users/admin/Documents/raveBerg/ops/pi/setup/README.md).
 
 ## Direkter Mac-Display-Client
 

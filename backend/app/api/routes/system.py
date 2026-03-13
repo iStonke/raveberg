@@ -2,13 +2,24 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.auth.dependencies import require_admin_user
+from app.auth.dependencies import require_admin_or_local_setup_access, require_admin_user
 from app.schemas.auth import SessionUser
 from app.schemas.runtime import RemoteVisualizerConfigRead, RemoteVisualizerConfigUpdate
-from app.schemas.system import PublicRuntimeInfoResponse, SystemActionResponse, SystemInfoResponse, WifiConnectRequest
+from app.schemas.system import (
+    NetworkStatusRead,
+    PublicRuntimeInfoResponse,
+    SetupModeStatusRead,
+    SystemActionResponse,
+    SystemInfoResponse,
+    WifiConnectRequest,
+    WifiScanResult,
+)
 from app.services.event_service import event_service
+from app.services.network_setup_service import NetworkSetupService
+from app.services.network_status_service import NetworkStatusService
 from app.services.runtime_config_service import RuntimeConfigService
 from app.services.system_service import SystemService
+from app.services.wifi_scan_service import WifiScanService
 
 router = APIRouter()
 
@@ -78,9 +89,53 @@ def restart_system(
 @router.post("/system/wifi/connect", response_model=SystemActionResponse)
 def connect_wifi(
     payload: WifiConnectRequest,
+    _: SessionUser | None = Depends(require_admin_or_local_setup_access),
+) -> SystemActionResponse:
+    try:
+        return NetworkSetupService().connect_wifi(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/system/setup-mode/start", response_model=SystemActionResponse)
+def start_setup_mode(
     _: SessionUser = Depends(require_admin_user),
 ) -> SystemActionResponse:
     try:
-        return SystemService.connect_wifi(payload)
+        return NetworkSetupService().start_setup_mode()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/system/setup-mode/stop", response_model=SystemActionResponse)
+def stop_setup_mode(
+    _: SessionUser | None = Depends(require_admin_or_local_setup_access),
+) -> SystemActionResponse:
+    try:
+        return NetworkSetupService().stop_setup_mode()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.get("/system/setup-mode/status", response_model=SetupModeStatusRead)
+def read_setup_mode_status(
+    _: SessionUser | None = Depends(require_admin_or_local_setup_access),
+) -> SetupModeStatusRead:
+    return NetworkSetupService().get_setup_mode_status()
+
+
+@router.get("/system/wifi/scan", response_model=list[WifiScanResult])
+def scan_wifi(
+    _: SessionUser | None = Depends(require_admin_or_local_setup_access),
+) -> list[WifiScanResult]:
+    try:
+        return WifiScanService().scan()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.get("/system/network-status", response_model=NetworkStatusRead)
+def read_network_status(
+    _: SessionUser | None = Depends(require_admin_or_local_setup_access),
+) -> NetworkStatusRead:
+    return NetworkStatusService().get_status()

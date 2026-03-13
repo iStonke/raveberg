@@ -9,6 +9,7 @@ from app.schemas.auth import SessionUser
 from app.schemas.mode import ModeRead, ModeUpdate
 from app.services.event_service import event_service
 from app.services.mode_service import ModeService
+from app.services.selfie_service import SelfieService
 
 router = APIRouter()
 
@@ -26,7 +27,12 @@ async def set_mode(
 ) -> ModeRead:
     previous_mode = ModeService(db).get_mode().mode
     mode_state = ModeService(db).set_mode(payload.mode)
+    selfie_state = None
+    if payload.mode == "selfie":
+        selfie_state = SelfieService(db).ensure_slideshow_running()
     await event_service.publish_mode(mode_state)
+    if selfie_state is not None:
+        await event_service.publish_selfie_settings(selfie_state)
     if payload.mode == "blackout" and previous_mode != "blackout":
         await event_service.publish_blackout_activated(mode_state)
     if previous_mode == "blackout" and payload.mode != "blackout":

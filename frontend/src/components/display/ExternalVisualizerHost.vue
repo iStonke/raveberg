@@ -35,6 +35,13 @@ const runtimeOptions = computed(() => ({
   speed: props.visualizer.speed,
   brightness: props.visualizer.brightness,
   colorScheme: props.visualizer.color_scheme,
+  hydraColorfulness: props.visualizer.hydra_colorfulness,
+  hydraSceneChangeRate: props.visualizer.hydra_scene_change_rate,
+  hydraSymmetryAmount: props.visualizer.hydra_symmetry_amount,
+  hydraFeedbackAmount: props.visualizer.hydra_feedback_amount,
+  hydraQuality: props.visualizer.hydra_quality,
+  hydraAudioReactivityEnabled: props.visualizer.hydra_audio_reactivity_enabled,
+  hydraPaletteMode: props.visualizer.hydra_palette_mode,
 }))
 
 onMounted(async () => {

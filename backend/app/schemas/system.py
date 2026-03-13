@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -42,17 +43,6 @@ class SystemTelemetry(BaseModel):
     cpu_temperature_celsius: float | None
     fan_active: bool | None
     fan_rpm: int | None
-
-
-class SystemInfoResponse(BaseModel):
-    app_name: str
-    environment: str
-    default_mode: ModeType
-    video_upload_max_bytes: int
-    status: SystemStatus
-    telemetry: SystemTelemetry
-    storage: StoragePaths
-    appliance: "ApplianceInfo"
 
 
 class ApplianceUrls(BaseModel):
@@ -117,8 +107,57 @@ class PublicRuntimeInfoResponse(BaseModel):
     network: ApplianceNetwork
 
 
+NetworkMode = Literal["normal", "setup"]
+WifiConnectState = Literal["idle", "pending", "failed", "succeeded"]
+
+
+class SetupModeStatusRead(BaseModel):
+    enabled: bool
+    ssid: str
+    ip: str
+    portal_url: str
+    last_error: str | None = None
+    connect_state: WifiConnectState = "idle"
+    connecting_to_ssid: str | None = None
+    last_transition_at: datetime | None = None
+
+
+class WifiScanResult(BaseModel):
+    ssid: str
+    signal: int
+    security: str
+    active: bool
+
+
+class NetworkStatusRead(BaseModel):
+    online: bool
+    connected: bool
+    ssid: str | None
+    ip: str | None
+    signal_percent: int | None
+    signal_bars: int
+    setup_mode: bool
+    network_mode: NetworkMode
+
+
+class SystemInfoResponse(BaseModel):
+    app_name: str
+    environment: str
+    default_mode: ModeType
+    video_upload_max_bytes: int
+    status: SystemStatus
+    network_status: NetworkStatusRead
+    setup_mode_status: SetupModeStatusRead
+    telemetry: SystemTelemetry
+    storage: StoragePaths
+    appliance: "ApplianceInfo"
+
+
 class SystemActionResponse(BaseModel):
     message: str
+    pending: bool = False
+    network_status: NetworkStatusRead | None = None
+    setup_mode_status: SetupModeStatusRead | None = None
 
 
 class WifiConnectRequest(BaseModel):
