@@ -1,0 +1,20 @@
+[Unit]
+Description=RAVEBERG Event Start with Quick Tunnel
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/opt/raveberg
+Environment=RAVEBERG_ENV_FILE=/opt/raveberg/ops/pi/env.appliance
+ExecStartPre=/bin/sleep 15
+ExecStart=/bin/bash /opt/raveberg/ops/pi/start-event.sh
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=20
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

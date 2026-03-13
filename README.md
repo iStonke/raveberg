@@ -69,6 +69,24 @@ bash ops/mac/start-event-display.sh <PI-IP>
 
 Der Pi bleibt Backend-/Event-Server, der Mac rendert direkt `http://<PI-IP>:8085/display`.
 
+Autostart nach Reboot auf dem Pi:
+
+```bash
+cd /opt/raveberg
+sudo cp ops/pi/raveberg-event.service /etc/systemd/system/raveberg-event.service
+sudo systemctl daemon-reload
+sudo systemctl enable raveberg-event.service
+sudo systemctl start raveberg-event.service
+```
+
+Pruefen:
+
+```bash
+systemctl status raveberg-event.service
+journalctl -u raveberg-event.service -b
+cat /opt/raveberg/ops/pi/runtime/event-info.txt
+```
+
 ## Frontend-Routen
 
 - `/guest/upload`

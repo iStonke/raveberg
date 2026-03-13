@@ -73,6 +73,39 @@ bash ops/pi/stop-event.sh
 
 Das Stop-Skript beendet nur den `cloudflared`-Prozess. Der Docker-Stack bleibt dabei bestehen.
 
+## Event-Autostart nach Reboot
+
+Fuer automatischen Event-Start nach einem Pi-Neustart liegt eine systemd-Unit bereit:
+
+- [`ops/pi/raveberg-event.service`](/Users/admin/Documents/raveBerg/ops/pi/raveberg-event.service)
+
+Sie wartet auf Netzwerk und Docker, verzoegert den Start kurz und fuehrt dann `bash /opt/raveberg/ops/pi/start-event.sh` aus.
+
+Installation auf dem Pi:
+
+```bash
+cd /opt/raveberg
+sudo cp ops/pi/raveberg-event.service /etc/systemd/system/raveberg-event.service
+sudo systemctl daemon-reload
+sudo systemctl enable raveberg-event.service
+sudo systemctl start raveberg-event.service
+```
+
+Pruefen:
+
+```bash
+systemctl status raveberg-event.service
+journalctl -u raveberg-event.service -b
+cat /opt/raveberg/ops/pi/runtime/event-info.txt
+```
+
+Wichtig:
+
+- wenn dieser Dienst den Event-Start uebernehmen soll, ist er der relevante Boot-Pfad fuer den Quick Tunnel
+- ein zusaetzlich separat aktivierter reiner Stack-Autostart ist dann normalerweise nicht mehr noetig
+- der Dienst startet den bestehenden Event-Workflow, statt eine zweite Logik daneben aufzubauen
+- fuer einen manuellen Neustart des Event-Betriebs bleibt `bash ops/pi/start-event.sh` weiter gueltig
+
 ## Direkter Mac-Display-Client
 
 Der bevorzugte Produktivpfad ist inzwischen:
