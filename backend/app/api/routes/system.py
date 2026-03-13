@@ -59,3 +59,17 @@ def shutdown_system(
 
     background_tasks.add_task(SystemService.schedule_shutdown)
     return SystemService.shutdown_response()
+
+
+@router.post("/system/restart", response_model=SystemActionResponse, status_code=status.HTTP_202_ACCEPTED)
+def restart_system(
+    background_tasks: BackgroundTasks,
+    _: SessionUser = Depends(require_admin_user),
+) -> SystemActionResponse:
+    try:
+        SystemService._resolve_restart_command()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    background_tasks.add_task(SystemService.schedule_restart)
+    return SystemService.restart_response()

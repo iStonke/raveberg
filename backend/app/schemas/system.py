@@ -39,6 +39,8 @@ class SystemTelemetry(BaseModel):
     memory_total_bytes: int | None
     memory_percent: float | None
     cpu_temperature_celsius: float | None
+    fan_active: bool | None
+    fan_rpm: int | None
 
 
 class SystemInfoResponse(BaseModel):

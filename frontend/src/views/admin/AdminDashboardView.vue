@@ -25,6 +25,7 @@ import {
   fetchAdminUploads,
   rejectUpload,
   reorderVideoAssets,
+  triggerSystemRestart,
   triggerSystemShutdown,
   triggerSelfieNext,
   triggerSelfieReload,
@@ -81,6 +82,7 @@ const isSavingRemoteVisualizer = ref(false)
 const isSavingRemoteRenderer = ref(false)
 const isUploadingVideos = ref(false)
 const isShuttingDown = ref(false)
+const isRestartingSystem = ref(false)
 const isDownloadingUploadArchive = ref(false)
 const dashboardLiveActive = ref(false)
 const uploads = ref<UploadItem[]>([])
@@ -656,8 +658,27 @@ const memoryBarValue = computed(() => Math.max(0, Math.min(systemStatusStore.mem
 const temperatureHint = computed(() =>
   systemStatusStore.cpuTemperatureCelsius == null
     ? 'Kein Temperatursensor erkannt'
-    : 'Temperaturdaten vom Gerät',
+    : systemStatusStore.fanActive === true
+      ? systemStatusStore.fanRpm != null && systemStatusStore.fanRpm > 0
+        ? `Lüfter läuft · ${systemStatusStore.fanRpm} RPM`
+        : 'Lüfter läuft'
+      : systemStatusStore.fanActive === false
+        ? 'Lüfter aktuell aus'
+        : 'Temperaturdaten vom Gerät · Lüfterstatus unbekannt',
 )
+
+const temperatureHintClass = computed(() => {
+  if (systemStatusStore.cpuTemperatureCelsius == null) {
+    return 'device-metric-card__meta--fan-unknown'
+  }
+  if (systemStatusStore.fanActive === true) {
+    return 'device-metric-card__meta--fan-running'
+  }
+  if (systemStatusStore.fanActive === false) {
+    return 'device-metric-card__meta--fan-off'
+  }
+  return 'device-metric-card__meta--fan-unknown'
+})
 
 const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
 
@@ -1207,6 +1228,26 @@ async function shutdownSystem() {
       error instanceof Error ? error.message : 'Ausschalten konnte nicht ausgelöst werden'
   } finally {
     isShuttingDown.value = false
+  }
+}
+
+async function restartSystem() {
+  if (!authStore.token || isRestartingSystem.value) {
+    return
+  }
+
+  systemActionError.value = ''
+  systemActionMessage.value = ''
+  isRestartingSystem.value = true
+
+  try {
+    const response = await triggerSystemRestart(authStore.token)
+    systemActionMessage.value = response.message
+  } catch (error) {
+    systemActionError.value =
+      error instanceof Error ? error.message : 'Neustart konnte nicht ausgelöst werden'
+  } finally {
+    isRestartingSystem.value = false
   }
 }
 
@@ -2641,7 +2682,7 @@ function overlayModeLabel(mode: OverlayMode) {
             <article class="device-metric-card">
               <div class="device-metric-card__label">Temperatur</div>
               <div class="device-metric-card__value">{{ cpuTemperatureLabel }}</div>
-              <div class="device-metric-card__meta">{{ temperatureHint }}</div>
+              <div class="device-metric-card__meta" :class="temperatureHintClass">{{ temperatureHint }}</div>
             </article>
 
             <article class="device-metric-card">
@@ -2669,6 +2710,26 @@ function overlayModeLabel(mode: OverlayMode) {
                   : 'Mindestens ein zentraler Dienst ist aktuell nicht erreichbar.'
               }}
             </div>
+          </article>
+
+          <article class="device-danger-zone device-danger-zone--restart">
+            <div class="device-danger-zone__copy">
+              <div class="device-danger-zone__label">Wartungsaktion</div>
+              <div class="device-danger-zone__title">Raspberry Pi neu starten</div>
+              <div class="device-danger-zone__meta">
+                Startet das Gerät neu und stellt den lokalen Event-Betrieb danach erneut her.
+              </div>
+            </div>
+            <v-btn
+              color="warning"
+              variant="tonal"
+              class="device-danger-zone__button device-danger-zone__button--restart"
+              prepend-icon="mdi-restart"
+              :loading="isRestartingSystem"
+              @click="restartSystem"
+            >
+              Neustarten
+            </v-btn>
           </article>
 
           <article class="device-danger-zone">
@@ -3398,6 +3459,18 @@ function overlayModeLabel(mode: OverlayMode) {
   line-height: 1.35;
 }
 
+.device-metric-card__meta--fan-running {
+  color: rgba(133, 227, 173, 0.9);
+}
+
+.device-metric-card__meta--fan-off {
+  color: rgba(255, 188, 102, 0.92);
+}
+
+.device-metric-card__meta--fan-unknown {
+  color: rgba(201, 214, 228, 0.62);
+}
+
 .device-meter {
   margin-top: 0.4rem;
   width: 100%;
@@ -3435,6 +3508,11 @@ function overlayModeLabel(mode: OverlayMode) {
   border-color: rgba(255, 107, 107, 0.12);
 }
 
+.device-danger-zone--restart {
+  background: rgba(110, 58, 12, 0.18);
+  border-color: rgba(255, 171, 64, 0.2);
+}
+
 .device-danger-zone__copy {
   display: grid;
   gap: 0.28rem;
@@ -3455,6 +3533,10 @@ function overlayModeLabel(mode: OverlayMode) {
   font-weight: 700;
   letter-spacing: 0.01em;
   flex-shrink: 0;
+}
+
+.device-danger-zone__button--restart {
+  color: rgba(255, 203, 128, 0.96) !important;
 }
 
 .workspace-panel {

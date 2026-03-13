@@ -28,6 +28,8 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
   const memoryTotalBytes = ref<number | null>(null)
   const memoryPercent = ref<number | null>(null)
   const cpuTemperatureCelsius = ref<number | null>(null)
+  const fanActive = ref<boolean | null>(null)
+  const fanRpm = ref<number | null>(null)
   const videoUploadMaxBytes = ref(500 * 1024 * 1024)
   const storage = ref({
     app_data_path: '',
@@ -98,6 +100,8 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     memoryTotalBytes.value = systemResponse.telemetry.memory_total_bytes
     memoryPercent.value = systemResponse.telemetry.memory_percent
     cpuTemperatureCelsius.value = systemResponse.telemetry.cpu_temperature_celsius
+    fanActive.value = systemResponse.telemetry.fan_active
+    fanRpm.value = systemResponse.telemetry.fan_rpm
     videoUploadMaxBytes.value = systemResponse.video_upload_max_bytes
     storage.value = systemResponse.storage
     appliance.value = systemResponse.appliance
@@ -128,6 +132,8 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     memoryTotalBytes,
     memoryPercent,
     cpuTemperatureCelsius,
+    fanActive,
+    fanRpm,
     videoUploadMaxBytes,
     storage,
     appliance,

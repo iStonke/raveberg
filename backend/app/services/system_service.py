@@ -176,6 +176,15 @@ class SystemService:
     @staticmethod
     def schedule_shutdown() -> None:
         command = SystemService._resolve_shutdown_command()
+        SystemService._run_deferred_system_command(command)
+
+    @staticmethod
+    def schedule_restart() -> None:
+        command = SystemService._resolve_restart_command()
+        SystemService._run_deferred_system_command(command)
+
+    @staticmethod
+    def _run_deferred_system_command(command: list[str]) -> None:
         shell_command = f"sleep 1; exec {shlex.quote(command[0])}"
         if len(command) > 1:
             shell_command += f" {' '.join(shlex.quote(part) for part in command[1:])}"
@@ -190,6 +199,10 @@ class SystemService:
     @staticmethod
     def shutdown_response() -> SystemActionResponse:
         return SystemActionResponse(message="Ausschalten wurde angefordert.")
+
+    @staticmethod
+    def restart_response() -> SystemActionResponse:
+        return SystemActionResponse(message="Neustart wurde angefordert.")
 
     @staticmethod
     def _display_target_label(mode: str, display_render_mode: str) -> str:
@@ -214,6 +227,7 @@ class SystemService:
 
     @staticmethod
     def _read_telemetry() -> SystemTelemetry:
+        fan_active, fan_rpm = SystemService._read_fan_status()
         memory_used_bytes, memory_total_bytes, memory_percent = SystemService._read_memory_usage()
         return SystemTelemetry(
             cpu_load_percent=SystemService._read_cpu_load_percent(),
@@ -221,6 +235,8 @@ class SystemService:
             memory_total_bytes=memory_total_bytes,
             memory_percent=memory_percent,
             cpu_temperature_celsius=SystemService._read_cpu_temperature(),
+            fan_active=fan_active,
+            fan_rpm=fan_rpm,
         )
 
     @staticmethod
@@ -280,6 +296,44 @@ class SystemService:
             return None
 
     @staticmethod
+    def _read_fan_status() -> tuple[bool | None, int | None]:
+        try:
+            fan_inputs: list[int] = []
+            for candidate in Path("/sys/class/hwmon").glob("hwmon*/fan*_input"):
+                try:
+                    rpm = int(candidate.read_text(encoding="utf-8").strip())
+                except Exception:
+                    continue
+                if rpm >= 0:
+                    fan_inputs.append(rpm)
+
+            if fan_inputs:
+                rpm = max(fan_inputs)
+                return (rpm > 0, rpm)
+        except Exception:
+            return (None, None)
+
+        try:
+            for candidate in Path("/sys/class/thermal").glob("cooling_device*"):
+                type_path = candidate / "type"
+                state_path = candidate / "cur_state"
+                if not type_path.exists() or not state_path.exists():
+                    continue
+
+                try:
+                    device_type = type_path.read_text(encoding="utf-8").strip().lower()
+                    state = int(state_path.read_text(encoding="utf-8").strip())
+                except Exception:
+                    continue
+
+                if "fan" in device_type:
+                    return (state > 0, None)
+        except Exception:
+            return (None, None)
+
+        return (None, None)
+
+    @staticmethod
     def _resolve_shutdown_command() -> list[str]:
         for candidate in (
             ["systemctl", "poweroff"],
@@ -290,3 +344,15 @@ class SystemService:
             if executable:
                 return [executable, *candidate[1:]]
         raise RuntimeError("No shutdown command available")
+
+    @staticmethod
+    def _resolve_restart_command() -> list[str]:
+        for candidate in (
+            ["systemctl", "reboot"],
+            ["shutdown", "-r", "now"],
+            ["reboot"],
+        ):
+            executable = which(candidate[0])
+            if executable:
+                return [executable, *candidate[1:]]
+        raise RuntimeError("No restart command available")

@@ -58,6 +58,8 @@ export interface SystemInfoResponse {
     memory_total_bytes: number | null
     memory_percent: number | null
     cpu_temperature_celsius: number | null
+    fan_active: boolean | null
+    fan_rpm: number | null
   }
   storage: {
     app_data_path: string
@@ -398,6 +400,13 @@ export function fetchSystemInfo(token: string) {
 
 export function triggerSystemShutdown(token: string) {
   return request<SystemActionResponse>('/api/system/shutdown', {
+    method: 'POST',
+    headers: withAuth(token),
+  })
+}
+
+export function triggerSystemRestart(token: string) {
+  return request<SystemActionResponse>('/api/system/restart', {
     method: 'POST',
     headers: withAuth(token),
   })
