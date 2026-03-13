@@ -28,10 +28,7 @@ class Settings(BaseSettings):
     video_upload_max_bytes: int = Field(default=500 * 1024 * 1024, alias="VIDEO_UPLOAD_MAX_BYTES")
     appliance_mode: bool = Field(default=False, alias="APPLIANCE_MODE")
     public_base_url: str = Field(default="http://localhost:8085", alias="PUBLIC_BASE_URL")
-    guest_upload_url_override: str = Field(
-        default="https://indie-bullet-photographer-blessed.trycloudflare.com/guest/upload",
-        alias="GUEST_UPLOAD_URL",
-    )
+    guest_upload_url_override: str = Field(default="", alias="GUEST_UPLOAD_URL")
     guest_upload_path: str = Field(default="/guest/upload", alias="GUEST_UPLOAD_PATH")
     admin_path: str = Field(default="/admin/login", alias="ADMIN_PATH")
     display_path: str = Field(default="/display", alias="DISPLAY_PATH")

@@ -41,6 +41,16 @@ cp ops/pi/env.appliance.example ops/pi/env.appliance
 docker compose --env-file ops/pi/env.appliance up -d --build
 ```
 
+Die oeffentliche URL fuer den sichtbaren Gaeste-Upload-QR-Code wird ueber `GUEST_UPLOAD_URL` in `ops/pi/env.appliance` gesteuert. Fuer Quick Tunnels oder spaetere feste Domains ist keine Codeaenderung noetig: Variable anpassen und den Pi-Stack neu starten.
+
+Pragmatischer Event-Start mit Cloudflare Quick Tunnel:
+
+```bash
+bash ops/pi/start-event.sh
+```
+
+Das Skript startet `cloudflared`, extrahiert die neue `trycloudflare.com`-URL aus dem Log, schreibt `GUEST_UPLOAD_URL=<tunnel>/guest/upload` in `ops/pi/env.appliance` und startet den Pi-Stack anschliessend erneut mit dieser Env-Datei. Die finale oeffentliche Upload-URL wird direkt im Terminal ausgegeben.
+
 ## Frontend-Routen
 
 - `/guest/upload`
@@ -192,6 +202,12 @@ AP5 etabliert einen separaten Zielbetrieb fuer den Raspberry Pi:
 5. `raveberg-kiosk.service` startet Chromium im Fullscreen-Kiosk auf `/display`
 
 Die vorbereiteten Dateien liegen unter [ops/README.md](ops/README.md), [env.appliance.example](ops/pi/env.appliance.example), [start-kiosk.sh](ops/pi/start-kiosk.sh), [raveberg-stack.service](ops/systemd/raveberg-stack.service) und [raveberg-kiosk.service](ops/systemd/raveberg-kiosk.service).
+
+Fuer oeffentliche Guest-Upload-Links gilt:
+
+- `GUEST_UPLOAD_URL` in `ops/pi/env.appliance` setzt den QR- und Upload-Link explizit
+- wenn `GUEST_UPLOAD_URL` leer bleibt, faellt das System auf `PUBLIC_BASE_URL + GUEST_UPLOAD_PATH` zurueck
+- das Hilfsskript [`ops/pi/set-guest-upload-url.sh`](/Users/admin/Documents/raveBerg/ops/pi/set-guest-upload-url.sh) aktualisiert die Variable ohne manuelles Editieren
 
 ## Mac-Display
 

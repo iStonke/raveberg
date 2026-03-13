@@ -10,6 +10,67 @@ Dieser Bereich buendelt den vorbereiteten Appliance-Betrieb fuer den Raspberry P
 
 Die fachliche Betriebsdokumentation steht in [docs/AP5.md](../docs/AP5.md).
 
+## Oeffentliche Guest-Upload-URL
+
+Der sichtbare Upload-QR-Code auf Guest-, Idle-, Selfie- und Display-Pfaden nutzt zentral `GUEST_UPLOAD_URL` aus [`ops/pi/env.appliance`](/Users/admin/Documents/raveBerg/ops/pi/env.appliance).
+
+Vorgehen fuer Quick Tunnels oder spaetere feste Domains:
+
+1. `GUEST_UPLOAD_URL` in `ops/pi/env.appliance` setzen oder aktualisieren
+2. Pi-Stack neu starten, damit Backend und Runtime-Info die neue URL ausliefern
+3. Display/QR-Code nutzt danach automatisch den neuen Wert
+
+Beispiel:
+
+```text
+GUEST_UPLOAD_URL=https://your-public-upload-host.example/guest/upload
+```
+
+Hilfsskript:
+
+```bash
+chmod +x ops/pi/set-guest-upload-url.sh
+ops/pi/set-guest-upload-url.sh https://your-public-upload-host.example/guest/upload
+```
+
+Fallback:
+
+- wenn `GUEST_UPLOAD_URL` gesetzt ist, hat diese Variable Vorrang
+- wenn `GUEST_UPLOAD_URL` leer ist, wird weiterhin `PUBLIC_BASE_URL + GUEST_UPLOAD_PATH` verwendet
+
+## Event-Start mit Cloudflare Quick Tunnel
+
+Fuer einen pragmatischen Event-Start auf dem Pi gibt es jetzt einen Ein-Befehl-Pfad:
+
+```bash
+bash ops/pi/start-event.sh
+```
+
+Das Skript macht in dieser Reihenfolge:
+
+1. Appliance-Stack mit `ops/pi/env.appliance` starten
+2. `cloudflared tunnel --url http://localhost:8085` im Hintergrund starten
+3. die `https://...trycloudflare.com`-URL aus dem Log extrahieren
+4. daraus `https://...trycloudflare.com/guest/upload` bilden
+5. `GUEST_UPLOAD_URL=...` in `ops/pi/env.appliance` setzen oder aktualisieren
+6. den Stack mit derselben Env-Datei erneut `up -d --build` starten
+
+Wichtige Dateien:
+
+- Tunnel-Log: `ops/pi/runtime/cloudflared.log`
+- PID-Datei: `ops/pi/runtime/cloudflared.pid`
+- gesetzte Upload-URL: `ops/pi/env.appliance`
+
+Die finale Upload-URL wird nach dem Start im Terminal ausgegeben.
+
+Quick Tunnel stoppen:
+
+```bash
+bash ops/pi/stop-event.sh
+```
+
+Das Stop-Skript beendet nur den `cloudflared`-Prozess. Der Docker-Stack bleibt dabei bestehen.
+
 ## Direkter Mac-Display-Client
 
 Der bevorzugte Produktivpfad ist inzwischen:
