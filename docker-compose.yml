@@ -67,6 +67,7 @@ services:
       AP_SSID: ${AP_SSID:-RAVEBERG}
       AP_ADDRESS: ${AP_ADDRESS:-10.77.0.1}
       LOCAL_HOSTNAME: ${LOCAL_HOSTNAME:-raveberg.local}
+      WIFI_INTERFACE: ${WIFI_INTERFACE:-wlan0}
       APP_DATA_PATH: ${APP_DATA_PATH:-/app/data}
       UPLOADS_PATH: ${UPLOADS_PATH:-/app/data/uploads}
       DISPLAY_CACHE_PATH: ${DISPLAY_CACHE_PATH:-/app/data/display-cache}
@@ -77,6 +78,7 @@ services:
       - app_data:/app/data
       - upload_data:/app/data/uploads
       - display_cache:/app/data/display-cache
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
     depends_on:
       db:
         condition: service_healthy

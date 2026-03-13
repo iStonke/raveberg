@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     ap_ssid: str = Field(default="RAVEBERG", alias="AP_SSID")
     ap_address: str = Field(default="10.77.0.1", alias="AP_ADDRESS")
     local_hostname: str = Field(default="raveberg.local", alias="LOCAL_HOSTNAME")
+    wifi_interface: str = Field(default="wlan0", alias="WIFI_INTERFACE")
     default_moderation_mode: ModerationMode = Field(
         default="auto_approve",
         alias="DEFAULT_MODERATION_MODE",

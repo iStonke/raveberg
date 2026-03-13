@@ -36,6 +36,7 @@ export interface SystemInfoResponse {
   status: {
     backend_reachable: boolean
     db_reachable: boolean
+    internet_reachable: boolean
     upload_count: number
     current_mode: AppMode
     moderation_mode: ModerationMode
@@ -137,6 +138,11 @@ export interface PublicRuntimeInfoResponse {
 
 export interface SystemActionResponse {
   message: string
+}
+
+export interface WifiConnectPayload {
+  ssid: string
+  password: string
 }
 
 export interface RuntimeConfig {
@@ -409,6 +415,14 @@ export function triggerSystemRestart(token: string) {
   return request<SystemActionResponse>('/api/system/restart', {
     method: 'POST',
     headers: withAuth(token),
+  })
+}
+
+export function connectWifi(payload: WifiConnectPayload, token: string) {
+  return request<SystemActionResponse>('/api/system/wifi/connect', {
+    method: 'POST',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
   })
 }
 

@@ -5,7 +5,7 @@ from app.api.deps import get_db
 from app.auth.dependencies import require_admin_user
 from app.schemas.auth import SessionUser
 from app.schemas.runtime import RemoteVisualizerConfigRead, RemoteVisualizerConfigUpdate
-from app.schemas.system import PublicRuntimeInfoResponse, SystemActionResponse, SystemInfoResponse
+from app.schemas.system import PublicRuntimeInfoResponse, SystemActionResponse, SystemInfoResponse, WifiConnectRequest
 from app.services.event_service import event_service
 from app.services.runtime_config_service import RuntimeConfigService
 from app.services.system_service import SystemService
@@ -73,3 +73,14 @@ def restart_system(
 
     background_tasks.add_task(SystemService.schedule_restart)
     return SystemService.restart_response()
+
+
+@router.post("/system/wifi/connect", response_model=SystemActionResponse)
+def connect_wifi(
+    payload: WifiConnectRequest,
+    _: SessionUser = Depends(require_admin_user),
+) -> SystemActionResponse:
+    try:
+        return SystemService.connect_wifi(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc

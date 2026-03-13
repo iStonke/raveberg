@@ -106,6 +106,15 @@ Wichtig:
 - der Dienst startet den bestehenden Event-Workflow, statt eine zweite Logik daneben aufzubauen
 - fuer einen manuellen Neustart des Event-Betriebs bleibt `bash ops/pi/start-event.sh` weiter gueltig
 
+## WLAN im Adminbereich
+
+Im Status-Bereich kann der Pi eine WLAN-Verbindung neu aufbauen oder auf ein anderes Netzwerk wechseln. Der Dialog fragt SSID und Passwort ab und nutzt serverseitig `nmcli`.
+
+Voraussetzung:
+
+- auf dem Pi muss NetworkManager bzw. `nmcli` verfuegbar sein
+- das Ziel-Interface ist ueber `WIFI_INTERFACE` konfigurierbar, Standard `wlan0`
+
 ## Direkter Mac-Display-Client
 
 Der bevorzugte Produktivpfad ist inzwischen:

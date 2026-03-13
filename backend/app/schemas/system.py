@@ -16,6 +16,7 @@ class StoragePaths(BaseModel):
 class SystemStatus(BaseModel):
     backend_reachable: bool
     db_reachable: bool
+    internet_reachable: bool
     upload_count: int
     current_mode: ModeType
     moderation_mode: ModerationMode
@@ -118,3 +119,8 @@ class PublicRuntimeInfoResponse(BaseModel):
 
 class SystemActionResponse(BaseModel):
     message: str
+
+
+class WifiConnectRequest(BaseModel):
+    ssid: str
+    password: str = ""

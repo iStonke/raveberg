@@ -8,6 +8,7 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
   const environment = ref<string>('development')
   const backendReachable = ref(false)
   const dbReachable = ref(false)
+  const internetReachable = ref(false)
   const uploadCount = ref(0)
   const currentMode = ref<'visualizer' | 'selfie' | 'video' | 'blackout' | 'idle'>('visualizer')
   const moderationMode = ref<'auto_approve' | 'manual_approve'>('auto_approve')
@@ -80,6 +81,7 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     environment.value = systemResponse.environment
     backendReachable.value = systemResponse.status.backend_reachable
     dbReachable.value = systemResponse.status.db_reachable
+    internetReachable.value = systemResponse.status.internet_reachable
     uploadCount.value = systemResponse.status.upload_count
     currentMode.value = systemResponse.status.current_mode
     moderationMode.value = systemResponse.status.moderation_mode
@@ -112,6 +114,7 @@ export const useSystemStatusStore = defineStore('systemStatus', () => {
     environment,
     backendReachable,
     dbReachable,
+    internetReachable,
     uploadCount,
     currentMode,
     moderationMode,

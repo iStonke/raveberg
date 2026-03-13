@@ -25,6 +25,7 @@ import {
   fetchAdminUploads,
   rejectUpload,
   reorderVideoAssets,
+  connectWifi,
   triggerSystemRestart,
   triggerSystemShutdown,
   triggerSelfieNext,
@@ -71,6 +72,8 @@ const remoteRendererError = ref('')
 const uploadError = ref('')
 const systemActionError = ref('')
 const systemActionMessage = ref('')
+const wifiActionError = ref('')
+const wifiActionMessage = ref('')
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const optimisticMode = ref<AppMode | null>(null)
@@ -83,6 +86,7 @@ const isSavingRemoteRenderer = ref(false)
 const isUploadingVideos = ref(false)
 const isShuttingDown = ref(false)
 const isRestartingSystem = ref(false)
+const isConnectingWifi = ref(false)
 const isDownloadingUploadArchive = ref(false)
 const dashboardLiveActive = ref(false)
 const uploads = ref<UploadItem[]>([])
@@ -107,7 +111,12 @@ const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
 const isGuestQrDialogOpen = ref(false)
 const guestQrCopyMessage = ref('')
+const isWifiDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
+const wifiDraft = reactive({
+  ssid: '',
+  password: '',
+})
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -680,6 +689,26 @@ const temperatureHintClass = computed(() => {
   return 'device-metric-card__meta--fan-unknown'
 })
 
+const internetStatusLabel = computed(() =>
+  systemStatusStore.internetReachable ? 'Online' : 'Offline',
+)
+
+const internetStatusHint = computed(() =>
+  systemStatusStore.internetReachable
+    ? 'Externe Verbindung verfügbar'
+    : 'Keine Internetverbindung erkannt',
+)
+
+const internetStatusClass = computed(() =>
+  systemStatusStore.internetReachable
+    ? 'device-metric-card__value--online'
+    : 'device-metric-card__value--offline',
+)
+
+const wifiActionLabel = computed(() =>
+  systemStatusStore.internetReachable ? 'Netzwerk wechseln' : 'WLAN verbinden',
+)
+
 const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
 
 onMounted(async () => {
@@ -1248,6 +1277,43 @@ async function restartSystem() {
       error instanceof Error ? error.message : 'Neustart konnte nicht ausgelöst werden'
   } finally {
     isRestartingSystem.value = false
+  }
+}
+
+function openWifiDialog() {
+  wifiActionError.value = ''
+  wifiActionMessage.value = ''
+  wifiDraft.password = ''
+  isWifiDialogOpen.value = true
+}
+
+async function submitWifiConnection() {
+  if (!authStore.token || isConnectingWifi.value) {
+    return
+  }
+
+  wifiActionError.value = ''
+  wifiActionMessage.value = ''
+  isConnectingWifi.value = true
+
+  try {
+    const response = await connectWifi(
+      {
+        ssid: wifiDraft.ssid.trim(),
+        password: wifiDraft.password,
+      },
+      authStore.token,
+    )
+    wifiActionMessage.value = response.message
+    systemActionMessage.value = response.message
+    wifiDraft.password = ''
+    await refreshSystemOnly()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'WLAN-Verbindung konnte nicht hergestellt werden'
+    wifiActionError.value = message
+    systemActionError.value = message
+  } finally {
+    isConnectingWifi.value = false
   }
 }
 
@@ -2692,6 +2758,24 @@ function overlayModeLabel(mode: OverlayMode) {
               </div>
               <div class="device-metric-card__meta">Verfügbar auf dem Gerät</div>
             </article>
+
+            <article class="device-metric-card">
+              <div class="device-metric-card__label">Internet</div>
+              <div class="device-metric-card__value" :class="internetStatusClass">{{ internetStatusLabel }}</div>
+              <div class="device-metric-card__meta">{{ internetStatusHint }}</div>
+              <div class="device-metric-card__actions">
+                <v-btn
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  class="device-metric-card__action"
+                  prepend-icon="mdi-wifi-cog"
+                  @click="openWifiDialog"
+                >
+                  {{ wifiActionLabel }}
+                </v-btn>
+              </div>
+            </article>
           </div>
 
           <article class="device-health-card">
@@ -2953,6 +3037,78 @@ function overlayModeLabel(mode: OverlayMode) {
         </template>
       </v-row>
     </div>
+
+    <v-dialog
+      v-model="isWifiDialogOpen"
+      max-width="27.5rem"
+      :persistent="isConnectingWifi"
+      scrim="rgba(2, 6, 12, 0.76)"
+      class="wifi-connect-overlay"
+      content-class="wifi-connect-dialog__content"
+    >
+      <v-card class="wifi-connect-dialog" variant="flat">
+        <div class="wifi-connect-dialog__label">Netzwerk</div>
+        <div class="wifi-connect-dialog__title">WLAN verbinden</div>
+        <div class="wifi-connect-dialog__copy">
+          Gib Netzwerkname und Passwort ein, um die Verbindung des Raspberry Pi herzustellen oder zu wechseln.
+        </div>
+
+        <div class="wifi-connect-dialog__body">
+          <div class="wifi-connect-dialog__field">
+            <div class="wifi-connect-dialog__field-label">WLAN-Netzwerk</div>
+            <v-text-field
+              v-model="wifiDraft.ssid"
+              class="admin-text-input"
+              placeholder="SSID"
+              hide-details
+              variant="solo"
+              density="comfortable"
+            />
+          </div>
+
+          <div class="wifi-connect-dialog__field">
+            <div class="wifi-connect-dialog__field-label">Passwort</div>
+            <v-text-field
+              v-model="wifiDraft.password"
+              class="admin-text-input"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Passwort"
+              hide-details
+              variant="solo"
+              density="comfortable"
+            />
+          </div>
+
+          <v-alert v-if="wifiActionError" type="error" variant="tonal" class="wifi-connect-dialog__feedback">
+            {{ wifiActionError }}
+          </v-alert>
+          <div v-else-if="wifiActionMessage" class="inline-note wifi-connect-dialog__feedback">
+            {{ wifiActionMessage }}
+          </div>
+        </div>
+
+        <div class="wifi-connect-dialog__actions">
+          <v-btn
+            variant="outlined"
+            class="wifi-connect-dialog__button wifi-connect-dialog__button--cancel"
+            :disabled="isConnectingWifi"
+            @click="isWifiDialogOpen = false"
+          >
+            Abbrechen
+          </v-btn>
+          <v-btn
+            variant="flat"
+            class="wifi-connect-dialog__button wifi-connect-dialog__button--confirm"
+            :loading="isConnectingWifi"
+            :disabled="!wifiDraft.ssid.trim()"
+            @click="submitWifiConnection"
+          >
+            Verbinden
+          </v-btn>
+        </div>
+      </v-card>
+    </v-dialog>
 
     <v-dialog
       v-model="isGuestQrDialogOpen"
@@ -3433,6 +3589,17 @@ function overlayModeLabel(mode: OverlayMode) {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.device-metric-card__actions {
+  margin-top: 0.2rem;
+}
+
+.device-metric-card__action {
+  padding-inline: 0;
+  min-height: 2rem;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
 .device-metric-card__label,
 .device-health-card__label,
 .device-danger-zone__label {
@@ -3449,6 +3616,14 @@ function overlayModeLabel(mode: OverlayMode) {
   font-size: 1.05rem;
   font-weight: 720;
   line-height: 1.2;
+}
+
+.device-metric-card__value--online {
+  color: rgba(133, 227, 173, 0.94);
+}
+
+.device-metric-card__value--offline {
+  color: rgba(255, 162, 162, 0.94);
 }
 
 .device-metric-card__meta,
@@ -3537,6 +3712,121 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .device-danger-zone__button--restart {
   color: rgba(255, 203, 128, 0.96) !important;
+}
+
+.wifi-connect-dialog {
+  width: min(100%, 27.5rem);
+  border-radius: 22px !important;
+  padding: 1.85rem;
+  background:
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96)) !important;
+  border: 1px solid rgba(120, 170, 220, 0.18);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  animation: wifiConnectDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
+}
+
+:deep(.wifi-connect-overlay .v-overlay__scrim) {
+  background: rgba(0, 0, 0, 0.9) !important;
+  backdrop-filter: blur(12px) saturate(0.62) brightness(0.5);
+}
+
+:deep(.wifi-connect-dialog__content) {
+  width: min(27.5rem, calc(100vw - 2rem));
+  margin: 1rem;
+}
+
+.wifi-connect-dialog__label {
+  color: rgba(194, 211, 228, 0.5);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.wifi-connect-dialog__title {
+  margin-top: 0.48rem;
+  color: rgba(247, 250, 255, 0.98);
+  font-size: 1.45rem;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.wifi-connect-dialog__copy {
+  margin-top: 0.8rem;
+  max-width: 24rem;
+  color: rgba(214, 224, 235, 0.76);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.wifi-connect-dialog__body {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.wifi-connect-dialog__field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.wifi-connect-dialog__field-label {
+  color: rgba(194, 211, 228, 0.6);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wifi-connect-dialog__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1.45rem;
+}
+
+.wifi-connect-dialog__button {
+  min-height: 3.2rem;
+  border-radius: 14px;
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 150ms ease;
+}
+
+.wifi-connect-dialog__button--cancel {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 234, 242, 0.82);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.wifi-connect-dialog__button--cancel:hover {
+  border-color: rgba(164, 191, 218, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.wifi-connect-dialog__button--confirm {
+  color: rgba(243, 249, 255, 0.96);
+  background:
+    linear-gradient(180deg, #4d7cc7, #2d5298) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(45, 82, 152, 0.28);
+}
+
+.wifi-connect-dialog__button--confirm:hover {
+  background:
+    linear-gradient(180deg, #5b8ad5, #375ea7) !important;
+}
+
+.wifi-connect-dialog__feedback {
+  margin-top: 0.2rem;
 }
 
 .workspace-panel {
@@ -4305,6 +4595,18 @@ function overlayModeLabel(mode: OverlayMode) {
   }
 }
 
+@keyframes wifiConnectDialogRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1rem, 0) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
 :deep(.settings-section .v-switch .v-selection-control__wrapper),
 :deep(.workspace-panel .v-switch .v-selection-control__wrapper) {
   width: 3.15rem;
@@ -4728,6 +5030,27 @@ function overlayModeLabel(mode: OverlayMode) {
 
   .device-danger-zone__button {
     width: 100%;
+  }
+
+  .wifi-connect-dialog {
+    padding: 1.35rem;
+  }
+
+  .wifi-connect-dialog__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .wifi-connect-dialog__button {
+    min-height: 3.15rem;
+  }
+
+  .wifi-connect-dialog__title {
+    font-size: 1.3rem;
+  }
+
+  .wifi-connect-dialog__copy {
+    font-size: 0.94rem;
   }
 
   .event-log-row {
