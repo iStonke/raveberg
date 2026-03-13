@@ -270,16 +270,49 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function parseErrorMessage(message: string, status: number) {
+  if (status === 413) {
+    return 'Die Datei ist zu groß. Bitte wähle eine kleinere Datei.'
+  }
+
   if (!message) {
     return `Request failed with ${status}`
+  }
+
+  if (looksLikeHtml(message)) {
+    return fallbackMessageForStatus(status)
   }
 
   try {
     const parsed = JSON.parse(message) as { detail?: unknown }
     return formatApiErrorDetail(parsed.detail) ?? message
   } catch {
-    return message
+    return looksLikeHtml(message) ? fallbackMessageForStatus(status) : message
   }
+}
+
+function looksLikeHtml(message: string) {
+  const sample = message.trim().slice(0, 256).toLowerCase()
+  return sample.startsWith('<!doctype html') || sample.startsWith('<html') || sample.includes('<head>') || sample.includes('<body>')
+}
+
+function fallbackMessageForStatus(status: number) {
+  if (status === 400) {
+    return 'Die Anfrage konnte nicht verarbeitet werden.'
+  }
+  if (status === 401) {
+    return 'Die Sitzung ist abgelaufen. Bitte neu anmelden.'
+  }
+  if (status === 403) {
+    return 'Diese Aktion ist aktuell nicht erlaubt.'
+  }
+  if (status === 404) {
+    return 'Der angeforderte Dienst wurde nicht gefunden.'
+  }
+  if (status >= 500) {
+    return 'Der Server antwortet gerade nicht korrekt. Bitte gleich noch einmal versuchen.'
+  }
+
+  return `Request failed with ${status}`
 }
 
 function formatApiErrorDetail(detail: unknown): string | null {
