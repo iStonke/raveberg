@@ -110,7 +110,6 @@ const videoMetadataLoading = ref<Record<number, boolean>>({})
 const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
 const isGuestQrDialogOpen = ref(false)
-const guestQrCopyMessage = ref('')
 const isWifiDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
 const wifiDraft = reactive({
@@ -1318,21 +1317,18 @@ async function submitWifiConnection() {
 }
 
 function openGuestQrDialog() {
-  guestQrCopyMessage.value = ''
   isGuestQrDialogOpen.value = true
 }
 
 async function copyGuestUploadUrl() {
   if (!guestUploadUrl.value) {
-    guestQrCopyMessage.value = 'Kein Link verfügbar'
     return
   }
 
   try {
     await navigator.clipboard.writeText(guestUploadUrl.value)
-    guestQrCopyMessage.value = 'Link kopiert'
   } catch {
-    guestQrCopyMessage.value = 'Kopieren nicht möglich'
+    // Keep the dialog quiet if clipboard access is unavailable.
   }
 }
 
@@ -3112,32 +3108,19 @@ function overlayModeLabel(mode: OverlayMode) {
 
     <v-dialog
       v-model="isGuestQrDialogOpen"
-      max-width="30rem"
-      scrim="rgba(2, 6, 12, 0.74)"
+      max-width="27.5rem"
+      scrim="rgba(2, 6, 12, 0.76)"
+      class="guest-qr-overlay"
       content-class="guest-qr-dialog__content"
     >
       <v-card class="guest-qr-dialog" variant="flat">
-        <div class="guest-qr-dialog__header">
-          <div>
-            <div class="guest-qr-dialog__label">Gäste-Upload</div>
-            <div class="guest-qr-dialog__title">QR-Code für Gäste-Upload</div>
-          </div>
-          <v-btn
-            icon="mdi-close"
-            variant="text"
-            size="small"
-            aria-label="QR-Code schließen"
-            @click="isGuestQrDialogOpen = false"
-          />
-        </div>
+        <div class="guest-qr-dialog__label">Gäste-Upload</div>
+        <div class="guest-qr-dialog__title">Link zum Gäste-Upload</div>
 
         <div class="guest-qr-dialog__body">
           <div v-if="guestUploadUrl" class="guest-qr-dialog__code-shell">
             <div class="guest-qr-dialog__code-card">
               <QrCodeMatrix class="guest-qr-dialog__qr" :text="guestUploadUrl" :quiet-zone="5" />
-            </div>
-            <div class="guest-qr-dialog__hint">
-              Mit der Smartphone-Kamera scannen, um Bilder hochzuladen.
             </div>
           </div>
 
@@ -3148,25 +3131,22 @@ function overlayModeLabel(mode: OverlayMode) {
 
         <div class="guest-qr-dialog__actions">
           <v-btn
-            variant="text"
-            class="guest-qr-dialog__action"
+            variant="outlined"
+            class="guest-qr-dialog__button guest-qr-dialog__button--cancel"
+            :disabled="!guestUploadUrl"
+            @click="isGuestQrDialogOpen = false"
+          >
+            Schließen
+          </v-btn>
+          <v-btn
+            variant="flat"
+            class="guest-qr-dialog__button guest-qr-dialog__button--confirm"
             prepend-icon="mdi-content-copy"
             :disabled="!guestUploadUrl"
             @click="copyGuestUploadUrl"
           >
             Link kopieren
           </v-btn>
-          <v-btn
-            variant="text"
-            class="guest-qr-dialog__action"
-            @click="isGuestQrDialogOpen = false"
-          >
-            Schließen
-          </v-btn>
-        </div>
-
-        <div v-if="guestQrCopyMessage" class="guest-qr-dialog__feedback inline-note">
-          {{ guestQrCopyMessage }}
         </div>
       </v-card>
     </v-dialog>
@@ -3959,53 +3939,58 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .guest-qr-dialog {
-  border-radius: 24px !important;
+  width: min(100%, 27.5rem);
+  border-radius: 22px !important;
+  padding: 1.85rem;
   background:
-    linear-gradient(180deg, rgba(12, 19, 29, 0.96), rgba(8, 14, 22, 0.98)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96)) !important;
+  border: 1px solid rgba(120, 170, 220, 0.18);
   box-shadow:
-    0 24px 60px rgba(2, 6, 12, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
-  padding: 1rem;
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  animation: wifiConnectDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
 }
 
-.guest-qr-dialog__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.8rem;
+:deep(.guest-qr-overlay .v-overlay__scrim) {
+  background: rgba(0, 0, 0, 0.9) !important;
+  backdrop-filter: blur(12px) saturate(0.62) brightness(0.5);
+}
+
+:deep(.guest-qr-dialog__content) {
+  width: min(27.5rem, calc(100vw - 2rem));
+  margin: 1rem;
 }
 
 .guest-qr-dialog__label {
-  color: rgba(194, 211, 228, 0.48);
-  letter-spacing: 0.14em;
+  color: rgba(194, 211, 228, 0.5);
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
 .guest-qr-dialog__title {
-  margin-top: 0.3rem;
-  color: rgba(245, 249, 255, 0.96);
-  font-size: 1.08rem;
-  font-weight: 720;
-  line-height: 1.2;
+  margin-top: 0.48rem;
+  color: rgba(247, 250, 255, 0.98);
+  font-size: 1.45rem;
+  font-weight: 760;
+  line-height: 1.15;
 }
 
 .guest-qr-dialog__body {
   display: grid;
   gap: 0.9rem;
-  margin-top: 0.9rem;
+  margin-top: 1rem;
 }
 
 .guest-qr-dialog__code-shell {
   display: grid;
   justify-items: center;
-  gap: 0.8rem;
+  gap: 0.85rem;
 }
 
 .guest-qr-dialog__code-card {
-  width: min(100%, 21rem);
+  width: min(100%, 21.2rem);
   padding: 1.1rem;
   border-radius: 24px;
   background: #fff;
@@ -4030,30 +4015,54 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .guest-qr-dialog__empty {
   padding: 1rem 0.4rem;
-  color: rgba(208, 220, 232, 0.68);
+  color: rgba(214, 224, 235, 0.76);
   text-align: center;
   line-height: 1.45;
 }
 
 .guest-qr-dialog__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1.45rem;
 }
 
-.guest-qr-dialog__action {
-  min-height: 2.3rem;
-  padding-inline: 0.8rem;
-  border-radius: 999px;
+.guest-qr-dialog__button {
+  min-height: 3.2rem;
+  border-radius: 14px;
   text-transform: none;
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 150ms ease;
 }
 
-.guest-qr-dialog__feedback {
-  margin-top: 0.45rem;
-  text-align: center;
+.guest-qr-dialog__button--cancel {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 234, 242, 0.82);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.guest-qr-dialog__button--cancel:hover {
+  border-color: rgba(164, 191, 218, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.guest-qr-dialog__button--confirm {
+  color: rgba(243, 249, 255, 0.96);
+  background:
+    linear-gradient(180deg, #4d7cc7, #2d5298) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(45, 82, 152, 0.28);
+}
+
+.guest-qr-dialog__button--confirm:hover {
+  background:
+    linear-gradient(180deg, #5b8ad5, #375ea7) !important;
 }
 
 .settings-explainer {
