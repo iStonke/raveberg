@@ -28,7 +28,6 @@ PRESETS: list[VisualizerPreset] = [
     "vanta_halo",
     "hydra_rave",
     "hydra_chromaflow",
-    "particle_swarm",
 ]
 COLOR_SCHEMES: list[ColorScheme] = ["mono", "acid", "ultraviolet", "redline"]
 HYDRA_QUALITIES: list[HydraQuality] = ["low", "medium", "high"]

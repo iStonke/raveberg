@@ -57,7 +57,7 @@ const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
 
 type AdminWorkspaceSection = 'modus' | 'status' | 'uploads'
-type UploadGalleryFilter = 'all' | 'pending' | 'rejected' | 'latest'
+type UploadGalleryFilter = 'all' | 'pending' | 'rejected' | 'new'
 type RecentEventEntry = {
   name: string
   at: string
@@ -92,6 +92,7 @@ const isShuttingDown = ref(false)
 const isRestartingSystem = ref(false)
 const isTogglingSetupMode = ref(false)
 const isDownloadingUploadArchive = ref(false)
+const isDeletingAllUploads = ref(false)
 const dashboardLiveActive = ref(false)
 const uploads = ref<UploadItem[]>([])
 const thumbnailUrls = ref<Record<number, string>>({})
@@ -113,8 +114,11 @@ const videoDurations = ref<Record<number, string>>({})
 const videoMetadataLoading = ref<Record<number, boolean>>({})
 const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
+const isUploadBulkMenuOpen = ref(false)
+const isDeleteAllUploadsDialogOpen = ref(false)
 const isGuestQrDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
+const adminUploadFetchLimit = 100
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -269,7 +273,6 @@ const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   vanta_halo: 'Vanta HALO',
   hydra_rave: 'Hydra Rave',
   hydra_chromaflow: 'Hydra Chromaflow',
-  particle_swarm: 'Particle Swarm',
 }
 
 const hydraQualityLabels: Record<HydraQuality, string> = {
@@ -313,15 +316,11 @@ const rejectedCount = computed(
   () => uploads.value.filter((upload) => upload.moderation_status === 'rejected').length,
 )
 
-const latestUpload = computed(() => {
-  if (!uploads.value.length) {
-    return null
-  }
+const newUploads = computed(() =>
+  displayUploads.value.filter((upload) => sessionNewUploadIds.value.includes(upload.id)),
+)
 
-  return uploads.value.reduce((latest, current) =>
-    new Date(current.created_at).getTime() > new Date(latest.created_at).getTime() ? current : latest,
-  )
-})
+const newUploadCount = computed(() => newUploads.value.length)
 
 const filteredUploadGallery = computed(() => {
   if (uploadGalleryFilter.value === 'pending') {
@@ -330,8 +329,8 @@ const filteredUploadGallery = computed(() => {
   if (uploadGalleryFilter.value === 'rejected') {
     return displayUploads.value.filter((upload) => upload.moderation_status === 'rejected')
   }
-  if (uploadGalleryFilter.value === 'latest') {
-    return latestUpload.value ? [latestUpload.value] : []
+  if (uploadGalleryFilter.value === 'new') {
+    return newUploads.value
   }
   return displayUploads.value
 })
@@ -343,14 +342,14 @@ const uploadGalleryTitle = computed(() => {
   if (uploadGalleryFilter.value === 'rejected') {
     return 'Abgelehnte Uploads'
   }
-  if (uploadGalleryFilter.value === 'latest') {
-    return 'Letzter Upload'
+  if (uploadGalleryFilter.value === 'new') {
+    return 'Neue Uploads'
   }
   return 'Alle Uploads'
 })
 
-const canDownloadUploadArchive = computed(() =>
-  filteredUploadGallery.value.length > 0 && Boolean(authStore.token),
+const canManageAllUploads = computed(() =>
+  uploads.value.length > 0 && Boolean(authStore.token),
 )
 
 const uploadEmptyState = computed(() => {
@@ -368,11 +367,11 @@ const uploadEmptyState = computed(() => {
       description: 'Bilder, die abgelehnt wurden, werden hier angezeigt.',
     }
   }
-  if (uploadGalleryFilter.value === 'latest') {
+  if (uploadGalleryFilter.value === 'new') {
     return {
-      icon: 'mdi-clock-outline',
-      title: 'Kein letzter Upload',
-      description: 'Der zuletzt hochgeladene Inhalt erscheint hier, sobald Uploads vorhanden sind.',
+      icon: 'mdi-image-plus-outline',
+      title: 'Keine neuen Uploads',
+      description: 'Neu hinzugekommene Bilder erscheinen hier, sobald während dieser Sitzung neue Uploads eingehen.',
     }
   }
   return {
@@ -622,7 +621,7 @@ const visualizerTelemetryLabel = computed(
 const visualizerPresetItems = computed(() => {
   const presets: VisualizerPreset[] = visualizerStore.presets.length
     ? [...visualizerStore.presets]
-    : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow', 'particle_swarm']
+    : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
 
   return presets.map((preset) => ({
     title: visualizerPresetLabels[preset] ?? preset,
@@ -677,13 +676,6 @@ const orderedVideoAssets = computed(() =>
 const videoSizeLimitLabel = computed(() =>
   formatBytes(systemStatusStore.videoUploadMaxBytes),
 )
-
-const latestUploadLabel = computed(() => {
-  if (!latestUpload.value) {
-    return 'Keine Uploads'
-  }
-  return formatDate(latestUpload.value.created_at)
-})
 
 const cpuLoadLabel = computed(() => formatPercent(systemStatusStore.cpuLoadPercent))
 
@@ -790,7 +782,7 @@ onMounted(async () => {
   try {
     const adminToken = authStore.token
     const [latestUploads] = await Promise.all([
-      fetchAdminUploads(adminToken, 50),
+      fetchAdminUploads(adminToken, adminUploadFetchLimit),
       appModeStore.refresh(),
       publicRuntimeStore.refresh(),
       selfieStore.refresh(),
@@ -1312,7 +1304,7 @@ async function refreshUploads() {
   if (!authStore.token) {
     return
   }
-  uploads.value = await fetchAdminUploads(authStore.token, 50)
+  uploads.value = await fetchAdminUploads(authStore.token, adminUploadFetchLimit)
   await loadAdminThumbnails(uploads.value)
 }
 
@@ -1480,24 +1472,72 @@ async function runUploadAction(upload: UploadItem, action: 'approve' | 'reject' 
   }
 }
 
-async function downloadCurrentUploadArchive() {
-  if (!authStore.token || !filteredUploadGallery.value.length || isDownloadingUploadArchive.value) {
+async function fetchAllUploadsForBulkAction() {
+  if (!authStore.token) {
+    return []
+  }
+
+  const latestUploads = await fetchAdminUploads(authStore.token, adminUploadFetchLimit)
+  uploads.value = latestUploads
+  await loadAdminThumbnails(latestUploads)
+  return latestUploads
+}
+
+async function downloadAllUploadArchive() {
+  if (!authStore.token || !canManageAllUploads.value || isDownloadingUploadArchive.value || isDeletingAllUploads.value) {
     return
   }
 
   uploadError.value = ''
+  isUploadBulkMenuOpen.value = false
   isDownloadingUploadArchive.value = true
 
   try {
+    const allUploads = await fetchAllUploadsForBulkAction()
+    if (!allUploads.length) {
+      return
+    }
+
     const archive = await downloadAdminUploadArchive(
-      filteredUploadGallery.value.map((upload) => upload.id),
+      allUploads.map((upload) => upload.id),
       authStore.token,
     )
-    triggerBlobDownload(archive, buildUploadArchiveFilename(uploadGalleryFilter.value))
+    triggerBlobDownload(archive, buildUploadArchiveFilename('all'))
   } catch (error) {
     uploadError.value = error instanceof Error ? error.message : 'Download fehlgeschlagen'
   } finally {
     isDownloadingUploadArchive.value = false
+  }
+}
+
+function openDeleteAllUploadsDialog() {
+  if (!canManageAllUploads.value || isDeletingAllUploads.value || isDownloadingUploadArchive.value) {
+    return
+  }
+
+  isUploadBulkMenuOpen.value = false
+  isDeleteAllUploadsDialogOpen.value = true
+}
+
+async function deleteAllUploads() {
+  if (!authStore.token || isDeletingAllUploads.value || isDownloadingUploadArchive.value) {
+    return
+  }
+
+  uploadError.value = ''
+  isDeletingAllUploads.value = true
+
+  try {
+    const allUploads = await fetchAllUploadsForBulkAction()
+    for (const upload of allUploads) {
+      await deleteUpload(upload.id, authStore.token)
+    }
+    isDeleteAllUploadsDialogOpen.value = false
+    await refreshOperationalState()
+  } catch (error) {
+    uploadError.value = error instanceof Error ? error.message : 'Löschen fehlgeschlagen'
+  } finally {
+    isDeletingAllUploads.value = false
   }
 }
 
@@ -1529,7 +1569,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow', 'particle_swarm']
+      : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]
@@ -3092,33 +3132,55 @@ function overlayModeLabel(mode: OverlayMode) {
       <v-col cols="6" xl="3">
         <v-card
           class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
-          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'latest' }"
+          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'new' }"
           variant="flat"
-          @click="setUploadGalleryFilter('latest')"
+          @click="setUploadGalleryFilter('new')"
         >
-          <div class="workspace-overview-label">Letzter Upload</div>
-          <div class="workspace-overview-value workspace-overview-value--small workspace-overview-value--timestamp">
-            {{ latestUploadLabel }}
+          <div class="workspace-overview-label">Neue Uploads</div>
+          <div class="workspace-overview-value">
+            {{ newUploadCount }}
           </div>
         </v-card>
       </v-col>
 
       <v-col cols="12" class="upload-gallery-col">
         <section class="upload-gallery-panel">
-          <div v-if="filteredUploadGallery.length" class="upload-gallery-header">
+          <div v-if="uploads.length" class="upload-gallery-header">
             <div class="section-title upload-gallery-header__title">{{ uploadGalleryTitle }}</div>
-            <v-btn
-              size="small"
-              variant="text"
-              color="primary"
-              class="upload-gallery-header__action"
-              prepend-icon="mdi-download"
-              :loading="isDownloadingUploadArchive"
-              :disabled="!canDownloadUploadArchive"
-              @click="downloadCurrentUploadArchive"
+            <v-menu
+              v-model="isUploadBulkMenuOpen"
+              location="bottom end"
+              offset="8"
             >
-              ZIP herunterladen
-            </v-btn>
+              <template #activator="{ props }">
+                <v-btn
+                  icon="mdi-menu"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  class="upload-gallery-header__action upload-gallery-header__action--menu"
+                  :loading="isDownloadingUploadArchive || isDeletingAllUploads"
+                  :disabled="!canManageAllUploads"
+                  v-bind="props"
+                />
+              </template>
+
+              <v-list class="upload-bulk-menu" bg-color="surface">
+                <v-list-item
+                  prepend-icon="mdi-download-box-outline"
+                  title="Alle Bilder herunterladen"
+                  :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                  @click="downloadAllUploadArchive"
+                />
+                <v-list-item
+                  prepend-icon="mdi-delete-sweep-outline"
+                  title="Alle Bilder löschen"
+                  class="upload-bulk-menu__delete"
+                  :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                  @click="openDeleteAllUploadsDialog"
+                />
+              </v-list>
+            </v-menu>
           </div>
           <v-alert v-if="uploadError" type="error" variant="tonal" class="mb-4">
             {{ uploadError }}
@@ -3245,6 +3307,42 @@ function overlayModeLabel(mode: OverlayMode) {
         </template>
       </v-row>
     </div>
+
+    <v-dialog
+      v-model="isDeleteAllUploadsDialogOpen"
+      max-width="27.5rem"
+      :persistent="isDeletingAllUploads"
+      scrim="rgba(2, 6, 12, 0.76)"
+      class="upload-bulk-overlay"
+      content-class="upload-bulk-dialog__content"
+    >
+      <v-card class="upload-bulk-dialog" variant="flat">
+        <div class="upload-bulk-dialog__label">Uploads</div>
+        <div class="upload-bulk-dialog__title">Alle Bilder löschen?</div>
+        <div class="upload-bulk-dialog__copy">
+          Diese Aktion entfernt alle Uploads dauerhaft aus dem System.
+        </div>
+        <div class="upload-bulk-dialog__actions">
+          <v-btn
+            variant="outlined"
+            class="upload-bulk-dialog__button upload-bulk-dialog__button--cancel"
+            :disabled="isDeletingAllUploads"
+            @click="isDeleteAllUploadsDialogOpen = false"
+          >
+            Abbrechen
+          </v-btn>
+          <v-btn
+            variant="flat"
+            class="upload-bulk-dialog__button upload-bulk-dialog__button--confirm"
+            prepend-icon="mdi-delete-sweep-outline"
+            :loading="isDeletingAllUploads"
+            @click="deleteAllUploads"
+          >
+            Löschen
+          </v-btn>
+        </div>
+      </v-card>
+    </v-dialog>
 
     <v-dialog
       v-model="isGuestQrDialogOpen"
@@ -3700,6 +3798,38 @@ function overlayModeLabel(mode: OverlayMode) {
   padding-inline: 0.35rem;
 }
 
+.upload-gallery-header__action--menu {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  padding-inline: 0;
+  border-radius: 999px;
+}
+
+.upload-bulk-menu {
+  min-width: 16.5rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(148, 178, 208, 0.16);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(15, 25, 38, 0.98), rgba(9, 17, 28, 0.98)) !important;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.upload-bulk-menu :deep(.v-list-item) {
+  border-radius: 12px;
+  min-height: 2.8rem;
+}
+
+.upload-bulk-menu__delete {
+  color: rgba(255, 122, 122, 0.96);
+}
+
+.upload-bulk-menu__delete:hover {
+  background: rgba(255, 92, 92, 0.08);
+}
+
 .upload-gallery-col {
   padding-top: 1.15rem !important;
 }
@@ -4077,6 +4207,95 @@ function overlayModeLabel(mode: OverlayMode) {
     0 24px 70px rgba(0, 0, 0, 0.6),
     inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
   animation: wifiConnectDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
+}
+
+.upload-bulk-dialog {
+  width: min(100%, 27.5rem);
+  border-radius: 22px !important;
+  padding: 1.85rem;
+  background:
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96)) !important;
+  border: 1px solid rgba(120, 170, 220, 0.18);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  animation: wifiConnectDialogRise 260ms cubic-bezier(0.2, 0.9, 0.22, 1);
+}
+
+:deep(.upload-bulk-overlay .v-overlay__scrim) {
+  background: rgba(0, 0, 0, 0.9) !important;
+  backdrop-filter: blur(12px) saturate(0.62) brightness(0.5);
+}
+
+:deep(.upload-bulk-dialog__content) {
+  width: min(27.5rem, calc(100vw - 2rem));
+  margin: 1rem;
+}
+
+.upload-bulk-dialog__label {
+  color: rgba(194, 211, 228, 0.5);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.upload-bulk-dialog__title {
+  margin-top: 0.48rem;
+  color: rgba(247, 250, 255, 0.98);
+  font-size: 1.45rem;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.upload-bulk-dialog__copy {
+  margin-top: 0.8rem;
+  color: rgba(214, 224, 235, 0.76);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.upload-bulk-dialog__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1.45rem;
+}
+
+.upload-bulk-dialog__button {
+  min-height: 3.2rem;
+  min-width: 0;
+  border-radius: 14px;
+  padding-inline: 0.8rem;
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.upload-bulk-dialog__button :deep(.v-btn__content) {
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.upload-bulk-dialog__button :deep(.v-btn__prepend) {
+  margin-inline-end: 0.4rem;
+}
+
+.upload-bulk-dialog__button--cancel {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 234, 242, 0.82);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.upload-bulk-dialog__button--confirm {
+  color: rgba(255, 244, 244, 0.98);
+  background:
+    linear-gradient(180deg, #c74e4e, #982f2f) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(151, 47, 47, 0.28);
 }
 
 :deep(.guest-qr-overlay .v-overlay__scrim) {
@@ -5222,6 +5441,12 @@ function overlayModeLabel(mode: OverlayMode) {
 
   .upload-card__delete-action {
     margin-left: -0.1rem;
+  }
+
+  .upload-bulk-dialog__button {
+    min-height: 3.05rem;
+    padding-inline: 0.65rem;
+    font-size: 0.94rem;
   }
 
   .video-library-item {

@@ -12,7 +12,6 @@ VisualizerPreset = Literal[
     "vanta_halo",
     "hydra_rave",
     "hydra_chromaflow",
-    "particle_swarm",
 ]
 ColorScheme = Literal["mono", "acid", "ultraviolet", "redline"]
 OverlayMode = Literal["logo", "qr", "off"]

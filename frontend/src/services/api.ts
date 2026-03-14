@@ -270,7 +270,6 @@ export type VisualizerPreset =
   | 'vanta_halo'
   | 'hydra_rave'
   | 'hydra_chromaflow'
-  | 'particle_swarm'
 export type ColorScheme = 'mono' | 'acid' | 'ultraviolet' | 'redline'
 
 export interface VisualizerState {
