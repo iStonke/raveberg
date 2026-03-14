@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.app_state import AppState
 from app.schemas.mode import ModeRead, ModeType
 
@@ -16,9 +15,20 @@ class ModeService:
         if state is None:
             state = AppState(
                 id=1,
-                mode=settings.default_app_mode,
+                mode="idle",
                 source="backend",
             )
+            self.db.add(state)
+            self.db.commit()
+            self.db.refresh(state)
+        return state
+
+    def ensure_startup_mode(self) -> AppState:
+        state = self.ensure_state()
+        if state.mode != "idle" or state.source != "startup":
+            state.mode = "idle"
+            state.source = "startup"
+            state.updated_at = datetime.now(timezone.utc)
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)

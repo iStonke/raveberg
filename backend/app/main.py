@@ -60,7 +60,7 @@ async def lifespan(_: FastAPI):
 
     with SessionLocal() as session:
         AuthService(session).ensure_initial_admin()
-        ModeService(session).ensure_state()
+        ModeService(session).ensure_startup_mode()
         SelfieService(session).ensure_state()
         StandbyService(session).ensure_state()
         VideoService(session).ensure_state()

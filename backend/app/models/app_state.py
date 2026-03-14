@@ -11,6 +11,6 @@ class AppState(Base):
     __tablename__ = "app_state"
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    mode: Mapped[ModeType] = mapped_column(String(32), default="visualizer")
+    mode: Mapped[ModeType] = mapped_column(String(32), default="idle")
     source: Mapped[str] = mapped_column(String(32), default="backend")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
