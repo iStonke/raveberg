@@ -62,6 +62,11 @@ type RecentEventEntry = {
   name: string
   at: string
 }
+type SystemActionNotice = {
+  title: string
+  text: string
+  icon: string
+}
 
 const errorMessage = ref('')
 const visualizerError = ref('')
@@ -72,7 +77,7 @@ const remoteVisualizerError = ref('')
 const remoteRendererError = ref('')
 const uploadError = ref('')
 const systemActionError = ref('')
-const systemActionMessage = ref('')
+const systemActionNotice = ref<SystemActionNotice | null>(null)
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const optimisticMode = ref<AppMode | null>(null)
@@ -287,6 +292,7 @@ let standbyPersistTimer: number | undefined
 let videoPersistTimer: number | undefined
 let remoteVisualizerPersistTimer: number | undefined
 let remoteRendererPersistTimer: number | undefined
+let systemActionNoticeTimer: number | undefined
 
 const slideshowRunningLabel = computed(() =>
   selfieStore.slideshowEnabled ? 'läuft' : 'pausiert',
@@ -835,6 +841,9 @@ onBeforeUnmount(() => {
   if (remoteRendererPersistTimer) {
     window.clearTimeout(remoteRendererPersistTimer)
   }
+  if (systemActionNoticeTimer) {
+    window.clearTimeout(systemActionNoticeTimer)
+  }
   if (reconnectTimer.value) {
     window.clearTimeout(reconnectTimer.value)
   }
@@ -1342,12 +1351,16 @@ async function shutdownSystem() {
   }
 
   systemActionError.value = ''
-  systemActionMessage.value = ''
+  clearSystemActionNotice()
   isShuttingDown.value = true
 
   try {
-    const response = await triggerSystemShutdown(authStore.token)
-    systemActionMessage.value = response.message
+    await triggerSystemShutdown(authStore.token)
+    showSystemActionNotice(
+      'Ausschalten läuft',
+      'Der Raspberry Pi fährt jetzt herunter.',
+      'mdi-power',
+    )
   } catch (error) {
     systemActionError.value =
       error instanceof Error ? error.message : 'Ausschalten konnte nicht ausgelöst werden'
@@ -1362,12 +1375,16 @@ async function restartSystem() {
   }
 
   systemActionError.value = ''
-  systemActionMessage.value = ''
+  clearSystemActionNotice()
   isRestartingSystem.value = true
 
   try {
-    const response = await triggerSystemRestart(authStore.token)
-    systemActionMessage.value = response.message
+    await triggerSystemRestart(authStore.token)
+    showSystemActionNotice(
+      'Neustart läuft',
+      'Der Raspberry Pi startet jetzt neu.',
+      'mdi-restart',
+    )
   } catch (error) {
     systemActionError.value =
       error instanceof Error ? error.message : 'Neustart konnte nicht ausgelöst werden'
@@ -1382,14 +1399,19 @@ async function toggleSetupMode() {
   }
 
   systemActionError.value = ''
-  systemActionMessage.value = ''
+  clearSystemActionNotice()
   isTogglingSetupMode.value = true
 
   try {
+    const enablingSetupMode = !systemStatusStore.setupModeStatus.enabled
     const response = systemStatusStore.setupModeStatus.enabled
       ? await stopSetupMode(authStore.token)
       : await startSetupMode(authStore.token)
-    systemActionMessage.value = response.message
+    showSystemActionNotice(
+      enablingSetupMode ? 'Setup-Modus aktiv' : 'Setup-Modus beendet',
+      response.message,
+      enablingSetupMode ? 'mdi-wifi-cog' : 'mdi-wifi-off',
+    )
     await refreshSystemOnly()
   } catch (error) {
     systemActionError.value =
@@ -1401,6 +1423,23 @@ async function toggleSetupMode() {
 
 function openGuestQrDialog() {
   isGuestQrDialogOpen.value = true
+}
+
+function clearSystemActionNotice() {
+  if (systemActionNoticeTimer) {
+    window.clearTimeout(systemActionNoticeTimer)
+    systemActionNoticeTimer = undefined
+  }
+  systemActionNotice.value = null
+}
+
+function showSystemActionNotice(title: string, text: string, icon: string) {
+  clearSystemActionNotice()
+  systemActionNotice.value = { title, text, icon }
+  systemActionNoticeTimer = window.setTimeout(() => {
+    systemActionNotice.value = null
+    systemActionNoticeTimer = undefined
+  }, 4200)
 }
 
 async function copyGuestUploadUrl() {
@@ -2341,6 +2380,25 @@ function overlayModeLabel(mode: OverlayMode) {
 
 <template>
   <section class="admin-workspace-shell">
+    <Transition name="admin-system-banner">
+      <div
+        v-if="systemActionNotice"
+        class="admin-system-banner-wrap"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <div class="admin-system-banner" role="status">
+          <div class="admin-system-banner__icon">
+            <v-icon :icon="systemActionNotice.icon" size="20" />
+          </div>
+          <div class="admin-system-banner__copy">
+            <div class="admin-system-banner__title">{{ systemActionNotice.title }}</div>
+            <div class="admin-system-banner__text">{{ systemActionNotice.text }}</div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <div class="admin-workspace-scroll">
       <v-row class="admin-workspace">
         <v-col v-if="errorMessage" cols="12">
@@ -2992,9 +3050,6 @@ function overlayModeLabel(mode: OverlayMode) {
           <v-alert v-if="systemActionError" type="error" variant="tonal" class="mt-4">
             {{ systemActionError }}
           </v-alert>
-          <div v-else-if="systemActionMessage" class="inline-note mt-3">
-            {{ systemActionMessage }}
-          </div>
         </section>
       </v-col>
 
@@ -3240,12 +3295,82 @@ function overlayModeLabel(mode: OverlayMode) {
 
 <style scoped>
 .admin-workspace-shell {
+  position: relative;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow-x: hidden;
+}
+
+.admin-system-banner-wrap {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 4.75rem);
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.admin-system-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(138, 226, 177, 0.18);
+  background:
+    linear-gradient(180deg, rgba(24, 34, 43, 0.92), rgba(12, 18, 24, 0.96)),
+    rgba(11, 17, 23, 0.94);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(154, 235, 193, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+
+.admin-system-banner__icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: rgba(166, 244, 199, 0.98);
+  background: radial-gradient(circle at 30% 30%, rgba(124, 236, 176, 0.22), rgba(50, 115, 78, 0.12));
+}
+
+.admin-system-banner__copy {
+  min-width: 0;
+}
+
+.admin-system-banner__title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: rgba(244, 249, 246, 0.96);
+}
+
+.admin-system-banner__text {
+  margin-top: 0.18rem;
+  font-size: 0.855rem;
+  line-height: 1.35;
+  color: rgba(219, 231, 223, 0.8);
+}
+
+.admin-system-banner-enter-active,
+.admin-system-banner-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 240ms cubic-bezier(0.2, 0.76, 0.24, 1);
+}
+
+.admin-system-banner-enter-from,
+.admin-system-banner-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
 }
 
 .admin-workspace-scroll {
@@ -3259,6 +3384,14 @@ function overlayModeLabel(mode: OverlayMode) {
   padding-left: 0.625rem;
   padding-right: 0.625rem;
   scrollbar-gutter: stable;
+}
+
+@media (max-width: 700px) {
+  .admin-system-banner-wrap {
+    top: calc(env(safe-area-inset-top, 0px) + 4.4rem);
+    left: 0.625rem;
+    right: 0.625rem;
+  }
 }
 
 .admin-workspace {

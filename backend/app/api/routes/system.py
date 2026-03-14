@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -60,29 +60,23 @@ async def update_runtime_config(
 
 @router.post("/system/shutdown", response_model=SystemActionResponse, status_code=status.HTTP_202_ACCEPTED)
 def shutdown_system(
-    background_tasks: BackgroundTasks,
     _: SessionUser = Depends(require_admin_user),
 ) -> SystemActionResponse:
     try:
-        SystemService._resolve_shutdown_command()
+        SystemService.request_shutdown()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-
-    background_tasks.add_task(SystemService.schedule_shutdown)
     return SystemService.shutdown_response()
 
 
 @router.post("/system/restart", response_model=SystemActionResponse, status_code=status.HTTP_202_ACCEPTED)
 def restart_system(
-    background_tasks: BackgroundTasks,
     _: SessionUser = Depends(require_admin_user),
 ) -> SystemActionResponse:
     try:
-        SystemService._resolve_restart_command()
+        SystemService.request_restart()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-
-    background_tasks.add_task(SystemService.schedule_restart)
     return SystemService.restart_response()
 
 

@@ -1,6 +1,5 @@
 import os
 import re
-import shlex
 import subprocess
 from pathlib import Path
 from shutil import disk_usage, which
@@ -181,27 +180,36 @@ class SystemService:
         )
 
     @staticmethod
-    def schedule_shutdown() -> None:
-        command = SystemService._resolve_shutdown_command()
-        SystemService._run_deferred_system_command(command)
+    def request_shutdown() -> None:
+        command = SystemService._prepare_system_command(SystemService._resolve_shutdown_command())
+        SystemService._run_system_command(command, fallback_error="Ausschalten konnte nicht ausgelöst werden.")
 
     @staticmethod
-    def schedule_restart() -> None:
-        command = SystemService._resolve_restart_command()
-        SystemService._run_deferred_system_command(command)
+    def request_restart() -> None:
+        command = SystemService._prepare_system_command(SystemService._resolve_restart_command())
+        SystemService._run_system_command(command, fallback_error="Neustart konnte nicht ausgelöst werden.")
 
     @staticmethod
-    def _run_deferred_system_command(command: list[str]) -> None:
-        shell_command = f"sleep 1; exec {shlex.quote(command[0])}"
-        if len(command) > 1:
-            shell_command += f" {' '.join(shlex.quote(part) for part in command[1:])}"
-        subprocess.Popen(
-            ["/bin/sh", "-c", shell_command],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+    def _prepare_system_command(command: list[str]) -> list[str]:
+        if Path(command[0]).name == "systemctl":
+            return [command[0], "--no-block", *command[1:]]
+        return command
+
+    @staticmethod
+    def _run_system_command(command: list[str], *, fallback_error: str) -> None:
+        try:
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=12,
+            )
+        except subprocess.CalledProcessError as exc:
+            message = (exc.stderr or exc.stdout or "").strip()
+            raise RuntimeError(message or fallback_error) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(fallback_error) from exc
 
     @staticmethod
     def shutdown_response() -> SystemActionResponse:
