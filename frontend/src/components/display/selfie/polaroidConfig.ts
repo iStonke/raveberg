@@ -23,14 +23,19 @@ export const POLAROID_CONFIG = {
     entryDurationMs: 820,
     developmentDurationMs: 1_050,
     flashDurationMs: 980,
-    minLifetimeMs: 7_500,
+    minTargetLifetimeMs: 1_900,
     maxLifetimeMs: 150_000,
-    visibleShare: 0.42,
-    exitShare: 0.13,
-    minVisibleDurationMs: 2_800,
+    visibleShare: 0.4,
+    exitShare: 0.2,
+    preExitLeadShare: 0.3,
+    minVisibleDurationMs: 900,
     maxVisibleDurationMs: 56_000,
+    minAgingDurationMs: 720,
     minExitDurationMs: 1_200,
     maxExitDurationMs: 4_600,
+    minPreExitLeadTimeMs: 180,
+    maxPreExitLeadTimeMs: 1_400,
+    minRotationWindowMs: 1_500,
   },
   aging: {
     freshPhaseEnd: 0.12,
@@ -190,7 +195,11 @@ export interface PolaroidTimings {
   visibleDurationMs: number
   agingDurationMs: number
   exitDurationMs: number
+  preExitLeadTimeMs: number
+  rotationWindowMs: number
+  targetLifetimeMs: number
   totalLifetimeMs: number
+  steadyStateRotationEnabled: boolean
 }
 
 export interface PolaroidLayoutDensity {
@@ -223,24 +232,52 @@ export function getVisiblePhotoCount(value: number) {
 export function getPolaroidTimings(intervalSeconds: number, maxVisiblePhotos: number): PolaroidTimings {
   const spawnIntervalMs = getSpawnIntervalMs(intervalSeconds)
   const visibleCount = getVisiblePhotoCount(maxVisiblePhotos)
-  const totalLifetimeMs = clamp(
-    spawnIntervalMs * (visibleCount + 0.45),
-    POLAROID_CONFIG.timing.minLifetimeMs,
-    POLAROID_CONFIG.timing.maxLifetimeMs,
-  )
-  const visibleDurationMs = clamp(
-    totalLifetimeMs * POLAROID_CONFIG.timing.visibleShare,
-    POLAROID_CONFIG.timing.minVisibleDurationMs,
-    POLAROID_CONFIG.timing.maxVisibleDurationMs,
-  )
   const exitDurationMs = clamp(
-    totalLifetimeMs * POLAROID_CONFIG.timing.exitShare,
+    spawnIntervalMs * POLAROID_CONFIG.timing.exitShare,
     POLAROID_CONFIG.timing.minExitDurationMs,
     POLAROID_CONFIG.timing.maxExitDurationMs,
   )
+  const maxPreExitLeadMs = Math.max(
+    POLAROID_CONFIG.timing.minPreExitLeadTimeMs,
+    Math.min(
+      POLAROID_CONFIG.timing.maxPreExitLeadTimeMs,
+      spawnIntervalMs - POLAROID_CONFIG.timing.spawnDelayAfterExitStartMs - 48,
+      Math.round(exitDurationMs * 0.72),
+    ),
+  )
+  const preExitLeadTimeMs = clamp(
+    spawnIntervalMs * POLAROID_CONFIG.timing.preExitLeadShare,
+    POLAROID_CONFIG.timing.minPreExitLeadTimeMs,
+    maxPreExitLeadMs,
+  )
+  const targetLifetimeMs = clamp(
+    spawnIntervalMs * visibleCount,
+    POLAROID_CONFIG.timing.minTargetLifetimeMs,
+    POLAROID_CONFIG.timing.maxLifetimeMs,
+  )
+  const rotationWindowMs = Math.max(
+    targetLifetimeMs - preExitLeadTimeMs,
+    POLAROID_CONFIG.timing.minRotationWindowMs,
+  )
+  const minVisibleDurationMs = Math.min(
+    POLAROID_CONFIG.timing.minVisibleDurationMs,
+    Math.max(rotationWindowMs - POLAROID_CONFIG.timing.minAgingDurationMs, 0),
+  )
+  const maxVisibleDurationMs = Math.max(
+    minVisibleDurationMs,
+    Math.min(
+      POLAROID_CONFIG.timing.maxVisibleDurationMs,
+      rotationWindowMs - Math.min(POLAROID_CONFIG.timing.minAgingDurationMs, rotationWindowMs),
+    ),
+  )
+  const visibleDurationMs = clamp(
+    rotationWindowMs * POLAROID_CONFIG.timing.visibleShare,
+    minVisibleDurationMs,
+    maxVisibleDurationMs,
+  )
   const agingDurationMs = Math.max(
-    totalLifetimeMs - visibleDurationMs - exitDurationMs,
-    POLAROID_CONFIG.timing.developmentDurationMs,
+    rotationWindowMs - visibleDurationMs,
+    Math.min(POLAROID_CONFIG.timing.minAgingDurationMs, rotationWindowMs),
   )
 
   return {
@@ -251,7 +288,11 @@ export function getPolaroidTimings(intervalSeconds: number, maxVisiblePhotos: nu
     visibleDurationMs,
     agingDurationMs,
     exitDurationMs,
-    totalLifetimeMs: visibleDurationMs + agingDurationMs + exitDurationMs,
+    preExitLeadTimeMs,
+    rotationWindowMs,
+    targetLifetimeMs,
+    totalLifetimeMs: targetLifetimeMs,
+    steadyStateRotationEnabled: true,
   }
 }
 

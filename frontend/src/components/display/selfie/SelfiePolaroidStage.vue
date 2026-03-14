@@ -43,11 +43,13 @@ const flashTimers = new Map<string, number>()
 const insertMetrics = new Map<string, InsertMetric>()
 
 let resizeObserver: ResizeObserver | null = null
-let spawnTimer: number | null = null
+let schedulerTimer: number | null = null
 let pendingSpawnTimer: number | null = null
 let activationRafA: number | null = null
 let activationRafB: number | null = null
 let activeEntryInstanceId: string | null = null
+let nextTickAt: number | null = null
+let preExitHandledForTick = false
 let nextCursor = 0
 let instanceCounter = 0
 let orderCounter = 0
@@ -67,6 +69,9 @@ const availableUploads = computed(() =>
 const targetVisibleCount = computed(() => getVisiblePhotoCount(props.maxVisiblePhotos))
 const timings = computed(() => getPolaroidTimings(props.intervalSeconds, targetVisibleCount.value))
 const stackItems = computed(() => [...exitingItems.value, ...visibleItems.value])
+const stackLoad = computed(
+  () => visibleItems.value.length + exitingItems.value.length + (pendingSpawn.value ? 1 : 0),
+)
 const cloudLayers = computed(() =>
   POLAROID_CONFIG.clouds.layers
     .slice(0, POLAROID_CONFIG.clouds.numberOfCloudLayers)
@@ -98,7 +103,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  clearSpawnTimer()
+  clearSchedulerTimer()
   cancelPendingSpawn()
   cancelActivationFrames()
   clearAllItemTimers()
@@ -117,8 +122,8 @@ watch(
 watch(
   () => props.intervalSeconds,
   () => {
-    refreshPendingSpawnTimings()
-    ensureSpawnScheduled(visibleItems.value.length === 0)
+    refreshActiveTimings()
+    rebaseScheduler(false)
   },
 )
 
@@ -126,9 +131,9 @@ watch(
   () => props.maxVisiblePhotos,
   () => {
     syncStageSize()
-    refreshPendingSpawnTimings()
+    refreshActiveTimings()
     reconcileVisibleCount()
-    ensureSpawnScheduled(false)
+    rebaseScheduler(false)
   },
 )
 
@@ -138,7 +143,7 @@ watch(
     if (nextToken === previousToken) {
       return
     }
-    requestSpawn(true)
+    runSchedulerTick(true)
   },
 )
 
@@ -146,58 +151,69 @@ watch(
   () => props.paused,
   (paused) => {
     if (paused) {
-      clearSpawnTimer()
+      clearSchedulerTimer()
       cancelPendingSpawn()
       return
     }
-    ensureSpawnScheduled(visibleItems.value.length === 0)
+    ensureScheduler(stackLoad.value === 0)
   },
 )
 
-function requestSpawn(force: boolean) {
+function runSchedulerTick(force: boolean) {
+  clearSchedulerTimer()
   if (props.paused || !availableUploads.value.length) {
+    nextTickAt = null
+    preExitHandledForTick = false
     return
   }
+
+  const now = nowMs()
   if (pendingSpawn.value) {
+    advanceSchedulerTick(now, force)
     return
   }
-  if (activeEntryInstanceId) {
-    scheduleNextSpawn(POLAROID_CONFIG.timing.entryRetryDelayMs)
+  if (activeEntryInstanceId && !force) {
+    nextTickAt = now + POLAROID_CONFIG.timing.entryRetryDelayMs
+    preExitHandledForTick = false
+    scheduleSchedulerAction()
+    return
+  }
+
+  const nextUpload = pickNextUpload()
+  if (!nextUpload) {
+    advanceSchedulerTick(now, force)
     return
   }
 
   let spawnDelay = 0
-  if (visibleItems.value.length >= targetVisibleCount.value) {
+  if (isSteadyStateActive() && visibleItems.value.length >= targetVisibleCount.value) {
     if (!moveOldestToExit()) {
-      if (!force) {
-        scheduleNextSpawn(timings.value.spawnIntervalMs)
-      }
+      advanceSchedulerTick(now, force)
       return
     }
     spawnDelay = POLAROID_CONFIG.timing.spawnDelayAfterExitStartMs
   }
 
-  const nextUpload = pickNextUpload()
-  if (!nextUpload) {
-    scheduleNextSpawn(timings.value.spawnIntervalMs)
-    return
-  }
+  prepareSpawn(nextUpload, spawnDelay, now)
+  advanceSchedulerTick(now, force)
+}
 
-  const preparedAt = nowMs()
-  const item = createActiveItem(nextUpload, preparedAt)
+function prepareSpawn(upload: UploadItem & { display_url: string }, spawnDelay: number, preparedAt: number) {
+  const item = createActiveItem(upload, preparedAt)
   pendingSpawn.value = {
     item,
     preparedAt,
   }
   insertMetrics.set(item.instanceId, { preparedAt })
-  logInsert('prepared', item.instanceId, { spawnDelay })
+  logInsert('prepared', item.instanceId, {
+    spawnDelay,
+    phase: isSteadyStateActive() ? 'steady' : 'build',
+  })
 
   pendingSpawnTimer = window.setTimeout(() => {
     pendingSpawnTimer = null
     mountPendingSpawn(item.instanceId)
-  }, spawnDelay)
-
-  scheduleNextSpawn(timings.value.spawnIntervalMs)
+  }, Math.max(0, Math.round(spawnDelay)))
 }
 
 function mountPendingSpawn(instanceId: string) {
@@ -219,6 +235,7 @@ function mountPendingSpawn(instanceId: string) {
   })
 
   armEntryActivation(instanceId)
+  scheduleSchedulerAction()
 }
 
 function armEntryActivation(instanceId: string) {
@@ -264,13 +281,19 @@ function activateEntry(instanceId: string) {
 
 function scheduleLifecycle(item: ActivePolaroid) {
   clearItemTimers(item.instanceId)
+  const elapsedMs = Math.max(0, nowMs() - item.enteredAt)
+  applyLifecycleSnapshot(item.instanceId, elapsedMs)
 
-  const register = (delayMs: number, task: () => void) => {
-    const timer = window.setTimeout(task, Math.max(0, Math.round(delayMs)))
+  const registerAt = (targetDelayMs: number, task: () => void) => {
+    const remainingMs = Math.max(0, Math.round(targetDelayMs - elapsedMs))
+    if (remainingMs <= 0) {
+      return
+    }
+    const timer = window.setTimeout(task, remainingMs)
     addItemTimer(item.instanceId, timer)
   }
 
-  register(item.timings.entryDurationMs, () => {
+  registerAt(item.timings.entryDurationMs, () => {
     updateVisibleItem(item.instanceId, (current) => ({
       ...current,
       lifecycleStatus: current.toneStage === 'fresh' ? 'active' : 'aging',
@@ -283,34 +306,72 @@ function scheduleLifecycle(item: ActivePolaroid) {
     })
   })
 
-  if (!POLAROID_CONFIG.debug.disableAgingDuringInsert) {
-    const totalLifetimeMs = item.timings.totalLifetimeMs
-    register(totalLifetimeMs * POLAROID_CONFIG.aging.freshPhaseEnd, () => {
-      updateVisibleItem(item.instanceId, (current) => ({
-        ...current,
-        lifecycleStatus: 'aging',
-        toneStage: 'soft',
-      }))
-    })
-    register(totalLifetimeMs * POLAROID_CONFIG.aging.agingPhase1End, () => {
-      updateVisibleItem(item.instanceId, (current) => ({
-        ...current,
-        lifecycleStatus: 'aging',
-        toneStage: 'deep',
-      }))
-    })
-    register(totalLifetimeMs * POLAROID_CONFIG.aging.agingPhase2End, () => {
-      updateVisibleItem(item.instanceId, (current) => ({
-        ...current,
-        lifecycleStatus: 'aging',
-        toneStage: 'final',
-      }))
-    })
+  if (POLAROID_CONFIG.debug.disableAgingDuringInsert) {
+    return
   }
 
-  register(item.timings.entryDurationMs + item.timings.visibleDurationMs + item.timings.agingDurationMs, () => {
-    startExit(item.instanceId)
+  const rotationWindowMs = item.timings.rotationWindowMs
+  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.freshPhaseEnd, () => {
+    updateVisibleItem(item.instanceId, (current) => ({
+      ...current,
+      lifecycleStatus: 'aging',
+      toneStage: 'soft',
+    }))
   })
+  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.agingPhase1End, () => {
+    updateVisibleItem(item.instanceId, (current) => ({
+      ...current,
+      lifecycleStatus: 'aging',
+      toneStage: 'deep',
+    }))
+  })
+  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.agingPhase2End, () => {
+    updateVisibleItem(item.instanceId, (current) => ({
+      ...current,
+      lifecycleStatus: 'aging',
+      toneStage: 'final',
+    }))
+  })
+}
+
+function applyLifecycleSnapshot(instanceId: string, elapsedMs: number) {
+  updateVisibleItem(instanceId, (current) => {
+    if (current.lifecycleStatus === 'exiting') {
+      return current
+    }
+
+    const toneStage = POLAROID_CONFIG.debug.disableAgingDuringInsert
+      ? current.toneStage
+      : getToneStageForElapsed(elapsedMs, current.timings.rotationWindowMs)
+    const entryCompleted = elapsedMs >= current.timings.entryDurationMs
+
+    return {
+      ...current,
+      lifecycleStatus: entryCompleted ? (toneStage === 'fresh' ? 'active' : 'aging') : current.lifecycleStatus,
+      toneStage,
+    }
+  })
+
+  const itemTimings = itemTimingForInstance(instanceId)
+  if (itemTimings && elapsedMs >= itemTimings.entryDurationMs && activeEntryInstanceId === instanceId) {
+    activeEntryInstanceId = null
+  }
+}
+
+function getToneStageForElapsed(elapsedMs: number, rotationWindowMs: number) {
+  const safeWindowMs = Math.max(rotationWindowMs, 1)
+  const progress = elapsedMs / safeWindowMs
+
+  if (progress >= POLAROID_CONFIG.aging.agingPhase2End) {
+    return 'final'
+  }
+  if (progress >= POLAROID_CONFIG.aging.agingPhase1End) {
+    return 'deep'
+  }
+  if (progress >= POLAROID_CONFIG.aging.freshPhaseEnd) {
+    return 'soft'
+  }
+  return 'fresh'
 }
 
 function startExit(instanceId: string) {
@@ -338,9 +399,7 @@ function startExit(instanceId: string) {
     exitingItems.value = exitingItems.value.filter((item) => item.instanceId !== instanceId)
     removedAtByIdentity.set(getImageIdentity(current), nowMs())
     insertMetrics.delete(instanceId)
-    if (!props.paused && visibleItems.value.length < targetVisibleCount.value && !pendingSpawn.value) {
-      scheduleNextSpawn(POLAROID_CONFIG.timing.entryRetryDelayMs)
-    }
+    ensureScheduler(stackLoad.value === 0)
   }, current.timings.exitDurationMs)
 
   addItemTimer(instanceId, exitTimer)
@@ -401,8 +460,10 @@ function syncUploads(nextUploads: Array<UploadItem & { display_url: string }>) {
       removedAtByIdentity.delete(identity)
     }
   }
+
+  refreshVisibleLifecycleSchedules()
   reconcileVisibleCount()
-  ensureSpawnScheduled(visibleItems.value.length === 0)
+  ensureScheduler(stackLoad.value === 0)
 }
 
 function createActiveItem(upload: UploadItem & { display_url: string }, preparedAt: number): ActivePolaroid {
@@ -523,7 +584,7 @@ function handleImageError(instanceId: string) {
     cancelPendingSpawn()
   }
 
-  ensureSpawnScheduled(true)
+  rebaseScheduler(true)
 }
 
 function syncStageSize() {
@@ -557,7 +618,13 @@ function syncStageSize() {
   }
 }
 
-function refreshPendingSpawnTimings() {
+function refreshActiveTimings() {
+  visibleItems.value = visibleItems.value.map((item) => ({
+    ...item,
+    timings: timings.value,
+  }))
+  refreshVisibleLifecycleSchedules()
+
   if (!pendingSpawn.value) {
     return
   }
@@ -569,6 +636,12 @@ function refreshPendingSpawnTimings() {
       timings: timings.value,
       layout: rebasePolaroidLayout(pendingSpawn.value.item.layout, stageSize.value, targetVisibleCount.value),
     },
+  }
+}
+
+function refreshVisibleLifecycleSchedules() {
+  for (const item of visibleItems.value) {
+    scheduleLifecycle(item)
   }
 }
 
@@ -584,38 +657,118 @@ function reconcileVisibleCount() {
   }
 }
 
-function ensureSpawnScheduled(immediateWhenEmpty: boolean) {
-  clearSpawnTimer()
-
-  if (props.paused || !availableUploads.value.length || pendingSpawn.value) {
-    return
-  }
-  if (activeEntryInstanceId) {
-    scheduleNextSpawn(POLAROID_CONFIG.timing.entryRetryDelayMs)
-    return
-  }
-  if (!visibleItems.value.length) {
-    scheduleNextSpawn(immediateWhenEmpty ? 0 : POLAROID_CONFIG.timing.entryRetryDelayMs)
-    return
-  }
-  if (visibleItems.value.length < targetVisibleCount.value) {
-    scheduleNextSpawn(timings.value.spawnIntervalMs)
+function ensureScheduler(immediateWhenEmpty: boolean) {
+  if (props.paused || !availableUploads.value.length) {
+    clearSchedulerTimer()
+    nextTickAt = null
+    preExitHandledForTick = false
     return
   }
 
-  scheduleNextSpawn(timings.value.spawnIntervalMs)
+  if (nextTickAt == null) {
+    nextTickAt = nowMs() + getInitialTickDelay(immediateWhenEmpty)
+    preExitHandledForTick = false
+  }
+  scheduleSchedulerAction()
 }
 
-function scheduleNextSpawn(delayMs: number) {
-  clearSpawnTimer()
+function rebaseScheduler(forceImmediateTick: boolean) {
+  clearSchedulerTimer()
+  if (props.paused || !availableUploads.value.length) {
+    nextTickAt = null
+    preExitHandledForTick = false
+    return
+  }
+
+  const now = nowMs()
+  const remainingMs = nextTickAt == null ? timings.value.spawnIntervalMs : Math.max(0, nextTickAt - now)
+  nextTickAt = forceImmediateTick
+    ? now
+    : now + (stackLoad.value === 0 ? getInitialTickDelay(false) : Math.min(remainingMs, timings.value.spawnIntervalMs))
+  preExitHandledForTick = false
+  scheduleSchedulerAction()
+}
+
+function scheduleSchedulerAction() {
+  clearSchedulerTimer()
   if (props.paused || !availableUploads.value.length) {
     return
   }
 
-  spawnTimer = window.setTimeout(() => {
-    spawnTimer = null
-    requestSpawn(false)
-  }, Math.max(0, Math.round(delayMs)))
+  const now = nowMs()
+  if (nextTickAt == null) {
+    nextTickAt = now + getInitialTickDelay(stackLoad.value === 0)
+    preExitHandledForTick = false
+  }
+
+  const preExitAt = getScheduledPreExitAt()
+  if (preExitAt != null && preExitAt <= now) {
+    triggerScheduledPreExit()
+    scheduleSchedulerAction()
+    return
+  }
+  if (nextTickAt != null && nextTickAt <= now) {
+    runSchedulerTick(false)
+    return
+  }
+
+  const nextActionAt = preExitAt != null ? Math.min(preExitAt, nextTickAt ?? preExitAt) : nextTickAt
+  if (nextActionAt == null) {
+    return
+  }
+
+  schedulerTimer = window.setTimeout(() => {
+    schedulerTimer = null
+    const duePreExitAt = getScheduledPreExitAt()
+    if (duePreExitAt != null && duePreExitAt <= nowMs()) {
+      triggerScheduledPreExit()
+      scheduleSchedulerAction()
+      return
+    }
+    runSchedulerTick(false)
+  }, Math.max(0, Math.round(nextActionAt - now)))
+}
+
+function getInitialTickDelay(immediateWhenEmpty: boolean) {
+  if (stackLoad.value === 0) {
+    return immediateWhenEmpty ? 0 : POLAROID_CONFIG.timing.entryRetryDelayMs
+  }
+  return timings.value.spawnIntervalMs
+}
+
+function getScheduledPreExitAt() {
+  if (!timings.value.steadyStateRotationEnabled || preExitHandledForTick || nextTickAt == null) {
+    return null
+  }
+  if (stackLoad.value < targetVisibleCount.value) {
+    return null
+  }
+  return nextTickAt - timings.value.preExitLeadTimeMs
+}
+
+function triggerScheduledPreExit() {
+  preExitHandledForTick = true
+  if (!isSteadyStateActive()) {
+    return
+  }
+  if (visibleItems.value.length >= targetVisibleCount.value) {
+    moveOldestToExit()
+  }
+}
+
+function advanceSchedulerTick(now: number, force: boolean) {
+  const baseTickAt = force ? now : nextTickAt ?? now
+  let candidateTickAt = baseTickAt + timings.value.spawnIntervalMs
+  while (candidateTickAt <= now) {
+    candidateTickAt += timings.value.spawnIntervalMs
+  }
+  nextTickAt = candidateTickAt
+  preExitHandledForTick = false
+  scheduleSchedulerAction()
+}
+
+function isSteadyStateActive() {
+  return timings.value.steadyStateRotationEnabled && stackLoad.value >= targetVisibleCount.value
 }
 
 function updateVisibleItem(
@@ -631,6 +784,13 @@ function updateVisibleItem(
     return updatedItem
   })
   return updatedItem
+}
+
+function itemTimingForInstance(instanceId: string) {
+  const item =
+    visibleItems.value.find((entry) => entry.instanceId === instanceId) ??
+    exitingItems.value.find((entry) => entry.instanceId === instanceId)
+  return item?.timings
 }
 
 function getOccupiedLayouts() {
@@ -703,10 +863,10 @@ function clearAllFlashTimers() {
   flashTimers.clear()
 }
 
-function clearSpawnTimer() {
-  if (spawnTimer != null) {
-    window.clearTimeout(spawnTimer)
-    spawnTimer = null
+function clearSchedulerTimer() {
+  if (schedulerTimer != null) {
+    window.clearTimeout(schedulerTimer)
+    schedulerTimer = null
   }
 }
 
@@ -741,6 +901,9 @@ function logInsert(event: string, instanceId: string, details: Record<string, un
     activeEntering: activeEntryInstanceId ? 1 : 0,
     visibleCount: visibleItems.value.length,
     exitingCount: exitingItems.value.length,
+    stackLoad: stackLoad.value,
+    nextTickInMs: nextTickAt == null ? null : Math.round(nextTickAt - nowMs()),
+    preExitLeadTimeMs: timings.value.preExitLeadTimeMs,
     ...details,
   })
 }
@@ -792,20 +955,18 @@ function nowMs() {
   width: 100%;
   min-height: 100dvh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 14% 10%, rgba(228, 151, 86, 0.14), transparent 26%),
-    radial-gradient(circle at 82% 16%, rgba(106, 165, 194, 0.1), transparent 24%),
-    radial-gradient(circle at 50% 58%, rgba(90, 68, 54, 0.08), transparent 42%),
-    linear-gradient(180deg, #131013 0%, #0e1014 34%, #0b0d11 100%);
+  background: linear-gradient(180deg, #04070b 0%, #03050a 42%, #020308 100%);
 }
 
 .polaroid-stage::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -8%;
   background:
-    radial-gradient(circle at 50% 18%, rgba(255, 248, 238, 0.04), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0) 24%, rgba(0, 0, 0, 0.08) 100%);
+    radial-gradient(circle at 24% 18%, rgba(146, 202, 255, 0.2), rgba(146, 202, 255, 0.08) 18%, transparent 34%),
+    linear-gradient(180deg, rgba(2, 6, 11, 0.12), rgba(1, 4, 8, 0.22));
+  animation: polaroid-spotlight-drift 24s ease-in-out infinite alternate;
+  will-change: transform, opacity;
   pointer-events: none;
 }
 
@@ -819,8 +980,7 @@ function nowMs() {
 }
 
 .polaroid-stage__clouds {
-  pointer-events: none;
-  overflow: hidden;
+  display: none;
 }
 
 .polaroid-stage__cloud {
@@ -834,9 +994,7 @@ function nowMs() {
 }
 
 .polaroid-stage__glow {
-  filter: blur(110px);
-  opacity: 0.46;
-  pointer-events: none;
+  display: none;
 }
 
 .polaroid-stage__glow--warm {
@@ -857,21 +1015,12 @@ function nowMs() {
 
 .polaroid-stage__surface {
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(37, 29, 27, 0.18), rgba(18, 20, 24, 0.06) 26%, rgba(12, 14, 18, 0.16) 100%),
-    radial-gradient(circle at 50% 64%, rgba(255, 255, 255, 0.026), transparent 38%),
-    linear-gradient(140deg, rgba(58, 45, 39, 0.14), rgba(13, 14, 18, 0.04) 46%, rgba(40, 31, 28, 0.12) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  background: none;
+  box-shadow: none;
 }
 
 .polaroid-stage__surface::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.16;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 20%, rgba(0, 0, 0, 0.08) 100%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.012), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.01));
+  content: none;
 }
 
 .polaroid-stage__flash-layer {
@@ -902,6 +1051,21 @@ function nowMs() {
   }
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes polaroid-spotlight-drift {
+  0% {
+    transform: translate3d(-1.5%, -1.2%, 0) scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: translate3d(1.2%, 0.8%, 0) scale(1.035);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(2.4%, 1.6%, 0) scale(1.06);
+    opacity: 0.92;
   }
 }
 

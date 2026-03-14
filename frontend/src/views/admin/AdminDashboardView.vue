@@ -118,6 +118,7 @@ const isUploadBulkMenuOpen = ref(false)
 const isDeleteAllUploadsDialogOpen = ref(false)
 const isGuestQrDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
+const isWorkspaceSectionTransitionActive = ref(false)
 const adminUploadFetchLimit = 100
 
 const visualizerDraft = reactive<{
@@ -296,6 +297,7 @@ let videoPersistTimer: number | undefined
 let remoteVisualizerPersistTimer: number | undefined
 let remoteRendererPersistTimer: number | undefined
 let systemActionNoticeTimer: number | undefined
+let workspaceSectionTransitionTimer: number | undefined
 
 const slideshowRunningLabel = computed(() =>
   selfieStore.slideshowEnabled ? 'läuft' : 'pausiert',
@@ -836,6 +838,9 @@ onBeforeUnmount(() => {
   if (systemActionNoticeTimer) {
     window.clearTimeout(systemActionNoticeTimer)
   }
+  if (workspaceSectionTransitionTimer) {
+    window.clearTimeout(workspaceSectionTransitionTimer)
+  }
   if (reconnectTimer.value) {
     window.clearTimeout(reconnectTimer.value)
   }
@@ -871,6 +876,18 @@ watch(
 watch(
   activeWorkspaceSection,
   (section) => {
+    isWorkspaceSectionTransitionActive.value = false
+    if (workspaceSectionTransitionTimer) {
+      window.clearTimeout(workspaceSectionTransitionTimer)
+    }
+    requestAnimationFrame(() => {
+      isWorkspaceSectionTransitionActive.value = true
+      workspaceSectionTransitionTimer = window.setTimeout(() => {
+        isWorkspaceSectionTransitionActive.value = false
+        workspaceSectionTransitionTimer = undefined
+      }, 220)
+    })
+
     if (section === 'uploads') {
       const unseenIds = adminUploadsBadgeStore.consumeUnseenUploadIds()
       if (unseenIds.length) {
@@ -2345,7 +2362,7 @@ function buildUploadArchiveFilename(filter: UploadGalleryFilter) {
       ? 'uploads-ausstehend'
       : filter === 'rejected'
         ? 'uploads-abgelehnt'
-        : filter === 'latest'
+        : filter === 'new'
           ? 'uploads-letzter-upload'
           : 'uploads-alle'
 
@@ -2440,7 +2457,10 @@ function overlayModeLabel(mode: OverlayMode) {
     </Transition>
 
     <div class="admin-workspace-scroll">
-      <v-row class="admin-workspace">
+      <v-row
+        class="admin-workspace"
+        :class="{ 'admin-workspace--tab-enter': isWorkspaceSectionTransitionActive }"
+      >
         <v-col v-if="errorMessage" cols="12">
           <v-alert type="error" variant="tonal" class="mb-4">
             {{ errorMessage }}
@@ -3500,6 +3520,13 @@ function overlayModeLabel(mode: OverlayMode) {
   min-width: 0;
 }
 
+.admin-workspace--tab-enter {
+  animation: adminWorkspaceTabEnter 170ms cubic-bezier(0.22, 0.72, 0.2, 1);
+  will-change: opacity, transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 .admin-workspace > :first-child {
   padding-top: 0;
 }
@@ -3515,6 +3542,24 @@ function overlayModeLabel(mode: OverlayMode) {
   background: transparent;
   backdrop-filter: none;
   isolation: isolate;
+}
+
+@keyframes adminWorkspaceTabEnter {
+  0% {
+    opacity: 0.78;
+    transform: translate3d(0, 4px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-workspace--tab-enter {
+    animation: none;
+  }
 }
 
 .admin-workspace-shell :deep(.v-btn__overlay),
