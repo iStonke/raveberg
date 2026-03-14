@@ -197,6 +197,14 @@ class SystemService:
 
     @staticmethod
     def _run_system_command(command: list[str], *, fallback_error: str) -> None:
+        environment = os.environ.copy()
+        system_bus_socket = Path("/run/dbus/system_bus_socket")
+        if system_bus_socket.exists():
+            environment.setdefault(
+                "DBUS_SYSTEM_BUS_ADDRESS",
+                f"unix:path={system_bus_socket}",
+            )
+
         try:
             subprocess.run(
                 command,
@@ -204,6 +212,7 @@ class SystemService:
                 text=True,
                 check=True,
                 timeout=12,
+                env=environment,
             )
         except subprocess.CalledProcessError as exc:
             message = (exc.stderr or exc.stdout or "").strip()
@@ -351,6 +360,16 @@ class SystemService:
     @staticmethod
     def _resolve_shutdown_command() -> list[str]:
         for candidate in (
+            [
+                "busctl",
+                "call",
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "PowerOff",
+                "b",
+                "true",
+            ],
             ["systemctl", "poweroff"],
             ["shutdown", "-h", "now"],
             ["poweroff"],
@@ -363,6 +382,16 @@ class SystemService:
     @staticmethod
     def _resolve_restart_command() -> list[str]:
         for candidate in (
+            [
+                "busctl",
+                "call",
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "Reboot",
+                "b",
+                "true",
+            ],
             ["systemctl", "reboot"],
             ["shutdown", "-r", "now"],
             ["reboot"],
