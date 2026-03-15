@@ -197,6 +197,7 @@ function showUploadsBadge(hash: string) {
 
 .min-height-screen {
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   overflow-x: hidden;
   background:
@@ -402,6 +403,7 @@ function showUploadsBadge(hash: string) {
 .setup-shell-container {
   max-width: 720px !important;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 1.2rem 1rem 1.5rem;
 }
 
@@ -416,8 +418,10 @@ function showUploadsBadge(hash: string) {
 .admin-workspace-container {
   width: 100%;
   max-width: 1280px !important;
-  height: calc(100vh - 76px);
   min-width: 0;
+  height: auto;
+  min-height: calc(100vh - 76px);
+  min-height: calc(100dvh - 76px);
 }
 
 .logout-confirm-dialog {

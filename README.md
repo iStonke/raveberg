@@ -147,14 +147,17 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `overlay_mode`, `auto_cycle_enabled`, `auto_cycle_interval_seconds` und `updated_at`. Fuer den neuen Hydra-Modus `hydra_chromaflow` kommen persistierte Parameter fuer `hydra_colorfulness`, `hydra_scene_change_rate`, `hydra_symmetry_amount`, `hydra_feedback_amount`, `hydra_quality`, `hydra_audio_reactivity_enabled` und `hydra_palette_mode` dazu. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `nebel`, `vanta_halo`, `hydra_rave`, `hydra_chromaflow` und `particle_swarm`.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `overlay_mode`, `auto_cycle_enabled`, `auto_cycle_interval_seconds` und `updated_at`. Fuer den neuen Hydra-Modus `hydra_chromaflow` kommen persistierte Parameter fuer `hydra_colorfulness`, `hydra_scene_change_rate`, `hydra_symmetry_amount`, `hydra_feedback_amount`, `hydra_quality`, `hydra_audio_reactivity_enabled` und `hydra_palette_mode` dazu. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `storm_lightning`, `retro_cube`, `retro_pipes`, `nebel`, `vanta_halo`, `hydra_rave` und `hydra_chromaflow`.
 
 ## Open-Source-Visualizer
 
 RAVEBERG bindet externe Visualizer nur innerhalb der bestehenden Visualizer-Runtime ein. Produktiv genutzt werden aktuell:
 
 - `vanta` fuer `nebel` und `vanta_halo`
+- `yomboprime/lightning_strike_demo` als MIT-lizenzierte Three.js-Referenz fuer `storm_lightning`
+- `retro_cube` als eigener Three.js-Renderer mit klassischer Bouncing-Cube-Screensaver-Anmutung
 - `hydra-synth` fuer `hydra_rave` und `hydra_chromaflow`
+- `Alex313031/webgl-pipes` als MIT-lizenzierte Referenz fuer `retro_pipes`, ein Three.js-/WebGL-Remake des klassischen Windows-3D-Pipes-Screensavers
 - `tsparticles` und `@tsparticles/engine` fuer `particle_swarm`
 
 Wichtig fuer Entwickler: `hydra-synth` steht unter AGPL-3.0. Die Bibliothek bleibt als Open-Source-Abhaengigkeit sichtbar eingebunden und wird nicht als proprietaere Eigenentwicklung dargestellt.
@@ -177,6 +180,60 @@ Neue Hydra-Szenen ergaenzen:
 2. Falls neue Farbwelten noetig sind, Paletten in `frontend/src/components/display/visualizer/hydraPalettes.ts` ergaenzen.
 3. Kuratierte Gewichtung oder Qualitaetsgrenzen in `frontend/src/components/display/visualizer/hydraDefaults.ts` anpassen.
 4. Falls neue persistierte Regler noetig sind, denselben Pfad wie bestehend erweitern: Backend-Schema/Service, Frontend-API, Store, Admin-UI.
+
+## Retro Pipes
+
+`retro_pipes` ist ein eigener Three.js-Renderer in `frontend/src/components/display/visualizer/pipesRuntime.ts`, der ueber dieselbe External-Visualizer-Host-Kette wie `nebel`, `vanta_halo` und die Hydra-Modi laeuft. Die Umsetzung orientiert sich am MIT-lizenzierten Repository `Alex313031/webgl-pipes`, ist fuer RAVEBERG aber als gekapselte Runtime neu eingebunden statt als fremde Demo.
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: Wachstumsrate, Anzahl paralleler Rohrarme und Fuellgrad bis zum Dissolve-Reset
+- `speed`: Baugeschwindigkeit pro Rohr und Kamerafahrt
+- `brightness`: Lichtstaerke, Emissive-Intensitaet und Rohrdurchmesser
+- `color_scheme`: interne Varianten `classic_pipes`, `neon_pipes` und `chrome_pipes`
+
+Anpassungen gegenueber der Open-Source-Vorlage fuer RAVEBERG:
+
+- dunklere Buehnenfarben und reduzierte Gesamthelligkeit fuer bessere Lesbarkeit von Overlay, Logo und QR
+- kuratierte Pipe-Paletten statt ungebremst heller Standardfarben
+- sauberer Lifecycle ueber `init/start/resize/updateOptions/triggerEvent/destroy`
+- kontrollierter Dissolve-Reset statt unaufgeraeumter Endlosbelegung
+
+## Retro Cube
+
+`retro_cube` ist ein separater Three.js-Renderer in `frontend/src/components/display/visualizer/cubeRuntime.ts`, der ebenfalls ueber den bestehenden `ExternalVisualizerHost` laeuft. Die gestalterische Referenz sind klassische Bouncing-Cube-/GLCubes-Screensaver mit einem bunt beleuchteten 3D-Wuerfel, der in einem unsichtbaren Raum abprallt und dabei weiter rotiert.
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: Groesse des Wuerfels und Ausdehnung des Bewegungsraums
+- `speed`: Fluggeschwindigkeit und Rotationsgeschwindigkeit
+- `brightness`: Lichtstaerke, Glow und Materialintensitaet
+- `color_scheme`: interne Varianten zwischen `classic_cube`, `neon_cube`, `chrome_cube` und `rainbow_cube`
+
+RAVEBERG-Anpassungen:
+
+- dunklere Buehne fuer stabile Lesbarkeit des Vordergrunds
+- klare, retrohafte Flaechenfarben pro Wuerfelseite statt verwaschener Shaderoptik
+- dezent sichtbare Bounce-Reaktionen ueber Farbwechsel, Stretch und Rotationsimpuls
+- sauberer Lifecycle ueber `init/start/resize/updateOptions/triggerEvent/destroy`
+
+## Storm Lightning
+
+`storm_lightning` ist ein eigener Three.js-Renderer in `frontend/src/components/display/visualizer/stormLightningRuntime.ts`, der wie `retro_cube`, `retro_pipes`, `nebel` und die Hydra-Modi ueber den bestehenden `ExternalVisualizerHost` laeuft. Die Open-Source-Referenz ist das MIT-lizenzierte Repository `yomboprime/lightning_strike_demo`, also eine Three.js-basierte Grundlage fuer 3D-Blitzentladungen.
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: Schlaghaeufigkeit, Hauptblitzlaenge und Verzweigungsdichte
+- `speed`: Dauer und Nachzucken der Entladungen sowie das Timing zwischen Haupt- und Nachblitzen
+- `brightness`: Blitzspitze, Nachgluehen und begrenzte Hintergrundaufhellung
+- `color_scheme`: interne Gewittervarianten `classic_storm`, `cold_storm` und `deep_thunder`
+
+RAVEBERG-Anpassungen gegenueber der Referenz:
+
+- dunklere, fast schwarze Buehne mit subtiler Sturmwolkenebene statt dauerhaft heller Demooptik
+- lange, naturhaftere Hauptblitze mit unregelmaessigem Zickzack und Nebenasten statt sci-fi-artiger Energieroehren
+- klar begrenzte Fullscreen-Aufhellung fuer gute Lesbarkeit von Logo, Text und QR
+- sauberer Lifecycle ueber `init/start/resize/updateOptions/triggerEvent/destroy` innerhalb der bestehenden Visualizer-Host-Kette
 
 ## Moderations-Flow
 

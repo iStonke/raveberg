@@ -1,7 +1,10 @@
 import * as THREE from 'three'
 
 import type { ColorScheme, VisualizerPreset, VisualizerState } from '../../../services/api'
+import { CubeVisualizerRuntime, isCubeVisualizerPreset } from './cubeRuntime'
 import { HydraVisualizerRuntime, isHydraVisualizerPreset } from './hydraRenderer'
+import { PipesVisualizerRuntime, isPipesVisualizerPreset } from './pipesRuntime'
+import { isStormLightningPreset, StormLightningRuntime } from './stormLightningRuntime'
 import type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
 import { clamp, normalize } from './runtimeUtils'
 
@@ -16,6 +19,9 @@ type VantaEffect = {
 }
 
 const EXTERNAL_PRESETS = new Set<VisualizerPreset>([
+  'storm_lightning',
+  'retro_cube',
+  'retro_pipes',
   'nebel',
   'vanta_halo',
   'hydra_rave',
@@ -184,6 +190,15 @@ export function isExternalVisualizerPreset(preset: VisualizerPreset) {
 export function createVisualizerRuntime(
   visualizer: VisualizerState,
 ): VisualizerRuntimeController | null {
+  if (isStormLightningPreset(visualizer.active_preset)) {
+    return new StormLightningRuntime(visualizer.active_preset)
+  }
+  if (isCubeVisualizerPreset(visualizer.active_preset)) {
+    return new CubeVisualizerRuntime(visualizer.active_preset)
+  }
+  if (isPipesVisualizerPreset(visualizer.active_preset)) {
+    return new PipesVisualizerRuntime(visualizer.active_preset)
+  }
   if (visualizer.active_preset === 'nebel' || visualizer.active_preset === 'vanta_halo') {
     return new VantaVisualizerRuntime(visualizer.active_preset)
   }

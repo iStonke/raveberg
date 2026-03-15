@@ -11,8 +11,11 @@ body,
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
   min-height: 100%;
+}
+
+html {
+  height: 100%;
 }
 
 html {
@@ -26,8 +29,8 @@ body {
 .v-application,
 .v-application__wrap {
   width: 100%;
-  height: 100%;
   max-width: 100%;
+  min-height: 100%;
 }
 
 *,

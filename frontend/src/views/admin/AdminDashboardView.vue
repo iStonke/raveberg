@@ -270,6 +270,9 @@ const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   particles: 'Particles',
   kaleidoscope: 'Kaleidoscope',
   warehouse: 'Warehouse',
+  storm_lightning: 'Storm Lightning',
+  retro_cube: 'Retro Cube',
+  retro_pipes: 'Retro Pipes',
   nebel: 'Nebel',
   vanta_halo: 'Vanta HALO',
   hydra_rave: 'Hydra Rave',
@@ -641,7 +644,7 @@ const visualizerTelemetryLabel = computed(
 const visualizerPresetItems = computed(() => {
   const presets: VisualizerPreset[] = visualizerStore.presets.length
     ? [...visualizerStore.presets]
-    : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
+    : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
 
   return presets.map((preset) => ({
     title: visualizerPresetLabels[preset] ?? preset,
@@ -1604,7 +1607,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['particles', 'kaleidoscope', 'warehouse', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
+      : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]
@@ -3248,12 +3251,27 @@ function overlayModeLabel(mode: OverlayMode) {
                       :src="thumbnailUrls[upload.id]"
                       height="220"
                       cover
-                    />
+                    >
+                      <template #placeholder>
+                        <div class="upload-card__loading-surface" aria-hidden="true">
+                          <div class="upload-card__loading-shimmer" />
+                          <div class="upload-card__loading-glow" />
+                        </div>
+                      </template>
+                    </v-img>
                     <v-sheet
                       v-else
                       height="220"
                       class="upload-card__fallback"
                     >
+                      <div
+                        v-if="upload.status === 'processed'"
+                        class="upload-card__loading-surface"
+                        aria-hidden="true"
+                      >
+                        <div class="upload-card__loading-shimmer" />
+                        <div class="upload-card__loading-glow" />
+                      </div>
                       <div class="upload-card__fallback-inner">
                         <v-icon icon="mdi-image-outline" size="34" />
                         <span>{{ upload.status === 'processed' ? 'Preview wird geladen' : 'Kein Preview' }}</span>
@@ -3425,10 +3443,8 @@ function overlayModeLabel(mode: OverlayMode) {
 <style scoped>
 .admin-workspace-shell {
   position: relative;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  min-height: 100%;
+  display: block;
   min-width: 0;
   overflow-x: hidden;
 }
@@ -3503,16 +3519,13 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .admin-workspace-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  overflow-x: hidden;
+  min-height: 100%;
+  overflow: visible;
   box-sizing: border-box;
   padding-top: 0;
   padding-bottom: 0.5rem;
   padding-left: 0.625rem;
   padding-right: 0.625rem;
-  scrollbar-gutter: stable;
 }
 
 @media (max-width: 700px) {
@@ -4748,15 +4761,55 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .upload-card__fallback {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   background:
     radial-gradient(circle at top, rgba(108, 198, 255, 0.12), transparent 52%),
     linear-gradient(180deg, rgba(12, 24, 38, 0.98), rgba(7, 14, 24, 0.94));
 }
 
+.upload-card__loading-surface {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(11, 20, 31, 0.9), rgba(8, 15, 24, 0.96));
+}
+
+.upload-card__loading-shimmer,
+.upload-card__loading-glow {
+  position: absolute;
+  inset: 0;
+}
+
+.upload-card__loading-shimmer {
+  background:
+    linear-gradient(
+      110deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.04) 34%,
+      rgba(148, 217, 255, 0.16) 50%,
+      rgba(255, 255, 255, 0.04) 66%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  transform: translateX(-100%);
+  animation: uploadCardShimmer 1.35s ease-in-out infinite;
+}
+
+.upload-card__loading-glow {
+  background:
+    radial-gradient(circle at 20% 24%, rgba(104, 196, 255, 0.12), transparent 28%),
+    radial-gradient(circle at 72% 74%, rgba(76, 148, 255, 0.08), transparent 26%);
+  opacity: 0.85;
+  animation: uploadCardPulse 2.4s ease-in-out infinite;
+}
+
 .upload-card__fallback-inner {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4981,6 +5034,27 @@ function overlayModeLabel(mode: OverlayMode) {
     filter:
       drop-shadow(0 4px 8px rgba(0, 0, 0, 0.62))
       drop-shadow(0 0 16px rgba(0, 0, 0, 0.22));
+  }
+}
+
+@keyframes uploadCardShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes uploadCardPulse {
+  0%,
+  100% {
+    opacity: 0.56;
+  }
+
+  50% {
+    opacity: 0.9;
   }
 }
 

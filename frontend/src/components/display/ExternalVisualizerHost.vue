@@ -147,9 +147,7 @@ function emitRuntimeError(error: unknown) {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(20, 64, 110, 0.14), transparent 30%),
-    linear-gradient(180deg, rgba(4, 8, 16, 0.95), rgba(3, 7, 13, 1));
+  background: #000;
   pointer-events: none;
 }
 
@@ -157,10 +155,7 @@ function emitRuntimeError(error: unknown) {
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(146, 202, 255, 0.06), transparent 24%),
-    radial-gradient(circle at 50% 50%, transparent 36%, rgba(2, 7, 13, 0.32) 100%),
-    linear-gradient(180deg, rgba(2, 6, 11, 0.26), rgba(2, 6, 11, 0.12) 42%, rgba(1, 4, 8, 0.42));
+  background: none;
   pointer-events: none;
 }
 
