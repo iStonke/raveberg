@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { ModerationMode, UploadItem } from '../../../services/api'
-import { POLAROID_CONFIG, getPolaroidTimings, getVisiblePhotoCount } from './polaroidConfig'
+import {
+  POLAROID_CONFIG,
+  getPolaroidAgingThresholds,
+  getPolaroidTimings,
+  getVisiblePhotoCount,
+} from './polaroidConfig'
 import { buildPolaroidLayout, rebasePolaroidLayout } from './polaroidLayout'
 import { getImageIdentity, pickNextImage, updateRecentHistory } from './polaroidPool'
 import type { ActivePolaroid, PolaroidFlash, StageSize } from './polaroidTypes'
@@ -67,7 +72,19 @@ const availableUploads = computed(() =>
 )
 
 const targetVisibleCount = computed(() => getVisiblePhotoCount(props.maxVisiblePhotos))
-const timings = computed(() => getPolaroidTimings(props.intervalSeconds, targetVisibleCount.value))
+const effectiveVisibleCount = computed(() => {
+  if (!POLAROID_CONFIG.queue.preventSimultaneousDuplicates) {
+    return targetVisibleCount.value
+  }
+
+  const uniquePoolSize = availableUploads.value.length
+  if (!uniquePoolSize) {
+    return targetVisibleCount.value
+  }
+
+  return Math.min(targetVisibleCount.value, uniquePoolSize)
+})
+const timings = computed(() => getPolaroidTimings(props.intervalSeconds, effectiveVisibleCount.value))
 const stackItems = computed(() => [...exitingItems.value, ...visibleItems.value])
 const stackLoad = computed(
   () => visibleItems.value.length + exitingItems.value.length + (pendingSpawn.value ? 1 : 0),
@@ -181,12 +198,16 @@ function runSchedulerTick(force: boolean) {
 
   const nextUpload = pickNextUpload()
   if (!nextUpload) {
+    if (shouldRetrySoonAfterMissedSpawn()) {
+      scheduleRetrySoon(now)
+      return
+    }
     advanceSchedulerTick(now, force)
     return
   }
 
   let spawnDelay = 0
-  if (isSteadyStateActive() && visibleItems.value.length >= targetVisibleCount.value) {
+  if (isSteadyStateActive() && visibleItems.value.length >= effectiveVisibleCount.value) {
     if (!moveOldestToExit()) {
       advanceSchedulerTick(now, force)
       return
@@ -310,22 +331,22 @@ function scheduleLifecycle(item: ActivePolaroid) {
     return
   }
 
-  const rotationWindowMs = item.timings.rotationWindowMs
-  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.freshPhaseEnd, () => {
+  const agingThresholds = getPolaroidAgingThresholds(item.timings.rotationWindowMs)
+  registerAt(agingThresholds.softStartMs, () => {
     updateVisibleItem(item.instanceId, (current) => ({
       ...current,
       lifecycleStatus: 'aging',
       toneStage: 'soft',
     }))
   })
-  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.agingPhase1End, () => {
+  registerAt(agingThresholds.deepStartMs, () => {
     updateVisibleItem(item.instanceId, (current) => ({
       ...current,
       lifecycleStatus: 'aging',
       toneStage: 'deep',
     }))
   })
-  registerAt(rotationWindowMs * POLAROID_CONFIG.aging.agingPhase2End, () => {
+  registerAt(agingThresholds.finalStartMs, () => {
     updateVisibleItem(item.instanceId, (current) => ({
       ...current,
       lifecycleStatus: 'aging',
@@ -359,16 +380,15 @@ function applyLifecycleSnapshot(instanceId: string, elapsedMs: number) {
 }
 
 function getToneStageForElapsed(elapsedMs: number, rotationWindowMs: number) {
-  const safeWindowMs = Math.max(rotationWindowMs, 1)
-  const progress = elapsedMs / safeWindowMs
+  const agingThresholds = getPolaroidAgingThresholds(rotationWindowMs)
 
-  if (progress >= POLAROID_CONFIG.aging.agingPhase2End) {
+  if (elapsedMs >= agingThresholds.finalStartMs) {
     return 'final'
   }
-  if (progress >= POLAROID_CONFIG.aging.agingPhase1End) {
+  if (elapsedMs >= agingThresholds.deepStartMs) {
     return 'deep'
   }
-  if (progress >= POLAROID_CONFIG.aging.freshPhaseEnd) {
+  if (elapsedMs >= agingThresholds.softStartMs) {
     return 'soft'
   }
   return 'fresh'
@@ -461,7 +481,7 @@ function syncUploads(nextUploads: Array<UploadItem & { display_url: string }>) {
     }
   }
 
-  refreshVisibleLifecycleSchedules()
+  refreshActiveTimings()
   reconcileVisibleCount()
   ensureScheduler(stackLoad.value === 0)
 }
@@ -484,7 +504,7 @@ function createActiveItem(upload: UploadItem & { display_url: string }, prepared
     layout: buildPolaroidLayout(
       stageSize.value,
       getOccupiedLayouts(),
-      targetVisibleCount.value,
+      effectiveVisibleCount.value,
       (upload.id * 0.137 + instanceCounter * 0.271) % 1,
     ),
     lifecycleStatus: 'pre_enter',
@@ -551,7 +571,7 @@ function pickNextUpload() {
     recentHistory,
     removedAtByIdentity,
     now: nowMs(),
-    maxVisiblePhotos: targetVisibleCount.value,
+    maxVisiblePhotos: effectiveVisibleCount.value,
   })
 
   priorityQueue = selection.nextPriorityQueue
@@ -601,18 +621,18 @@ function syncStageSize() {
   stageSize.value = nextSize
   visibleItems.value = visibleItems.value.map((item) => ({
     ...item,
-    layout: rebasePolaroidLayout(item.layout, nextSize, targetVisibleCount.value),
+    layout: rebasePolaroidLayout(item.layout, nextSize, effectiveVisibleCount.value),
   }))
   exitingItems.value = exitingItems.value.map((item) => ({
     ...item,
-    layout: rebasePolaroidLayout(item.layout, nextSize, targetVisibleCount.value),
+    layout: rebasePolaroidLayout(item.layout, nextSize, effectiveVisibleCount.value),
   }))
   if (pendingSpawn.value) {
     pendingSpawn.value = {
       ...pendingSpawn.value,
       item: {
         ...pendingSpawn.value.item,
-        layout: rebasePolaroidLayout(pendingSpawn.value.item.layout, nextSize, targetVisibleCount.value),
+        layout: rebasePolaroidLayout(pendingSpawn.value.item.layout, nextSize, effectiveVisibleCount.value),
       },
     }
   }
@@ -634,7 +654,7 @@ function refreshActiveTimings() {
     item: {
       ...pendingSpawn.value.item,
       timings: timings.value,
-      layout: rebasePolaroidLayout(pendingSpawn.value.item.layout, stageSize.value, targetVisibleCount.value),
+      layout: rebasePolaroidLayout(pendingSpawn.value.item.layout, stageSize.value, effectiveVisibleCount.value),
     },
   }
 }
@@ -646,11 +666,11 @@ function refreshVisibleLifecycleSchedules() {
 }
 
 function reconcileVisibleCount() {
-  if (pendingSpawn.value && visibleItems.value.length >= targetVisibleCount.value) {
+  if (pendingSpawn.value && visibleItems.value.length >= effectiveVisibleCount.value) {
     cancelPendingSpawn()
   }
 
-  while (visibleItems.value.length > targetVisibleCount.value) {
+  while (visibleItems.value.length > effectiveVisibleCount.value) {
     if (!moveOldestToExit()) {
       break
     }
@@ -685,6 +705,12 @@ function rebaseScheduler(forceImmediateTick: boolean) {
   nextTickAt = forceImmediateTick
     ? now
     : now + (stackLoad.value === 0 ? getInitialTickDelay(false) : Math.min(remainingMs, timings.value.spawnIntervalMs))
+  preExitHandledForTick = false
+  scheduleSchedulerAction()
+}
+
+function scheduleRetrySoon(now: number) {
+  nextTickAt = now + POLAROID_CONFIG.timing.entryRetryDelayMs
   preExitHandledForTick = false
   scheduleSchedulerAction()
 }
@@ -736,11 +762,27 @@ function getInitialTickDelay(immediateWhenEmpty: boolean) {
   return timings.value.spawnIntervalMs
 }
 
+function shouldRetrySoonAfterMissedSpawn() {
+  if (!availableUploads.value.length) {
+    return false
+  }
+
+  if (exitingItems.value.length > 0) {
+    return true
+  }
+
+  if (!POLAROID_CONFIG.queue.preventSimultaneousDuplicates) {
+    return false
+  }
+
+  return availableUploads.value.length <= stackLoad.value + 1
+}
+
 function getScheduledPreExitAt() {
   if (!timings.value.steadyStateRotationEnabled || preExitHandledForTick || nextTickAt == null) {
     return null
   }
-  if (stackLoad.value < targetVisibleCount.value) {
+  if (stackLoad.value < effectiveVisibleCount.value) {
     return null
   }
   return nextTickAt - timings.value.preExitLeadTimeMs
@@ -751,7 +793,7 @@ function triggerScheduledPreExit() {
   if (!isSteadyStateActive()) {
     return
   }
-  if (visibleItems.value.length >= targetVisibleCount.value) {
+  if (visibleItems.value.length >= effectiveVisibleCount.value) {
     moveOldestToExit()
   }
 }
@@ -768,7 +810,7 @@ function advanceSchedulerTick(now: number, force: boolean) {
 }
 
 function isSteadyStateActive() {
-  return timings.value.steadyStateRotationEnabled && stackLoad.value >= targetVisibleCount.value
+  return timings.value.steadyStateRotationEnabled && stackLoad.value >= effectiveVisibleCount.value
 }
 
 function updateVisibleItem(
@@ -806,7 +848,7 @@ function pushRecentHistory(uploadId: number) {
     recentHistory,
     uploadId,
     availableUploads.value.length,
-    targetVisibleCount.value,
+    effectiveVisibleCount.value,
   )
 }
 

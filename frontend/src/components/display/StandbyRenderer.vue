@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import AuroraPolaroidEngine from './AuroraPolaroidEngine.vue'
 import RavebergLogo from '../branding/RavebergLogo.vue'
+import { useVirtualStageScale } from './useVirtualStageScale'
 
 const props = withDefaults(
   defineProps<{
@@ -22,6 +23,10 @@ const props = withDefaults(
 const backgroundStyle = computed(() => ({
   '--standby-hue-shift': `${props.hueShiftDegrees}deg`,
 }))
+
+const STAGE_SCALE_BOOST = 1.78
+
+const { stageShellStyle } = useVirtualStageScale({ scaleBoost: STAGE_SCALE_BOOST })
 
 const fogLayers = [
   {
@@ -156,17 +161,19 @@ const particles = [
       <div class="standby-vignette" />
     </div>
 
-    <div class="standby-stage">
-      <div class="standby-content-glow" aria-hidden="true" />
+    <div class="standby-stage-shell" :style="stageShellStyle">
+      <div class="standby-stage">
+        <div class="standby-content-glow" aria-hidden="true" />
 
-      <div class="standby-content">
-        <div class="standby-brand-wrap">
-          <div class="standby-brand-group">
-            <RavebergLogo class="standby-logo" muted />
+        <div class="standby-content">
+          <div class="standby-brand-wrap">
+            <div class="standby-brand-group">
+              <RavebergLogo class="standby-logo" muted />
 
-            <div class="standby-copy">
-              <h1 class="standby-headline">{{ headline }}</h1>
-              <p class="standby-subheadline">{{ subheadline }}</p>
+              <div class="standby-copy">
+                <h1 class="standby-headline">{{ headline }}</h1>
+                <p class="standby-subheadline">{{ subheadline }}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -395,10 +402,22 @@ const particles = [
     linear-gradient(180deg, rgba(2, 6, 11, 0.05), rgba(2, 6, 11, 0.24));
 }
 
+.standby-stage-shell {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 1920px;
+  height: 1080px;
+  transform: translate(-50%, -50%) scale(var(--stage-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+}
+
 .standby-stage {
   position: relative;
-  z-index: 1;
-  width: min(100%, 41rem);
+  width: 100%;
+  height: 100%;
   display: grid;
   place-items: center;
   transform: translate3d(0, -1.4rem, 0);
@@ -458,7 +477,7 @@ const particles = [
 .standby-copy {
   display: grid;
   justify-items: center;
-  gap: 0.82rem;
+  gap: 0.28rem;
 }
 
 .standby-headline {
@@ -676,21 +695,7 @@ const particles = [
 
 @media (max-width: 960px) {
   .standby-stage {
-    width: min(100%, 32rem);
     transform: translate3d(0, -0.7rem, 0);
-  }
-
-  .standby-logo {
-    width: min(100%, 16rem);
-  }
-
-  .standby-headline {
-    font-size: clamp(1.06rem, 4.25vw, 1.46rem);
-  }
-
-  .standby-subheadline {
-    font-size: clamp(0.7rem, 2vw, 0.82rem);
-    letter-spacing: 0.18em;
   }
 }
 </style>

@@ -2,6 +2,7 @@
 import AuroraPolaroidEngine from './AuroraPolaroidEngine.vue'
 import RavebergLogo from '../branding/RavebergLogo.vue'
 import QrCodeMatrix from '../branding/QrCodeMatrix.vue'
+import { useVirtualStageScale } from './useVirtualStageScale'
 
 defineProps<{
   eventName: string
@@ -9,6 +10,10 @@ defineProps<{
   guestUploadUrl: string
   reactionToken?: number
 }>()
+
+const STAGE_SCALE_BOOST = 1.12
+
+const { stageShellStyle } = useVirtualStageScale({ scaleBoost: STAGE_SCALE_BOOST })
 
 const fogLayers = [
   {
@@ -143,22 +148,24 @@ const particles = [
       <div class="idle-vignette" />
     </div>
 
-    <div class="idle-stage">
-      <div class="idle-content-glow" aria-hidden="true" />
+    <div class="idle-stage-shell" :style="stageShellStyle">
+      <div class="idle-stage">
+        <div class="idle-content-glow" aria-hidden="true" />
 
-      <div class="idle-content">
-        <div class="idle-brand-wrap">
-          <div class="idle-brand-group">
-            <div class="idle-copy">
-              <RavebergLogo class="idle-logo" muted />
-              <h1 class="idle-headline">Selfie auf den Screen</h1>
-              <p class="idle-subheadline">Foto machen und hochladen</p>
-            </div>
+        <div class="idle-content">
+          <div class="idle-brand-wrap">
+            <div class="idle-brand-group">
+              <div class="idle-copy">
+                <RavebergLogo class="idle-logo" muted />
+                <h1 class="idle-headline">Selfie auf den Screen</h1>
+                <p class="idle-subheadline">Foto machen oder auswählen</p>
+              </div>
 
-            <div class="idle-qr-module">
-              <div class="idle-qr-haze" aria-hidden="true" />
-              <QrCodeMatrix class="idle-qr-code" :text="guestUploadUrl" :quiet-zone="5" />
-              <div class="idle-qr-label">QR-Code scannen</div>
+              <div class="idle-qr-module">
+                <div class="idle-qr-haze" aria-hidden="true" />
+                <QrCodeMatrix class="idle-qr-code" :text="guestUploadUrl" :quiet-zone="5" />
+                <div class="idle-qr-label">QR-Code scannen</div>
+              </div>
             </div>
           </div>
         </div>
@@ -383,6 +390,20 @@ const particles = [
     radial-gradient(circle at 50% 52%, rgba(14, 36, 62, 0.08), transparent 38%),
     radial-gradient(circle at 50% 50%, transparent 44%, rgba(2, 8, 14, 0.16) 76%, rgba(1, 4, 8, 0.52) 100%),
     linear-gradient(180deg, rgba(2, 6, 11, 0.05), rgba(2, 6, 11, 0.24));
+}
+
+.idle-stage-shell {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1920px;
+  height: 1080px;
+  transform: translate(-50%, -50%) scale(var(--stage-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
 }
 
 .idle-stage {

@@ -38,10 +38,9 @@ export const POLAROID_CONFIG = {
     minRotationWindowMs: 1_500,
   },
   aging: {
-    freshPhaseEnd: 0.12,
-    agingPhase1End: 0.35,
-    agingPhase2End: 0.65,
-    strongAgingPhaseStart: 0.65,
+    startDelayShare: 0.34,
+    deepPhaseStartShare: 0.52,
+    finalPhaseStartShare: 0.84,
     endDesaturation: 0.06,
     saturateByStage: {
       fresh: 1.04,
@@ -209,6 +208,12 @@ export interface PolaroidLayoutDensity {
   overlapTolerance: number
 }
 
+export interface PolaroidAgingThresholds {
+  softStartMs: number
+  deepStartMs: number
+  finalStartMs: number
+}
+
 export function getSpawnIntervalSeconds(value: number) {
   return clamp(
     Number.isFinite(value) ? value : POLAROID_CONFIG.spawnIntervalSeconds.default,
@@ -293,6 +298,18 @@ export function getPolaroidTimings(intervalSeconds: number, maxVisiblePhotos: nu
     targetLifetimeMs,
     totalLifetimeMs: targetLifetimeMs,
     steadyStateRotationEnabled: true,
+  }
+}
+
+export function getPolaroidAgingThresholds(rotationWindowMs: number): PolaroidAgingThresholds {
+  const safeRotationWindowMs = Math.max(rotationWindowMs, 1)
+  const softStartMs = safeRotationWindowMs * POLAROID_CONFIG.aging.startDelayShare
+  const remainingAgingWindowMs = Math.max(safeRotationWindowMs - softStartMs, 0)
+
+  return {
+    softStartMs,
+    deepStartMs: softStartMs + remainingAgingWindowMs * POLAROID_CONFIG.aging.deepPhaseStartShare,
+    finalStartMs: softStartMs + remainingAgingWindowMs * POLAROID_CONFIG.aging.finalPhaseStartShare,
   }
 }
 

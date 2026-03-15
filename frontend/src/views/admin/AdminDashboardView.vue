@@ -398,49 +398,67 @@ const displayRuntimeStatus = computed(() => {
     return {
       label: 'LIVE',
       tone: 'success',
-      detail: `Letzter Kontakt ${formatDate(systemStatusStore.lastDisplayHeartbeatAt)}`,
+      detail: 'Kontakt aktiv',
     }
   }
   if (systemStatusStore.displayStateStale) {
     return {
       label: 'STALE',
       tone: 'warning',
-      detail: `Zuletzt aktiv ${formatDate(systemStatusStore.lastDisplayHeartbeatAt)}`,
+      detail: 'Zuletzt aktiv',
     }
   }
   return {
     label: 'OFFLINE',
     tone: 'error',
-    detail: 'Keine aktive Display-Verbindung',
+    detail: 'Keine Verbindung',
   }
 })
 
-const criticalStatusCards = computed(() => [
-  {
-    title: 'Display',
-    value: displayRuntimeStatus.value.label,
-    detail: displayRuntimeStatus.value.detail,
-    tone: displayRuntimeStatus.value.tone,
-  },
-  {
-    title: 'Backend',
-    value: systemStatusStore.backendReachable ? 'OK' : 'OFFLINE',
-    detail: systemStatusStore.backendReachable ? `Health ${systemStatusStore.health}` : 'Backend aktuell nicht erreichbar',
-    tone: systemStatusStore.backendReachable ? 'success' : 'error',
-  },
-  {
-    title: 'Datenbank',
-    value: systemStatusStore.dbReachable ? 'OK' : 'FEHLER',
-    detail: systemStatusStore.dbReachable ? 'Datenbank antwortet' : 'Datenbank aktuell nicht erreichbar',
-    tone: systemStatusStore.dbReachable ? 'success' : 'error',
-  },
-  {
-    title: 'Renderer',
-    value: systemStatusStore.displayTarget || 'Unbekannt',
-    detail: `Modus ${formatModeLabel(appModeStore.mode)}`,
-    tone: systemStatusStore.displayLiveConnected ? 'success' : systemStatusStore.displayStateStale ? 'warning' : 'error',
-  },
-])
+function compactRendererLabel(target: string) {
+  const normalized = target.trim()
+  if (!normalized) {
+    return 'Unbekannt'
+  }
+
+  const compact = normalized.replace(/\s+Renderer$/i, '').trim()
+  return compact || normalized
+}
+
+const criticalStatusCards = computed(() => {
+  const rendererLabel = compactRendererLabel(systemStatusStore.displayTarget)
+
+  return [
+    {
+      title: 'Display',
+      value: displayRuntimeStatus.value.label,
+      detail: displayRuntimeStatus.value.detail,
+      tone: displayRuntimeStatus.value.tone,
+      compact: false,
+    },
+    {
+      title: 'Backend',
+      value: systemStatusStore.backendReachable ? 'OK' : 'OFFLINE',
+      detail: systemStatusStore.backendReachable ? 'Health ok' : 'Nicht erreichbar',
+      tone: systemStatusStore.backendReachable ? 'success' : 'error',
+      compact: false,
+    },
+    {
+      title: 'Datenbank',
+      value: systemStatusStore.dbReachable ? 'OK' : 'FEHLER',
+      detail: systemStatusStore.dbReachable ? 'Antwortet' : 'Nicht erreichbar',
+      tone: systemStatusStore.dbReachable ? 'success' : 'error',
+      compact: false,
+    },
+    {
+      title: 'Renderer',
+      value: rendererLabel,
+      detail: `Modus ${formatModeLabel(appModeStore.mode)}`,
+      tone: systemStatusStore.displayLiveConnected ? 'success' : systemStatusStore.displayStateStale ? 'warning' : 'error',
+      compact: rendererLabel.length > 8,
+    },
+  ]
+})
 
 const activeWorkspaceSection = computed<AdminWorkspaceSection>(() => {
   const hash = route.hash.replace('#', '')
@@ -2946,37 +2964,46 @@ function overlayModeLabel(mode: OverlayMode) {
       <v-col cols="12">
         <section class="status-dashboard">
           <div class="status-dashboard__header">
-            <div class="text-overline">Systemstatus</div>
+            <div class="section-title">Systemstatus</div>
           </div>
-
-          <div class="status-critical-grid">
-            <article
-              v-for="card in criticalStatusCards"
-              :key="card.title"
-              class="status-kpi-card"
-              :class="`status-kpi-card--${card.tone}`"
-            >
-              <div class="status-kpi-card__header">
-                <span class="status-kpi-card__dot" />
-                <span class="status-kpi-card__title">{{ card.title }}</span>
-              </div>
-              <div class="status-kpi-card__value">{{ card.value }}</div>
-              <div class="status-kpi-card__detail">{{ card.detail }}</div>
-            </article>
-          </div>
-
         </section>
+      </v-col>
+
+      <v-col
+        v-for="card in criticalStatusCards"
+        :key="card.title"
+        cols="6"
+        xl="3"
+        class="status-overview-col"
+      >
+        <v-card
+          class="workspace-overview-card status-overview-card"
+          :class="`status-overview-card--${card.tone}`"
+          variant="flat"
+        >
+          <div class="status-overview-card__header">
+            <span class="status-overview-card__dot" />
+            <div class="status-overview-card__title">{{ card.title }}</div>
+          </div>
+          <div
+            class="status-overview-card__value"
+            :class="{ 'status-overview-card__value--compact': card.compact }"
+          >
+            {{ card.value }}
+          </div>
+          <div class="status-overview-card__detail">{{ card.detail }}</div>
+        </v-card>
       </v-col>
 
       <v-col cols="12">
         <section class="device-panel">
           <div class="device-panel__header">
-            <div class="text-overline">Gerät</div>
+            <div class="section-title">Gerät</div>
           </div>
 
           <div class="device-panel__metrics">
             <article class="device-metric-card">
-              <div class="device-metric-card__label">CPU-Last</div>
+              <div class="device-metric-card__label">Prozessor</div>
               <div class="device-metric-card__value">{{ cpuLoadLabel }}</div>
               <div class="device-meter" aria-hidden="true">
                 <span class="device-meter__fill" :style="{ width: `${cpuLoadBarValue}%` }" />
@@ -2984,7 +3011,7 @@ function overlayModeLabel(mode: OverlayMode) {
             </article>
 
             <article class="device-metric-card">
-              <div class="device-metric-card__label">RAM-Verbrauch</div>
+              <div class="device-metric-card__label">Arbeitsspeicher</div>
               <div class="device-metric-card__value">{{ memoryUsageLabel }}</div>
               <div class="device-metric-card__meta">{{ memoryPercentLabel }}</div>
               <div class="device-meter" aria-hidden="true">
@@ -3049,23 +3076,7 @@ function overlayModeLabel(mode: OverlayMode) {
             </article>
           </div>
 
-          <article class="device-health-card">
-            <div class="device-health-card__label">Gerätegesundheit</div>
-            <div class="device-health-card__value">
-              {{
-                systemStatusStore.backendReachable && systemStatusStore.dbReachable
-                  ? 'System stabil'
-                  : 'Eingeschränkt'
-              }}
-            </div>
-            <div class="device-health-card__meta">
-              {{
-                systemStatusStore.backendReachable && systemStatusStore.dbReachable
-                  ? 'Backend und Datenbank antworten.'
-                  : 'Mindestens ein zentraler Dienst ist aktuell nicht erreichbar.'
-              }}
-            </div>
-          </article>
+          <div class="section-title">Aktionen</div>
 
           <article class="device-danger-zone device-danger-zone--restart">
             <div class="device-danger-zone__copy">
@@ -3714,102 +3725,79 @@ function overlayModeLabel(mode: OverlayMode) {
   justify-content: space-between;
 }
 
-.status-critical-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
+.status-overview-col {
+  padding: 9px !important;
 }
 
-.status-kpi-card,
-.status-stat-card {
-  border-radius: 20px;
-  border: 1px solid rgba(160, 194, 226, 0.08);
-  background: rgba(10, 18, 27, 0.66);
+.status-overview-card {
+  height: 100%;
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 22px 24px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.01)
+  ) !important;
+  backdrop-filter: none;
+  box-shadow: none !important;
 }
 
-.status-kpi-card {
-  padding: 0.95rem 1rem;
-}
-
-.status-kpi-card__header {
+.status-overview-card__header {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
-.status-kpi-card__dot {
-  width: 0.55rem;
-  height: 0.55rem;
+.status-overview-card__dot {
+  width: 0.65rem;
+  height: 0.65rem;
   border-radius: 999px;
   background: rgba(133, 154, 177, 0.7);
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.02);
 }
 
-.status-kpi-card__title {
-  color: rgba(194, 211, 228, 0.54);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+.status-overview-card__title {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.status-kpi-card__value {
+.status-overview-card__value {
   margin-top: 0.7rem;
-  color: rgba(245, 249, 255, 0.98);
-  font-size: 1.15rem;
-  font-weight: 750;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 1.8rem;
+  font-weight: 600;
   line-height: 1.15;
+  text-wrap: balance;
 }
 
-.status-kpi-card__detail {
-  margin-top: 0.35rem;
-  color: rgba(201, 214, 228, 0.62);
-  font-size: 0.8rem;
-  line-height: 1.35;
+.status-overview-card__value--compact {
+  font-size: 1.45rem;
+  line-height: 1.2;
 }
 
-.status-kpi-card--success .status-kpi-card__dot {
+.status-overview-card__detail {
+  margin-top: auto;
+  padding-top: 0.55rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.status-overview-card--success .status-overview-card__dot {
   background: #39d98a;
 }
 
-.status-kpi-card--warning .status-kpi-card__dot {
+.status-overview-card--warning .status-overview-card__dot {
   background: #f2c14e;
 }
 
-.status-kpi-card--error .status-kpi-card__dot {
+.status-overview-card--error .status-overview-card__dot {
   background: #ff6b6b;
-}
-
-.status-stat-card__title {
-  color: rgba(194, 211, 228, 0.54);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-
-.status-stat-card__value {
-  color: rgba(245, 249, 255, 0.96);
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1.25;
-}
-
-.status-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.status-stat-card {
-  padding: 0.9rem 1rem;
-  display: grid;
-  gap: 0.4rem;
-}
-
-.status-stat-card__detail {
-  color: rgba(201, 214, 228, 0.62);
-  font-size: 0.8rem;
 }
 
 .section-title {
@@ -5414,12 +5402,14 @@ function overlayModeLabel(mode: OverlayMode) {
     padding-right: 0.5rem;
   }
 
+  .status-overview-col {
+    padding: 9px !important;
+  }
+
   .status-grid {
     grid-template-columns: 1fr;
   }
 
-  .status-critical-grid,
-  .status-stat-grid,
   .device-panel__metrics {
     grid-template-columns: 1fr;
   }
