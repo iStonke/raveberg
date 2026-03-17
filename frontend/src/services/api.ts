@@ -269,6 +269,8 @@ export type VisualizerPreset =
   | 'storm_lightning'
   | 'retro_cube'
   | 'retro_pipes'
+  | 'dvd_bounce'
+  | 'matrix_screen'
   | 'nebel'
   | 'vanta_halo'
   | 'hydra_rave'

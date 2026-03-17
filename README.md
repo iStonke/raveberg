@@ -147,7 +147,7 @@ Im Selfie-Modus laedt das Display die letzten 100 freigegebenen Uploads ueber `G
 
 ## Visualizer-Flow
 
-Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `overlay_mode`, `auto_cycle_enabled`, `auto_cycle_interval_seconds` und `updated_at`. Fuer den neuen Hydra-Modus `hydra_chromaflow` kommen persistierte Parameter fuer `hydra_colorfulness`, `hydra_scene_change_rate`, `hydra_symmetry_amount`, `hydra_feedback_amount`, `hydra_quality`, `hydra_audio_reactivity_enabled` und `hydra_palette_mode` dazu. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `storm_lightning`, `retro_cube`, `retro_pipes`, `nebel`, `vanta_halo`, `hydra_rave` und `hydra_chromaflow`.
+Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, `blackout` und `idle`. Fuer den Visualizer existiert zusaetzlich ein eigener serverseitiger Zustand mit `active_preset`, `intensity`, `speed`, `brightness`, `color_scheme`, `overlay_mode`, `auto_cycle_enabled`, `auto_cycle_interval_seconds` und `updated_at`. Fuer den neuen Hydra-Modus `hydra_chromaflow` kommen persistierte Parameter fuer `hydra_colorfulness`, `hydra_scene_change_rate`, `hydra_symmetry_amount`, `hydra_feedback_amount`, `hydra_quality`, `hydra_audio_reactivity_enabled` und `hydra_palette_mode` dazu. Admins lesen und aendern diesen Zustand ueber `GET /api/visualizer` und `PUT /api/visualizer`. Nach jeder Aenderung sendet das Backend `visualizer_updated`; bei Presetwechsel zusaetzlich `visualizer_preset_changed`. Das Display abonniert weiterhin nur den zentralen SSE-Stream und uebernimmt Aenderungen ohne Reload. Aktuell verfuegbare Presets sind `particles`, `kaleidoscope`, `warehouse`, `storm_lightning`, `retro_cube`, `retro_pipes`, `dvd_bounce`, `matrix_screen`, `nebel`, `vanta_halo`, `hydra_rave` und `hydra_chromaflow`.
 
 ## Open-Source-Visualizer
 
@@ -156,6 +156,8 @@ RAVEBERG bindet externe Visualizer nur innerhalb der bestehenden Visualizer-Runt
 - `vanta` fuer `nebel` und `vanta_halo`
 - `yomboprime/lightning_strike_demo` als MIT-lizenzierte Three.js-Referenz fuer `storm_lightning`
 - `retro_cube` als eigener Three.js-Renderer mit klassischer Bouncing-Cube-Screensaver-Anmutung
+- `dvd_bounce` als eigener 2D-/Three.js-Renderer mit stilisiertem DVD-Badge-Bounce und organischem Neon-Trail
+- `matrix_screen` als eigener Canvas-Renderer mit mehrschichtigem Code-Regen und Matrix-artiger Tiefenwirkung
 - `hydra-synth` fuer `hydra_rave` und `hydra_chromaflow`
 - `Alex313031/webgl-pipes` als MIT-lizenzierte Referenz fuer `retro_pipes`, ein Three.js-/WebGL-Remake des klassischen Windows-3D-Pipes-Screensavers
 - `tsparticles` und `@tsparticles/engine` fuer `particle_swarm`
@@ -216,6 +218,42 @@ RAVEBERG-Anpassungen:
 - klare, retrohafte Flaechenfarben pro Wuerfelseite statt verwaschener Shaderoptik
 - dezent sichtbare Bounce-Reaktionen ueber Farbwechsel, Stretch und Rotationsimpuls
 - sauberer Lifecycle ueber `init/start/resize/updateOptions/triggerEvent/destroy`
+
+## DVD Bounce
+
+`dvd_bounce` ist ein eigener orthografischer Three.js-Renderer in `frontend/src/components/display/visualizer/dvdBounceRuntime.ts`, der ueber dieselbe bestehende External-Visualizer-Host-Kette wie `retro_cube`, `retro_pipes`, `storm_lightning`, `nebel` und die Hydra-Modi laeuft. Die gestalterische Referenz ist der klassische DVD-Bounce-Screensaver, in RAVEBERG aber als flaches Text-Badge mit Neon-Trail und kuratierten Bounce-Farbwechseln umgesetzt.
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: Trail-Staerke, Glow-Impuls und Corner-Hit-Hervorhebung
+- `speed`: lineare Badge-Geschwindigkeit
+- `brightness`: Badge-Helligkeit, Trail-Sichtbarkeit und dezente Hintergrundreaktion
+- `color_scheme`: kuratierte Bounce-Paletten und Hintergrund-Vignetten
+
+RAVEBERG-Anpassungen:
+
+- exakte Randkollision auf Basis der sichtbaren Badge-Aussenkante innerhalb einer orthografischen Projektion
+- organisch modulierte Neon-Trail-Sichtbarkeit mit festen Ghost-Instanzen statt Neuerzeugung pro Frame
+- subtile Corner-Hit-Highlights ueber Glow-, Flash- und Trail-Boost statt aufdringlicher Extra-Effekte
+- minimalistische, fast schwarze Buehne mit leicht driftenden dunklen Glow-Flaechen statt starker Spotlights
+
+## Matrix Screen
+
+`matrix_screen` ist ein eigener Canvas-Renderer in `frontend/src/components/display/visualizer/matrixScreenRuntime.ts`, der ueber dieselbe bestehende External-Visualizer-Host-Kette wie `dvd_bounce`, `retro_cube`, `retro_pipes`, `storm_lightning`, `nebel` und die Hydra-Modi laeuft. Die gestalterische Referenz ist klassischer Matrix-Code-Regen, fuer RAVEBERG aber als gedrosselter, mehrschichtiger und dauerhaft angenehmer Visualizer umgesetzt.
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: aktive Stream-Dichte, Stream-Laengen und Glow-Staerke
+- `speed`: Fallgeschwindigkeit der Code-Spalten
+- `brightness`: Helligkeit, Nachlaufkontrast und Flash-Reaktion
+- `color_scheme`: Matrix-Farbwelten `classic_green`, `ice_blue`, `violet_code` und `rave_matrix` ueber die vorhandenen Schemes `mono`, `acid`, `ultraviolet` und `redline`
+
+RAVEBERG-Anpassungen:
+
+- drei Tiefenebenen mit unterschiedlichen Font-Groessen, Geschwindigkeiten und Opazitaeten fuer mehr Raumwirkung
+- unregelmaessige Stream-Lebenszyklen statt gleichmaessigem Vorhang
+- heller Kopf, schwacher Nachlauf und laufende Glyph-Mutationen pro Spalte
+- fast schwarzer Hintergrund mit nur sehr subtiler dunkler Haze statt Spotlights oder auffaelligen Patterns
 
 ## Storm Lightning
 

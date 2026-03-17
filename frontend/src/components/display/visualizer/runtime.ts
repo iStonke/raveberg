@@ -2,7 +2,9 @@ import * as THREE from 'three'
 
 import type { ColorScheme, VisualizerPreset, VisualizerState } from '../../../services/api'
 import { CubeVisualizerRuntime, isCubeVisualizerPreset } from './cubeRuntime'
+import { DvdBounceRuntime, isDvdBouncePreset } from './dvdBounceRuntime'
 import { HydraVisualizerRuntime, isHydraVisualizerPreset } from './hydraRenderer'
+import { isMatrixScreenPreset, MatrixScreenRuntime } from './matrixScreenRuntime'
 import { PipesVisualizerRuntime, isPipesVisualizerPreset } from './pipesRuntime'
 import { isStormLightningPreset, StormLightningRuntime } from './stormLightningRuntime'
 import type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
@@ -22,6 +24,8 @@ const EXTERNAL_PRESETS = new Set<VisualizerPreset>([
   'storm_lightning',
   'retro_cube',
   'retro_pipes',
+  'dvd_bounce',
+  'matrix_screen',
   'nebel',
   'vanta_halo',
   'hydra_rave',
@@ -196,6 +200,12 @@ export function createVisualizerRuntime(
   if (isCubeVisualizerPreset(visualizer.active_preset)) {
     return new CubeVisualizerRuntime(visualizer.active_preset)
   }
+  if (isDvdBouncePreset(visualizer.active_preset)) {
+    return new DvdBounceRuntime(visualizer.active_preset)
+  }
+  if (isMatrixScreenPreset(visualizer.active_preset)) {
+    return new MatrixScreenRuntime(visualizer.active_preset)
+  }
   if (isPipesVisualizerPreset(visualizer.active_preset)) {
     return new PipesVisualizerRuntime(visualizer.active_preset)
   }
@@ -362,13 +372,19 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
     const state = resolveNebelMotionState(this.options, timestamp, this.effectStartedAt, this.pulseBoost)
     const canvas = this.container.querySelector('.vanta-canvas') as HTMLElement | null
     if (canvas) {
-      canvas.style.transform = `translate3d(${state.driftX.toFixed(2)}px, ${state.driftY.toFixed(2)}px, 0) rotate(${state.rotationDeg.toFixed(3)}deg) scale(${state.breathScale.toFixed(4)})`
-      canvas.style.transformOrigin = '50% 50%'
+      canvas.style.position = 'absolute'
+      canvas.style.left = '0'
+      canvas.style.top = '0'
+      canvas.style.width = '100%'
+      canvas.style.height = '100%'
+      canvas.style.maxWidth = '100%'
+      canvas.style.maxHeight = '100%'
+      canvas.style.transform = 'none'
       canvas.style.opacity = `${(0.9 + state.brightnessBoost * 0.06).toFixed(3)}`
-      canvas.style.willChange = 'transform, opacity'
+      canvas.style.willChange = 'opacity'
     }
 
-    if (timestamp - this.lastNebulaUpdateAt >= 140) {
+    if (timestamp - this.lastNebulaUpdateAt >= 90) {
       this.effect.setOptions?.(resolveVantaOptions(this.preset, this.options, state))
       this.updateNebelLayerPalette(state)
       this.lastNebulaUpdateAt = timestamp
@@ -390,7 +406,7 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
       layer.className = `nebel-depth-layer nebel-depth-layer--${index + 1}`
       Object.assign(layer.style, {
         position: 'absolute',
-        inset: '-16%',
+        inset: '-26%',
         pointerEvents: 'none',
         opacity: index === 0 ? '0.22' : index === 1 ? '0.18' : '0.14',
         mixBlendMode: index === 2 ? 'screen' : 'soft-light',
@@ -448,12 +464,15 @@ class VantaVisualizerRuntime implements VisualizerRuntimeController {
     }
 
     const t = state.timeSeconds
-    this.overlayLayers[0].style.transform = `translate3d(${(Math.sin(t * 0.045) * 18).toFixed(2)}px, ${(Math.cos(t * 0.034) * 14).toFixed(2)}px, 0) scale(${(1.04 + Math.sin(t * 0.022) * 0.03).toFixed(4)})`
-    this.overlayLayers[1].style.transform = `translate3d(${(Math.cos(t * 0.074) * 26).toFixed(2)}px, ${(Math.sin(t * 0.062) * 18).toFixed(2)}px, 0) scale(${(1.08 + Math.cos(t * 0.038) * 0.04).toFixed(4)})`
-    this.overlayLayers[2].style.transform = `translate3d(${(Math.sin(t * 0.11) * 34).toFixed(2)}px, ${(Math.cos(t * 0.095) * 24).toFixed(2)}px, 0) scale(${(1.12 + Math.sin(t * 0.058) * 0.05).toFixed(4)})`
-    this.overlayLayers[0].style.opacity = `${(0.18 + state.brightnessPulse * 0.05).toFixed(3)}`
-    this.overlayLayers[1].style.opacity = `${(0.15 + state.turbulence * 0.04).toFixed(3)}`
-    this.overlayLayers[2].style.opacity = `${(0.11 + state.brightnessPulse * 0.08).toFixed(3)}`
+    this.overlayLayers[0].style.transform =
+      `translate3d(${(Math.sin(t * 0.11) * 48 + Math.cos(t * 0.052) * 18).toFixed(2)}px, ${(Math.cos(t * 0.086) * 34 + Math.sin(t * 0.044) * 16).toFixed(2)}px, 0) rotate(${(Math.sin(t * 0.052) * 1.8 + Math.cos(t * 0.021) * 0.6).toFixed(3)}deg) scale(${(1.12 + Math.sin(t * 0.061) * 0.08 + Math.cos(t * 0.024) * 0.04 + state.turbulence * 0.05).toFixed(4)})`
+    this.overlayLayers[1].style.transform =
+      `translate3d(${(Math.cos(t * 0.18) * 68 + Math.sin(t * 0.082) * 26).toFixed(2)}px, ${(Math.sin(t * 0.142) * 42 + Math.cos(t * 0.067) * 20).toFixed(2)}px, 0) rotate(${(Math.cos(t * 0.078) * 2.4 + Math.sin(t * 0.031) * 0.9).toFixed(3)}deg) scale(${(1.2 + Math.cos(t * 0.11) * 0.11 + Math.sin(t * 0.047) * 0.05 + state.brightnessPulse * 0.04).toFixed(4)})`
+    this.overlayLayers[2].style.transform =
+      `translate3d(${(Math.sin(t * 0.26) * 92 + Math.cos(t * 0.11) * 28).toFixed(2)}px, ${(Math.cos(t * 0.214) * 58 + Math.sin(t * 0.094) * 22).toFixed(2)}px, 0) rotate(${(Math.sin(t * 0.11) * 3.1 + Math.cos(t * 0.038) * 1.1).toFixed(3)}deg) scale(${(1.3 + Math.sin(t * 0.16) * 0.14 + Math.cos(t * 0.058) * 0.06 + state.turbulence * 0.07).toFixed(4)})`
+    this.overlayLayers[0].style.opacity = `${(0.28 + state.brightnessPulse * 0.1 + state.turbulence * 0.05).toFixed(3)}`
+    this.overlayLayers[1].style.opacity = `${(0.24 + state.turbulence * 0.1).toFixed(3)}`
+    this.overlayLayers[2].style.opacity = `${(0.2 + state.brightnessPulse * 0.16 + state.turbulence * 0.05).toFixed(3)}`
   }
 
   private clearNebelLayers() {
@@ -513,9 +532,9 @@ function resolveVantaOptions(
     lowlightColor: state.palette.petrol,
     midtoneColor: state.palette.darkTurquoise,
     highlightColor: lerpColorInt(state.palette.cyan, state.palette.violet, 0.22 + state.brightnessPulse * 0.12),
-    blurFactor: 0.44 - intensity * 0.08 + state.turbulence * 0.04,
-    speed: 0.2 + speed * 0.44 + state.turbulence * 0.08,
-    zoom: 0.68 + intensity * 0.12 + (state.breathScale - 1) * 0.42,
+    blurFactor: 0.34 - intensity * 0.04 + state.turbulence * 0.12,
+    speed: 0.42 + speed * 0.92 + state.turbulence * 0.28,
+    zoom: 0.82 + intensity * 0.24 + (state.breathScale - 1) * 1.25,
     scale: 2.3 - brightness * 0.24,
     scaleMobile: 2.85 - brightness * 0.3,
   }
@@ -538,9 +557,9 @@ function buildVantaBurstOptions(
   }
 
   return {
-    blurFactor: 0.36 - intensity * 0.08,
-    speed: 0.3 + speed * 0.58,
-    zoom: 0.72 + intensity * 0.12 + brightness * 0.03,
+    blurFactor: 0.24 - intensity * 0.04,
+    speed: 0.56 + speed * 1.04,
+    zoom: 0.9 + intensity * 0.24 + brightness * 0.06,
   }
 }
 
@@ -554,14 +573,28 @@ function resolveNebelMotionState(
   const speed = normalize(options.speed)
   const intensity = normalize(options.intensity)
   const brightness = normalize(options.brightness)
-  const breathScale = 1 + Math.sin(timeSeconds * 0.05) * 0.05
+  const breathScale =
+    1
+    + Math.sin(timeSeconds * 0.12) * 0.08
+    + Math.cos(timeSeconds * 0.047 + 1.2) * 0.04
   const brightnessPulse =
     Math.pow(Math.max(0, Math.sin(timeSeconds * ((Math.PI * 2) / 7.8) + 0.9)), 4.5) * 0.85
   const brightnessBoost = clamp(brightnessPulse + pulseBoost * 0.65, 0, 1)
-  const turbulence = 0.18 + Math.sin(timeSeconds * 0.18) * 0.07 + intensity * 0.14
-  const rotationDeg = Math.sin(timeSeconds * 0.07) * (0.8 + speed * 0.8)
-  const driftX = Math.cos(timeSeconds * 0.11) * (6 + speed * 10)
-  const driftY = Math.sin(timeSeconds * 0.09) * (4 + speed * 8)
+  const turbulence =
+    0.34
+    + Math.sin(timeSeconds * 0.46) * 0.14
+    + Math.cos(timeSeconds * 0.18 + 0.7) * 0.07
+    + Math.sin(timeSeconds * 0.09 + 1.8) * 0.05
+    + intensity * 0.22
+  const rotationDeg =
+    Math.sin(timeSeconds * 0.14) * (1.4 + speed * 1.4)
+    + Math.cos(timeSeconds * 0.06) * 0.8
+  const driftX =
+    Math.cos(timeSeconds * 0.24) * (14 + speed * 24)
+    + Math.sin(timeSeconds * 0.1 + 0.8) * (8 + speed * 12)
+  const driftY =
+    Math.sin(timeSeconds * 0.19) * (10 + speed * 18)
+    + Math.cos(timeSeconds * 0.08 + 1.1) * (4 + speed * 8)
 
   return {
     timeSeconds,

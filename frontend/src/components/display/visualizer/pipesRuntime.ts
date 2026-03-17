@@ -457,7 +457,8 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
         randomInt(-this.gridExtent, this.gridExtent),
         randomInt(-this.gridExtent, this.gridExtent),
       )
-      const boundaryAxis = randomInt(0, 2)
+      const boundaryRoll = Math.random()
+      const boundaryAxis = boundaryRoll < 0.4 ? 0 : boundaryRoll < 0.8 ? 1 : 2
       if (boundaryAxis === 0) {
         gridPosition.x = Math.random() > 0.5 ? this.gridExtent : -this.gridExtent
       } else if (boundaryAxis === 1) {
@@ -475,8 +476,8 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
       this.activeBuilder = {
         gridPosition,
         directionIndex,
-        straightStepsRemaining: randomInt(8, 16),
-        breakoutStepsRemaining: randomInt(6, 12),
+        straightStepsRemaining: randomInt(10, 18),
+        breakoutStepsRemaining: randomInt(8, 16),
         speedMultiplier: lerp(0.9, 1.12, Math.random()),
         colorIndex: randomInt(0, this.palette.pipeColors.length - 1),
         colorSegmentsRemaining: randomInt(4, 10),
@@ -508,11 +509,11 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
     if (changedDirection) {
       this.addJoint(startGrid, builder.colorIndex)
       if (nextShellReach >= currentShellReach + 0.08 || Math.random() < 0.22) {
-        builder.breakoutStepsRemaining = randomInt(7, 15)
-        builder.straightStepsRemaining = randomInt(8, 16)
+        builder.breakoutStepsRemaining = randomInt(9, 18)
+        builder.straightStepsRemaining = randomInt(10, 20)
       } else {
         builder.breakoutStepsRemaining = Math.max(0, builder.breakoutStepsRemaining - 1)
-        builder.straightStepsRemaining = randomInt(5, 12)
+        builder.straightStepsRemaining = randomInt(6, 14)
       }
     } else {
       builder.breakoutStepsRemaining = Math.max(0, builder.breakoutStepsRemaining - 1)
@@ -541,6 +542,9 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
     const currentShellReach =
       Math.max(Math.abs(builder.gridPosition.x), Math.abs(builder.gridPosition.y), Math.abs(builder.gridPosition.z)) /
       Math.max(1, this.gridExtent)
+    const currentScreenReach =
+      (Math.abs(builder.gridPosition.x) + Math.abs(builder.gridPosition.y)) /
+      Math.max(1, this.gridExtent * 2)
 
     for (let index = 0; index < GRID_DIRECTIONS.length; index += 1) {
       if (index === OPPOSITE_DIRECTIONS[builder.directionIndex]) {
@@ -566,7 +570,15 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
 
     if (builder.breakoutStepsRemaining > 0) {
       const outwardCandidates = validDirections
-        .filter((candidate) => candidate.shellReach >= currentShellReach)
+        .filter((candidate) => {
+          const direction = GRID_DIRECTIONS[candidate.directionIndex]
+          const projectedX = builder.gridPosition.x + direction.x
+          const projectedY = builder.gridPosition.y + direction.y
+          const screenReach =
+            (Math.abs(projectedX) + Math.abs(projectedY)) /
+            Math.max(1, this.gridExtent * 2)
+          return candidate.shellReach >= currentShellReach || screenReach >= currentScreenReach
+        })
         .sort((left, right) => right.score - left.score)
       const preferred = outwardCandidates.find((candidate) => candidate.directionIndex === builder.directionIndex)
       if (preferred && builder.straightStepsRemaining > 0) {
@@ -717,7 +729,7 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
 
   private scoreDirection(builder: PipeBuilder, directionIndex: number, nextGrid: THREE.Vector3) {
     const occupancyRatio = this.occupiedCells.size / Math.max(1, this.totalGridCells)
-    const corridorFree = this.countFreeRun(nextGrid, directionIndex, 10)
+    const corridorFree = this.countFreeRun(nextGrid, directionIndex, 12)
     const localDensity = this.countOccupiedNeighbors(nextGrid, 2)
     const currentDensity = this.countOccupiedNeighbors(builder.gridPosition, 2)
     const densityDrop = currentDensity - localDensity
@@ -733,29 +745,48 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
     const outerReach =
       (Math.abs(nextGrid.x) + Math.abs(nextGrid.y) + Math.abs(nextGrid.z)) /
       Math.max(1, this.gridExtent * 3)
+    const screenReach =
+      (Math.abs(nextGrid.x) + Math.abs(nextGrid.y)) /
+      Math.max(1, this.gridExtent * 2)
     const shellReach =
       Math.max(Math.abs(nextGrid.x), Math.abs(nextGrid.y), Math.abs(nextGrid.z)) /
       Math.max(1, this.gridExtent)
     const outwardDelta = shellReach - currentShellReach
+    const screenOutwardDelta =
+      screenReach -
+      (
+        (Math.abs(builder.gridPosition.x) + Math.abs(builder.gridPosition.y)) /
+        Math.max(1, this.gridExtent * 2)
+      )
     const shellContact = [nextGrid.x, nextGrid.y, nextGrid.z].reduce((count, coordinate) => (
       Math.abs(coordinate) >= this.gridExtent - 1 ? count + 1 : count
     ), 0)
-    const centerPenalty = (1 - shellReach) * lerp(2.2, 0.45, occupancyRatio)
-    const breakoutBias = builder.breakoutStepsRemaining > 0 ? Math.max(0, outwardDelta) * 8.2 + shellReach * 1.8 : 0
+    const screenEdgeContact = (Math.abs(nextGrid.x) >= this.gridExtent - 1 ? 1 : 0) + (Math.abs(nextGrid.y) >= this.gridExtent - 1 ? 1 : 0)
+    const zCenterPenalty = (1 - Math.abs(nextGrid.z) / Math.max(1, this.gridExtent)) * lerp(0.55, 0.18, occupancyRatio)
+    const centerPenalty =
+      (1 - screenReach) * lerp(4.8, 1.8, occupancyRatio) +
+      (1 - shellReach) * lerp(1.6, 0.4, occupancyRatio) +
+      zCenterPenalty
+    const breakoutBias = builder.breakoutStepsRemaining > 0
+      ? Math.max(0, outwardDelta) * 7.8 + Math.max(0, screenOutwardDelta) * 12.6 + screenReach * 3.1
+      : 0
     const straightBonus =
       directionIndex === builder.directionIndex
-        ? 2.8 + builder.straightStepsRemaining * 0.28 + builder.breakoutStepsRemaining * 0.34
+        ? 3.8 + builder.straightStepsRemaining * 0.34 + builder.breakoutStepsRemaining * 0.42
         : 0
 
     return (
-      corridorFree * 4.8 +
+      corridorFree * 5.6 +
       localOpen * 0.12 +
       layerSpread * 3.4 +
       octantSpread * 2.8 +
-      outerReach * lerp(3.6, 1.4, occupancyRatio) +
-      shellReach * 3.4 +
-      outwardDelta * lerp(8.5, 2.8, occupancyRatio) +
+      outerReach * lerp(2.8, 1.2, occupancyRatio) +
+      screenReach * lerp(7.4, 3.1, occupancyRatio) +
+      shellReach * 2.6 +
+      outwardDelta * lerp(6.8, 2.2, occupancyRatio) +
+      screenOutwardDelta * lerp(13.2, 4.8, occupancyRatio) +
       shellContact * 1.45 +
+      screenEdgeContact * 3.2 +
       breakoutBias +
       densityDrop * 1.7 +
       straightBonus -
@@ -880,7 +911,7 @@ export class PipesVisualizerRuntime implements VisualizerRuntimeController {
   }
 
   private get targetOccupiedCells() {
-    return Math.round(this.totalGridCells * lerp(0.76, 0.92, normalize(this.options.intensity)))
+    return Math.round(this.totalGridCells * lerp(0.84, 0.95, normalize(this.options.intensity)))
   }
 
   private get palette() {

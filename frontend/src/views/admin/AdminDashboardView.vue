@@ -273,6 +273,8 @@ const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   storm_lightning: 'Storm Lightning',
   retro_cube: 'Retro Cube',
   retro_pipes: 'Retro Pipes',
+  dvd_bounce: 'DVD Bounce',
+  matrix_screen: 'Matrix Screen',
   nebel: 'Nebel',
   vanta_halo: 'Vanta HALO',
   hydra_rave: 'Hydra Rave',
@@ -644,7 +646,7 @@ const visualizerTelemetryLabel = computed(
 const visualizerPresetItems = computed(() => {
   const presets: VisualizerPreset[] = visualizerStore.presets.length
     ? [...visualizerStore.presets]
-    : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
+    : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'dvd_bounce', 'matrix_screen', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
 
   return presets.map((preset) => ({
     title: visualizerPresetLabels[preset] ?? preset,
@@ -1607,7 +1609,7 @@ async function advancePresetQuick() {
 
     const presets: VisualizerPreset[] = visualizerStore.presets.length
       ? [...visualizerStore.presets]
-      : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
+      : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'dvd_bounce', 'matrix_screen', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
     const currentIndex = presets.indexOf(visualizerDraft.active_preset)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
     visualizerDraft.active_preset = presets[nextIndex]

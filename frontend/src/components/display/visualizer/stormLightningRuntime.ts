@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 
 import type { ColorScheme, VisualizerPreset } from '../../../services/api'
+import {
+  createStormFogUniforms,
+  MAX_STORM_FOG_ISLANDS,
+  STORM_FOG_FRAGMENT_SHADER,
+  STORM_FOG_VERTEX_SHADER,
+} from './stormFogShader'
 import type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
 import { clamp, lerp, normalize, smoothstep } from './runtimeUtils'
 
@@ -31,6 +37,7 @@ interface StrikeBolt {
   haloMesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial> | null
   drawCount: number
   branchLevel: number
+  sourceProgress: number
   baseIntensity: number
   coreGain: number
   rimGain: number
@@ -127,6 +134,8 @@ interface RainDrop {
   depth: number
 }
 
+type StormFogUniformMap = ReturnType<typeof createStormFogUniforms>
+
 const STORM_PALETTES: Record<ColorScheme, StormPalette> = {
   mono: {
     variant: 'classic_storm',
@@ -187,6 +196,8 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
   private renderer: THREE.WebGLRenderer | null = null
   private scene: THREE.Scene | null = null
   private camera: THREE.PerspectiveCamera | null = null
+  private fogMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null
+  private fogUniforms: StormFogUniformMap | null = null
   private stormGroup: THREE.Group | null = null
   private ambientLight: THREE.AmbientLight | null = null
   private animationFrameId = 0
@@ -207,6 +218,8 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
   private fogClusters: FogCluster[] = []
   private fogTextureUrl: string | null = null
   private rainDrops: RainDrop[] = []
+  private readonly fogIslands = Array.from({ length: MAX_STORM_FOG_ISLANDS }, () => new THREE.Vector4())
+  private readonly dominantFlashUv = new THREE.Vector3(0.5, 0.56, 0)
 
   constructor(preset: StormLightningPreset) {
     this.options = {
@@ -265,6 +278,7 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     this.renderer.setSize(safeWidth, safeHeight, false)
     this.camera.aspect = safeWidth / safeHeight
     this.camera.updateProjectionMatrix()
+    this.updateFogPlaneScale()
     this.resizeRainCanvas()
   }
 
@@ -300,6 +314,22 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     this.camera.position.set(0, 0.4, 24)
     this.camera.lookAt(0, 0, 0)
 
+    this.fogUniforms = createStormFogUniforms()
+    const fogGeometry = new THREE.PlaneGeometry(1, 1, 1, 1)
+    const fogMaterial = new THREE.ShaderMaterial({
+      uniforms: this.fogUniforms,
+      vertexShader: STORM_FOG_VERTEX_SHADER,
+      fragmentShader: STORM_FOG_FRAGMENT_SHADER,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      transparent: false,
+    })
+    this.fogMesh = new THREE.Mesh(fogGeometry, fogMaterial)
+    this.fogMesh.position.set(0, 0.2, -58)
+    this.fogMesh.renderOrder = -20
+    this.scene.add(this.fogMesh)
+
     this.stormGroup = new THREE.Group()
     this.scene.add(this.stormGroup)
 
@@ -323,40 +353,14 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     this.renderer.domElement.style.display = 'block'
     this.renderer.domElement.style.pointerEvents = 'none'
     this.container.replaceChildren(this.renderer.domElement)
+    this.seedFogIslands()
+    this.updateFogPlaneScale()
     this.setupOverlays()
   }
 
   private setupOverlays() {
     if (!this.container) {
       return
-    }
-
-    if (!this.cloudLayer) {
-      const cloudLayer = document.createElement('div')
-      Object.assign(cloudLayer.style, {
-        position: 'absolute',
-        inset: '0',
-        pointerEvents: 'none',
-        mixBlendMode: 'screen',
-        opacity: '0.12',
-        willChange: 'opacity, transform, background',
-      })
-      this.container.appendChild(cloudLayer)
-      this.cloudLayer = cloudLayer
-    }
-
-    if (!this.islandLayer) {
-      const islandLayer = document.createElement('div')
-      Object.assign(islandLayer.style, {
-        position: 'absolute',
-        inset: '0',
-        pointerEvents: 'none',
-        mixBlendMode: 'screen',
-        opacity: '0.08',
-        willChange: 'opacity, transform, background',
-      })
-      this.container.appendChild(islandLayer)
-      this.islandLayer = islandLayer
     }
 
     if (!this.rainCanvas) {
@@ -390,7 +394,6 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       this.flashLayer = flashLayer
     }
 
-    this.ensureFogClusters()
   }
 
   private applyPalette() {
@@ -400,16 +403,10 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     const palette = this.palette
     const brightness = normalize(this.options.brightness)
     this.scene.background = new THREE.Color(palette.background)
-    this.scene.fog = new THREE.FogExp2(palette.fog, lerp(0.027, 0.018, brightness))
+    this.scene.fog = null
     this.renderer.setClearColor(palette.background, 1)
     this.ambientLight.intensity = 0.028 + brightness * 0.042
-    if (this.cloudLayer) {
-      this.cloudLayer.style.background = 'linear-gradient(180deg, rgba(2,4,8,0.12), rgba(1,2,5,0.34))'
-    }
-    if (this.islandLayer) {
-      this.islandLayer.style.background = 'linear-gradient(180deg, rgba(6,10,16,0.06), rgba(3,5,8,0.18))'
-    }
-    this.updateFogClusterStyles()
+    this.updateFogPalette()
     if (this.flashLayer) {
       this.flashLayer.style.background = [
         `radial-gradient(ellipse at 14% 22%, ${palette.flash} 0%, rgba(255,255,255,0) 28%)`,
@@ -439,7 +436,7 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       }
 
       this.updateStrikes()
-      this.updateClouds()
+      this.updateFogLayer()
       this.updateRain(deltaSeconds)
       this.renderer.render(this.scene, this.camera)
     } catch (error) {
@@ -463,6 +460,7 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
 
     let flashSum = 0
     let flashMax = 0
+    let dominantFlash = 0
 
     for (let index = this.activeStrikes.length - 1; index >= 0; index -= 1) {
       const strike = this.activeStrikes[index]
@@ -480,14 +478,14 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       const fadeMultiplier = 1 - smoothstep(fadeProgress)
 
       strike.bolts.forEach((bolt) => {
-        const branchAttenuation = bolt.isBranch ? lerp(0.42, 0.68, 1 - Math.min(1, bolt.branchLevel / 3)) : 1
+        const branchAttenuation = bolt.isBranch ? lerp(0.88, 1.06, 1 - Math.min(1, bolt.branchLevel / 3)) : 1
         const leaderStart = strike.leaderDuration * (bolt.isBranch ? bolt.activationOffset : 0)
         const leaderWindow = Math.max(
           0.012,
-          strike.leaderDuration * (bolt.isBranch ? lerp(0.14, 0.28, bolt.leaderBias) : 1),
+          strike.leaderDuration * (bolt.isBranch ? lerp(0.38, 0.62, bolt.leaderBias) : 1),
         )
         const leaderTime = clamp((time - leaderStart) / leaderWindow, 0, 1)
-        const leaderFlash = smoothstep(leaderTime) * lerp(0.18, 0.52, bolt.leaderBias) * (bolt.isBranch ? 0.22 : 0.58)
+        const leaderFlash = smoothstep(leaderTime) * lerp(0.18, 0.52, bolt.leaderBias) * (bolt.isBranch ? 0.44 : 0.58)
         const revealProgress = bolt.isBranch
           ? clamp(Math.pow(leaderTime, 1.08), 0, 1)
           : clamp(Math.pow(clamp(time / Math.max(0.001, strike.leaderDuration), 0, 1), 0.9), 0, 1)
@@ -503,7 +501,7 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
           : 0
         const flickerFlash = phase.flicker * bolt.flickerBias * branchAttenuation
         const afterglowFlash = phase.afterglow * bolt.baseIntensity * bolt.afterglowScale
-        const boltDominance = bolt.isBranch ? lerp(0.68, 0.92, 1 - Math.min(1, bolt.branchLevel / 3)) : 1.18
+        const boltDominance = bolt.isBranch ? lerp(1.02, 1.18, 1 - Math.min(1, bolt.branchLevel / 3)) : 1.18
 
         const coreOpacity = clamp(
           (leaderFlash * (bolt.isBranch ? 0.18 : 0.26) + mainFlash * 1.92 + flickerFlash * 0.34 + afterglowFlash * 0.12)
@@ -519,14 +517,14 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
             * boltDominance
             * fadeMultiplier,
           0,
-          bolt.isBranch ? 0.36 : 0.72,
+          bolt.isBranch ? 0.52 : 0.72,
         )
         const haloOpacity = bolt.haloMesh
           ? clamp(
             (phase.main * 0.18 * bolt.haloBias + phase.flicker * 0.08 * bolt.haloBias + phase.afterglow * 0.03)
               * fadeMultiplier,
             0,
-            bolt.isBranch ? 0.08 : 0.24,
+            bolt.isBranch ? 0.14 : 0.24,
           )
           : 0
 
@@ -548,6 +546,15 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       strike.originHalo.scale.setScalar(1 + phase.main * 0.72 + phase.flicker * 0.26)
       flashSum += strikeFlash * (strike.secondary ? 0.48 : 1.12)
       flashMax = Math.max(flashMax, strikeFlash * (strike.secondary ? 0.86 : 1.08))
+      if (strikeFlash > dominantFlash && this.camera) {
+        const projected = strike.originCore.position.clone().project(this.camera)
+        this.dominantFlashUv.set(
+          clamp(projected.x * 0.5 + 0.5, 0, 1),
+          clamp(projected.y * 0.5 + 0.5, 0, 1),
+          clamp(strikeFlash, 0, 1),
+        )
+        dominantFlash = strikeFlash
+      }
 
       const strikeEndAt = fadeStartAt + strike.fadeOutDuration
       if (time > strikeEndAt) {
@@ -610,34 +617,34 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
   private scheduleNextStrike(initial: boolean) {
     const intensity = normalize(this.options.intensity)
     const speed = normalize(this.options.speed)
-    let baseDelay = lerp(0.7, 0.22, intensity + speed * 0.18)
+    let baseDelay = lerp(4.8, 1.4, intensity + speed * 0.16)
 
     if (!initial) {
       if (this.burstStrikesRemaining > 0) {
         this.burstStrikesRemaining -= 1
-        baseDelay = lerp(0.18, 0.85, Math.pow(Math.random(), 1.8))
+        baseDelay = lerp(0.55, 1.25, Math.pow(Math.random(), 1.8))
       } else {
         const roll = Math.random()
-        const burstChance = 0.18 + intensity * 0.24 + this.eventBoost * 0.16
-        const mediumChance = 0.54 + speed * 0.14
+        const burstChance = 0.08 + intensity * 0.16 + this.eventBoost * 0.12
+        const mediumChance = 0.42 + speed * 0.12
 
         if (roll < burstChance) {
-          this.burstStrikesRemaining = 1 + Math.floor(Math.random() * (1 + Math.round(intensity * 2.2)))
-          baseDelay = lerp(0.22, 0.95, Math.pow(Math.random(), 2))
+          this.burstStrikesRemaining = 1 + Math.floor(Math.random() * (1 + Math.round(intensity * 1.4)))
+          baseDelay = lerp(0.85, 1.65, Math.pow(Math.random(), 2))
         } else if (roll < burstChance + mediumChance) {
-          baseDelay = lerp(0.85, 2.4, Math.pow(Math.random(), 1.45))
+          baseDelay = lerp(1.4, 3.6, Math.pow(Math.random(), 1.45))
         } else {
-          baseDelay = lerp(2.1, 5.4, Math.pow(Math.random(), 0.62))
+          baseDelay = lerp(3.4, 6.1, Math.pow(Math.random(), 0.62))
         }
       }
     }
 
-    const irregularJitter = lerp(-0.22, 0.44, Math.random()) * lerp(0.32, 1, intensity + speed * 0.2)
-    this.nextStrikeIn = Math.max(0.12, baseDelay + irregularJitter - speed * 0.3 - this.eventBoost * 0.58)
+    const irregularJitter = lerp(-0.48, 0.72, Math.random()) * lerp(0.36, 1, intensity + speed * 0.2)
+    this.nextStrikeIn = Math.max(0.5, baseDelay + irregularJitter - speed * 0.42 - this.eventBoost * 0.68)
   }
 
   private get maxConcurrentStrikes() {
-    return 4
+    return 3
   }
 
   private createStrikeCluster() {
@@ -652,11 +659,9 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     const intensity = normalize(this.options.intensity)
     const clusterRoll = Math.random()
     let strikeCount = 1
-    if (clusterRoll < 0.02 + intensity * 0.03 + this.eventBoost * 0.03) {
-      strikeCount = 4
-    } else if (clusterRoll < 0.06 + intensity * 0.06 + this.eventBoost * 0.05) {
+    if (clusterRoll < 0.04 + intensity * 0.04 + this.eventBoost * 0.04) {
       strikeCount = 3
-    } else if (clusterRoll < 0.18 + intensity * 0.1 + this.eventBoost * 0.07) {
+    } else if (clusterRoll < 0.18 + intensity * 0.08 + this.eventBoost * 0.06) {
       strikeCount = 2
     }
     strikeCount = Math.min(strikeCount, available)
@@ -740,45 +745,54 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     mainBolt.leaderBias = 1
     const bolts: StrikeBolt[] = [mainBolt]
 
-    const branchQueue: Array<{ points: THREE.Vector3[]; level: number }> = [{ points: mainPoints, level: 1 }]
-    let branchBudget = secondary
-      ? 2 + Math.floor(lerp(1, 3, intensity) * strikeProfile.branchRichness)
-      : 6 + Math.floor(lerp(3, 7, intensity + this.eventBoost * 0.15) * strikeProfile.branchRichness)
+    const primaryBranchTarget = secondary
+      ? 1 + Math.floor(lerp(0, 2, intensity + Math.random() * 0.2))
+      : 3 + Math.floor(lerp(1, 3, intensity + this.eventBoost * 0.18))
+    const primaryBranchSeeds = this.createBranchSourceProgresses(primaryBranchTarget)
+    const spawnedPrimaryBranches: BranchPath[] = []
 
-    while (branchQueue.length > 0 && branchBudget > 0) {
-      const currentBranch = branchQueue.shift()
-      if (!currentBranch) {
-        break
+    primaryBranchSeeds.forEach((seed) => {
+      const branchPath = this.createBranchPoints(mainPoints, strikeProfile, 1, seed)
+      if (!branchPath) {
+        return
       }
 
-      const branchAttempts = currentBranch.level === 1
-        ? 2 + Math.floor(lerp(1, secondary ? 2 : 4, intensity + Math.random() * 0.22))
-        : 1 + Math.floor(lerp(0, 1.6, Math.random() * strikeProfile.branchRichness))
+      const branchBolt = this.createBolt(
+        branchPath.points,
+        true,
+        lerp(1.02, 1.54, Math.random()),
+        strikeProfile,
+        1,
+        branchPath.sourceProgress,
+      )
+      branchBolt.activationOffset = clamp(branchPath.sourceProgress + lerp(-0.01, 0.03, Math.random()), 0.08, 0.94)
+      branchBolt.leaderBias *= 1.08
+      bolts.push(branchBolt)
+      spawnedPrimaryBranches.push(branchPath)
+    })
 
-      for (let index = 0; index < branchAttempts && branchBudget > 0; index += 1) {
-        const spawnChance = currentBranch.level === 1
-          ? lerp(secondary ? 0.42 : 0.68, secondary ? 0.72 : 0.94, intensity + this.eventBoost * 0.18)
-          : lerp(0.18, 0.42, Math.random() * strikeProfile.branchRichness)
-        if (Math.random() > spawnChance) {
-          continue
-        }
-        const branchPath = this.createBranchPoints(currentBranch.points, strikeProfile, currentBranch.level)
-        if (!branchPath) {
-          continue
-        }
-        const branchLevel = currentBranch.level
-        const branchWidth = lerp(0.78, 1.16, Math.random()) * Math.pow(0.82, branchLevel - 1)
-        const branchBolt = this.createBolt(branchPath.points, true, branchWidth, strikeProfile, branchLevel)
-        branchBolt.activationOffset = clamp(branchPath.sourceProgress + lerp(-0.02, 0.04, Math.random()), 0.06, 0.98)
-        branchBolt.leaderBias *= 0.9
-        bolts.push(branchBolt)
-        branchBudget -= 1
-
-        if (branchLevel < 2 && branchBudget > 0 && Math.random() < lerp(0.18, 0.44, strikeProfile.branchRichness)) {
-          branchQueue.push({ points: branchPath.points, level: branchLevel + 1 })
-        }
+    spawnedPrimaryBranches.forEach((parentBranch) => {
+      if (Math.random() > lerp(0.26, 0.48, strikeProfile.branchRichness)) {
+        return
       }
-    }
+
+      const subBranch = this.createBranchPoints(parentBranch.points, strikeProfile, 2)
+      if (!subBranch) {
+        return
+      }
+
+      const branchBolt = this.createBolt(
+        subBranch.points,
+        true,
+        lerp(0.7, 1.02, Math.random()),
+        strikeProfile,
+        2,
+        clamp(parentBranch.sourceProgress + subBranch.sourceProgress * 0.22, 0.14, 0.98),
+      )
+      branchBolt.activationOffset = clamp(branchBolt.sourceProgress + lerp(0.02, 0.08, Math.random()), 0.14, 0.98)
+      branchBolt.leaderBias *= 0.92
+      bolts.push(branchBolt)
+    })
 
     bolts.forEach((bolt) => {
       if (bolt.haloMesh) {
@@ -855,6 +869,7 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     widthFactor: number,
     profile: StrikeProfile,
     branchLevel: number,
+    sourceProgress = 0,
   ): StrikeBolt {
     const brightness = normalize(this.options.brightness)
     const brokenness = clamp(profile.brokenness * lerp(0.82, 1.24, Math.random()), 0, 1)
@@ -871,19 +886,19 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     }, 0)
     const branchScale = Math.pow(0.72, branchLevel)
     const pathStretch = clamp(boltLength / (isBranch ? 7.2 : 18), 0.72, 1.28)
-    const baseRadius = (isBranch ? 0.018 : 0.054)
+    const baseRadius = (isBranch ? 0.03 : 0.054)
       * widthFactor
       * branchScale
       * pathStretch
       * lerp(0.94, 1.16, Math.random())
 
-    const coreMesh = this.createTubeBoltMesh(curve, baseRadius * (isBranch ? 0.28 : 0.34), this.palette.core, 6, tubularSegments)
-    const rimMesh = this.createTubeBoltMesh(curve, baseRadius * (isBranch ? 0.42 : 0.58), this.palette.rim, 7, tubularSegments)
+    const coreMesh = this.createTubeBoltMesh(curve, baseRadius * (isBranch ? 0.42 : 0.34), this.palette.core, 6, tubularSegments)
+    const rimMesh = this.createTubeBoltMesh(curve, baseRadius * (isBranch ? 0.66 : 0.58), this.palette.rim, 7, tubularSegments)
     const haloEnabled = branchLevel === 0
       ? Math.random() > lerp(0.14, 0.42, brokenness)
-      : Math.random() > lerp(0.62, 0.88, brokenness)
+      : Math.random() > lerp(0.32, 0.68, brokenness)
     const haloMesh = haloEnabled
-      ? this.createTubeBoltMesh(curve, baseRadius * lerp(isBranch ? 0.6 : 1.14, isBranch ? 0.84 : 1.6, brightness), this.palette.glow, 8, tubularSegments)
+      ? this.createTubeBoltMesh(curve, baseRadius * lerp(isBranch ? 0.92 : 1.14, isBranch ? 1.22 : 1.6, brightness), this.palette.glow, 8, tubularSegments)
       : null
 
     coreMesh.material.opacity = 0
@@ -903,10 +918,11 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       haloMesh,
       drawCount,
       branchLevel,
-      baseIntensity: lerp(0.94, 1.42, Math.random()) * (isBranch ? (branchLevel === 1 ? 0.56 : 0.42) * branchScale : 1.08),
-      coreGain: lerp(1.08, 1.62, Math.random()) * (isBranch ? (branchLevel === 1 ? 0.84 : 0.68) : 1.08),
-      rimGain: lerp(0.14, 0.42, Math.random()) * lerp(0.82, 1.14, branchyLook) * (isBranch ? (branchLevel === 1 ? 0.82 : 0.66) : 1.08),
-      leaderBias: lerp(0.56, 1.08, Math.random()) * (isBranch ? 0.82 : 1),
+      sourceProgress,
+      baseIntensity: lerp(0.94, 1.42, Math.random()) * (isBranch ? (branchLevel === 1 ? 0.96 : 0.7) * branchScale : 1.08),
+      coreGain: lerp(1.08, 1.62, Math.random()) * (isBranch ? (branchLevel === 1 ? 1.12 : 0.9) : 1.08),
+      rimGain: lerp(0.14, 0.42, Math.random()) * lerp(0.82, 1.14, branchyLook) * (isBranch ? (branchLevel === 1 ? 1.02 : 0.82) : 1.08),
+      leaderBias: lerp(0.56, 1.08, Math.random()) * (isBranch ? 0.96 : 1),
       flickerBias: lerp(0.4, 0.88, Math.random()) * (isBranch ? 0.62 : 1),
       haloBias: haloEnabled ? lerp(isBranch ? 0.22 : 0.42, isBranch ? 0.54 : 0.84, Math.random()) : 0,
       activationOffset: clamp(
@@ -918,9 +934,9 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       decayBias: lerp(isBranch ? 0.42 : 0.56, isBranch ? 0.94 : 1.32, Math.random()),
       tipFalloff: lerp(1, isBranch ? 0.68 : 0.76, Math.random()),
       flashScale: isBranch
-        ? lerp(branchLevel === 1 ? 0.56 : 0.38, branchLevel === 1 ? 0.82 : 0.58, Math.random()) * branchScale
+        ? lerp(branchLevel === 1 ? 0.92 : 0.58, branchLevel === 1 ? 1.26 : 0.8, Math.random()) * branchScale
         : lerp(1.08, 1.34, Math.random()),
-      afterglowScale: isBranch ? lerp(0.04, 0.1, Math.random()) * branchScale : lerp(0.16, 0.24, Math.random()),
+      afterglowScale: isBranch ? lerp(0.08, 0.16, Math.random()) * branchScale : lerp(0.16, 0.24, Math.random()),
       isBranch,
     }
   }
@@ -1098,8 +1114,34 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
   }
 
   private createRenderPath(points: THREE.Vector3[], isBranch: boolean) {
-    if (points.length <= 2) {
+    if (points.length <= 3) {
       return points.map((point) => point.clone())
+    }
+
+    if (isBranch) {
+      const shaped: THREE.Vector3[] = [points[0].clone(), points[1].clone()]
+
+      for (let index = 2; index < points.length - 1; index += 1) {
+        const prev = points[index - 1]
+        const current = points[index]
+        const next = points[index + 1]
+        const tangent = next.clone().sub(prev).normalize()
+        const bendAxis = this.randomPerpendicular(tangent)
+        const localSpan = Math.min(prev.distanceTo(current), current.distanceTo(next))
+        const shapedPoint = prev.clone().multiplyScalar(0.12)
+          .add(current.clone().multiplyScalar(0.72))
+          .add(next.clone().multiplyScalar(0.16))
+
+        shapedPoint.addScaledVector(
+          bendAxis,
+          lerp(-1, 1, Math.random()) * localSpan * 0.01,
+        )
+
+        shaped.push(shapedPoint)
+      }
+
+      shaped.push(points[points.length - 1].clone())
+      return shaped
     }
 
     const shaped: THREE.Vector3[] = [points[0].clone()]
@@ -1127,6 +1169,13 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     return shaped
   }
 
+  private createBranchSourceProgresses(count: number) {
+    return Array.from({ length: count }, (_, index) => {
+      const slot = (index + 0.6) / (count + 0.45)
+      return clamp(lerp(0.44, 0.9, slot) + lerp(-0.04, 0.04, Math.random()), 0.4, 0.92)
+    }).sort((left, right) => left - right)
+  }
+
   private createBoltPoints(
     lengthFactor: number,
     subdivisions: number,
@@ -1151,13 +1200,20 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     return this.buildDischargePath(start, end, subdivisions, displacement, profile.gravityBias, profile.trunkPull)
   }
 
-  private createBranchPoints(mainPoints: THREE.Vector3[], profile: StrikeProfile, branchLevel: number): BranchPath | null {
+  private createBranchPoints(
+    mainPoints: THREE.Vector3[],
+    profile: StrikeProfile,
+    branchLevel: number,
+    sourceProgressHint?: number,
+  ): BranchPath | null {
     if (mainPoints.length < 6) {
       return null
     }
 
     const lowerBias = Math.pow(Math.random(), lerp(0.34, 0.76, profile.branchSourceBias))
-    const sourceProgress = clamp(0.48 + (1 - lowerBias) * 0.4 + branchLevel * 0.04, 0.34, 0.95)
+    const sourceProgress = sourceProgressHint == null
+      ? clamp(0.5 + (1 - lowerBias) * 0.34 + branchLevel * 0.03, 0.4, 0.93)
+      : clamp(sourceProgressHint + lerp(-0.025, 0.025, Math.random()), 0.4, 0.93)
     const sourceIndex = Math.min(mainPoints.length - 2, Math.max(1, Math.floor(sourceProgress * (mainPoints.length - 1))))
     const source = mainPoints[sourceIndex]
     const localDirection = mainPoints[Math.min(mainPoints.length - 1, sourceIndex + 1)]
@@ -1165,37 +1221,38 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       .sub(mainPoints[Math.max(0, sourceIndex - 1)])
       .normalize()
     const sideAxis = this.randomPerpendicular(localDirection)
-    const branchDirection = localDirection
-      .clone()
-      .multiplyScalar(0.04 + Math.random() * 0.08)
-      .add(sideAxis.multiplyScalar(lerp(1.08, 2.35, Math.random()) * profile.branchSpread * (Math.random() > 0.5 ? 1 : -1)))
-      .add(new THREE.Vector3(0, -lerp(0.52, 1.34, Math.random()) * profile.gravityBias, lerp(-0.64, 0.64, Math.random()) * profile.branchSpread))
-      .normalize()
-
-    const branchLength = lerp(0.9, 5.8, Math.pow(Math.random(), 0.72))
-      * Math.pow(0.72, branchLevel - 1)
-      * (0.84 + normalize(this.options.intensity) * 0.42)
-      * profile.branchRichness
-    const knee = source.clone()
-      .add(sideAxis.clone().multiplyScalar(lerp(0.12, 0.48, Math.random()) * Math.pow(0.82, branchLevel - 1)))
+    const branchSide = Math.random() > 0.5 ? 1 : -1
+    const elbow = source.clone()
+      .add(sideAxis.clone().multiplyScalar(lerp(0.3, branchLevel === 1 ? 0.96 : 0.58, Math.random()) * Math.pow(0.84, branchLevel - 1) * branchSide))
       .add(new THREE.Vector3(
         0,
-        -lerp(0.1, 0.34, Math.random()) * profile.gravityBias,
-        lerp(-0.18, 0.18, Math.random()) * profile.branchSpread,
+        -lerp(0.08, 0.28, Math.random()) * profile.gravityBias + lerp(0.04, 0.22, Math.random()) * Math.pow(0.86, branchLevel - 1),
+        lerp(-0.12, 0.12, Math.random()) * profile.branchSpread,
       ))
-    const end = knee.clone().add(branchDirection.multiplyScalar(branchLength))
+    const branchDirection = localDirection
+      .clone()
+      .multiplyScalar(0.08 + Math.random() * 0.12)
+      .add(sideAxis.clone().multiplyScalar(lerp(1.24, 2.64, Math.random()) * profile.branchSpread * branchSide))
+      .add(new THREE.Vector3(0, -lerp(0.46, 1.08, Math.random()) * profile.gravityBias, lerp(-0.58, 0.58, Math.random()) * profile.branchSpread))
+      .normalize()
+
+    const branchLength = lerp(branchLevel === 1 ? 2.6 : 1.4, branchLevel === 1 ? 7.8 : 4.2, Math.pow(Math.random(), 0.66))
+      * Math.pow(0.72, branchLevel - 1)
+      * (0.9 + normalize(this.options.intensity) * 0.48)
+      * profile.branchRichness
+    const end = elbow.clone().add(branchDirection.multiplyScalar(branchLength))
     const points = this.buildDischargePath(
-      knee,
+      elbow,
       end,
       1 + Math.floor(Math.random() * (branchLevel === 1 ? 3 : 2)),
-      (0.5 + Math.random() * 1.4) * Math.pow(0.72, branchLevel - 1),
+      (0.72 + Math.random() * 1.6) * Math.pow(0.76, branchLevel - 1),
       profile.gravityBias * lerp(0.52, 0.72, Math.random()),
       profile.trunkPull * lerp(0.18, 0.34, Math.random()),
       true,
     )
-    const truncateAt = Math.max(3, Math.floor(points.length * lerp(0.28, 0.72, Math.random())))
+    const truncateAt = Math.max(4, Math.floor(points.length * lerp(0.46, 0.88, Math.random())))
     return {
-      points: [source.clone(), ...points.slice(0, truncateAt)],
+      points: [source.clone(), elbow, ...points.slice(1, truncateAt)],
       sourceProgress,
     }
   }
@@ -1292,6 +1349,60 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
       ? new THREE.Vector3(1, 0, 0)
       : UP_AXIS
     return direction.clone().cross(reference).normalize()
+  }
+
+  private seedFogIslands() {
+    this.fogIslands.forEach((island, index) => {
+      island.set(
+        lerp(0.14, 0.86, Math.random()),
+        lerp(0.16, 0.84, Math.random()),
+        lerp(index < 2 ? 0.16 : 0.12, index < 2 ? 0.24 : 0.2, Math.random()),
+        lerp(index < 2 ? 0.14 : 0.1, index < 2 ? 0.22 : 0.18, Math.random()),
+      )
+    })
+    if (this.fogUniforms) {
+      this.fogUniforms.uIslands.value = this.fogIslands
+      this.fogUniforms.uIslandCount.value = 4 + Math.floor(Math.random() * 2)
+    }
+  }
+
+  private updateFogPlaneScale() {
+    if (!this.camera || !this.fogMesh || !this.container || !this.fogUniforms) {
+      return
+    }
+    const distance = this.camera.position.z - this.fogMesh.position.z
+    const height = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * distance
+    const width = height * this.camera.aspect
+    this.fogMesh.scale.set(width, height, 1)
+    this.fogUniforms.uResolution.value.set(
+      Math.max(1, this.container.clientWidth),
+      Math.max(1, this.container.clientHeight),
+    )
+  }
+
+  private updateFogPalette() {
+    if (!this.fogUniforms) {
+      return
+    }
+    const palette = this.palette
+    const low = new THREE.Color(palette.background).lerp(new THREE.Color(palette.fog), 0.52)
+    const mid = new THREE.Color(palette.fog).lerp(new THREE.Color(palette.rim), 0.2)
+    const high = new THREE.Color(palette.rim).lerp(new THREE.Color(palette.core), 0.12)
+    this.fogUniforms.uColorLow.value.copy(low)
+    this.fogUniforms.uColorMid.value.copy(mid)
+    this.fogUniforms.uColorHigh.value.copy(high)
+  }
+
+  private updateFogLayer() {
+    if (!this.fogUniforms) {
+      return
+    }
+    this.fogUniforms.uTime.value = this.elapsedSeconds
+    this.fogUniforms.uIntensity.value = normalize(this.options.intensity)
+    this.fogUniforms.uSpeed.value = normalize(this.options.speed)
+    this.fogUniforms.uBrightness.value = normalize(this.options.brightness)
+    this.fogUniforms.uFlash.value = this.currentSceneFlash
+    this.fogUniforms.uLocalFlash.value.copy(this.dominantFlashUv)
   }
 
   private updateClouds() {
@@ -1423,19 +1534,17 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
 
   private disposeScene() {
     this.disposeStrike()
-    this.fogClusters.forEach((cluster) => cluster.el.remove())
-    this.fogClusters = []
-    this.fogTextureUrl = null
-    this.cloudLayer?.remove()
-    this.islandLayer?.remove()
     this.rainCanvas?.remove()
     this.flashLayer?.remove()
-    this.cloudLayer = null
-    this.islandLayer = null
     this.rainCanvas = null
     this.rainContext = null
     this.flashLayer = null
     this.rainDrops = []
+    this.fogMesh?.geometry.dispose()
+    this.fogMesh?.material.dispose()
+    this.fogMesh?.removeFromParent()
+    this.fogMesh = null
+    this.fogUniforms = null
     this.stormGroup?.clear()
     this.stormGroup?.removeFromParent()
     this.stormGroup = null
