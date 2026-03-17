@@ -5,6 +5,7 @@ import { CubeVisualizerRuntime, isCubeVisualizerPreset } from './cubeRuntime'
 import { DvdBounceRuntime, isDvdBouncePreset } from './dvdBounceRuntime'
 import { HydraVisualizerRuntime, isHydraVisualizerPreset } from './hydraRenderer'
 import { isMatrixScreenPreset, MatrixScreenRuntime } from './matrixScreenRuntime'
+import { isNebelPreset, NebelVisualizerRuntime } from './nebelRuntime'
 import { PipesVisualizerRuntime, isPipesVisualizerPreset } from './pipesRuntime'
 import { isStormLightningPreset, StormLightningRuntime } from './stormLightningRuntime'
 import type { VisualizerRuntimeController, VisualizerRuntimeOptions } from './runtimeTypes'
@@ -206,10 +207,13 @@ export function createVisualizerRuntime(
   if (isMatrixScreenPreset(visualizer.active_preset)) {
     return new MatrixScreenRuntime(visualizer.active_preset)
   }
+  if (isNebelPreset(visualizer.active_preset)) {
+    return new NebelVisualizerRuntime(visualizer.active_preset)
+  }
   if (isPipesVisualizerPreset(visualizer.active_preset)) {
     return new PipesVisualizerRuntime(visualizer.active_preset)
   }
-  if (visualizer.active_preset === 'nebel' || visualizer.active_preset === 'vanta_halo') {
+  if (visualizer.active_preset === 'vanta_halo') {
     return new VantaVisualizerRuntime(visualizer.active_preset)
   }
   if (isHydraVisualizerPreset(visualizer.active_preset)) {

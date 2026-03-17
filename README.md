@@ -153,7 +153,8 @@ Der globale App-Mode entscheidet weiterhin nur zwischen `visualizer`, `selfie`, 
 
 RAVEBERG bindet externe Visualizer nur innerhalb der bestehenden Visualizer-Runtime ein. Produktiv genutzt werden aktuell:
 
-- `vanta` fuer `nebel` und `vanta_halo`
+- eigener GLSL-/Three.js-Fog-Renderer fuer `nebel`
+- `vanta` fuer `vanta_halo`
 - `yomboprime/lightning_strike_demo` als MIT-lizenzierte Three.js-Referenz fuer `storm_lightning`
 - `retro_cube` als eigener Three.js-Renderer mit klassischer Bouncing-Cube-Screensaver-Anmutung
 - `dvd_bounce` als eigener 2D-/Three.js-Renderer mit stilisiertem DVD-Badge-Bounce und organischem Neon-Trail
@@ -254,6 +255,31 @@ RAVEBERG-Anpassungen:
 - unregelmaessige Stream-Lebenszyklen statt gleichmaessigem Vorhang
 - heller Kopf, schwacher Nachlauf und laufende Glyph-Mutationen pro Spalte
 - fast schwarzer Hintergrund mit nur sehr subtiler dunkler Haze statt Spotlights oder auffaelligen Patterns
+
+## Nebel
+
+`nebel` ist jetzt ein eigener shaderbasierter Fullscreen-Fog-Renderer in `frontend/src/components/display/visualizer/nebelRuntime.ts` mit der GLSL-Basis in `nebelFogShader.ts`. Die fruehere Vanta-Fog-Anmutung ist damit durch einen nativen RAVEBERG-Nebelraum ersetzt, waehrend `vanta_halo` separat bestehen bleibt.
+
+Shader-/Noise-Basis:
+
+- leichter eigener GLSL-Fragment-Shader
+- Value-Noise plus mehrlagiges `fbm`
+- mehrere grosse CPU-vorbereitete Nebelcluster als Uniform-Felder
+- kein schweres volumetrisches Raymarching
+
+Mapping der bestehenden Visualizer-Settings:
+
+- `intensity`: sichtbare Dichte, Clustergewichtung und Tiefenkontrast
+- `speed`: horizontale Drift, Formumbau und zeitliche Verwirbelung
+- `brightness`: Sichtbarkeit, innere Highlights und Event-Pulse
+- `color_scheme`: Varianten zwischen fast schwarz, tiefblau-violett und dunklem Lila
+
+RAVEBERG-Anpassungen:
+
+- mehrere grosse unregelmaessige Nebelcluster ohne zentralen Spotlight-Punkt
+- klar sichtbare horizontale Drift ueber mehrere Tiefenebenen direkt im Shader
+- organischer Formumbau und sanftes Atmen ueber zeitmodulierte `fbm`-Felder
+- langsame lokale Farbdynamik zwischen Schwarz und dunklem Lila statt statischem Filter
 
 ## Storm Lightning
 

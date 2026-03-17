@@ -10,7 +10,7 @@ const DVD_BOUNCE_PRESETS = new Set<DvdBouncePreset>(['dvd_bounce'])
 const MAX_TRAIL_GHOSTS = 0
 const BADGE_ASPECT = 2.7
 const BASE_VIEW_HEIGHT = 100
-const EDGE_PADDING = 6
+const EDGE_PADDING = 0
 
 interface DvdPalette {
   background: number
