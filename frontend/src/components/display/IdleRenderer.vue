@@ -1,19 +1,31 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import AuroraPolaroidEngine from './AuroraPolaroidEngine.vue'
 import RavebergLogo from '../branding/RavebergLogo.vue'
 import QrCodeMatrix from '../branding/QrCodeMatrix.vue'
 import { useVirtualStageScale } from './useVirtualStageScale'
 
-defineProps<{
-  eventName: string
-  eventTagline: string
-  guestUploadUrl: string
-  reactionToken?: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    eventName: string
+    eventTagline: string
+    guestUploadUrl: string
+    reactionToken?: number
+    hueShiftDegrees?: number
+  }>(),
+  {
+    reactionToken: 0,
+    hueShiftDegrees: 0,
+  },
+)
 
 const STAGE_SCALE_BOOST = 1.12
 
 const { stageShellStyle } = useVirtualStageScale({ scaleBoost: STAGE_SCALE_BOOST })
+const backgroundStyle = computed(() => ({
+  '--idle-hue-shift': `${props.hueShiftDegrees}deg`,
+}))
 
 const fogLayers = [
   {
@@ -97,7 +109,7 @@ const particles = [
 </script>
 
 <template>
-  <div class="idle-renderer">
+  <div class="idle-renderer" :style="backgroundStyle">
     <div class="idle-background" aria-hidden="true">
       <div class="idle-base-layer">
         <AuroraPolaroidEngine
@@ -198,6 +210,8 @@ const particles = [
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  filter: hue-rotate(var(--idle-hue-shift, 0deg)) saturate(1.04);
+  transition: filter 320ms ease;
 }
 
 .idle-base-layer,

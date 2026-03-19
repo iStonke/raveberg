@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import type {
+  AmbientColorPreset,
   DisplayRenderMode,
   PublicRuntimeInfoResponse,
   RemoteRendererFallback,
@@ -11,6 +12,13 @@ import type {
 import { fetchPublicRuntimeInfo, updateRuntimeConfig } from '../services/api'
 
 export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
+  const ambientColorPresetHues: Record<AmbientColorPreset, number> = {
+    blue: 0,
+    cyan: -28,
+    violet: 48,
+    custom: 0,
+  }
+
   const isLoaded = ref(false)
   const eventName = ref('RAVEBERG')
   const eventTagline = ref('Lokaler Foto- und Visualizer-Feed')
@@ -19,6 +27,8 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
   const remoteVisualizerUrl = ref('')
   const remoteVisualizerReconnectMs = ref(3000)
   const remoteVisualizerFallback = ref<RemoteVisualizerFallback>('local')
+  const ambientColorPreset = ref<AmbientColorPreset>('blue')
+  const ambientColorCustomHueDegrees = ref(0)
   const displayRenderMode = ref<DisplayRenderMode>('local')
   const remoteRendererBaseUrl = ref('')
   const remoteRendererOutputPath = ref('/preview')
@@ -43,6 +53,11 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
   })
 
   const uploadMaxMegabytes = computed(() => Math.max(1, Math.round(uploadMaxBytes.value / (1024 * 1024))))
+  const ambientHueShiftDegrees = computed(() =>
+    ambientColorPreset.value === 'custom'
+      ? ambientColorCustomHueDegrees.value
+      : (ambientColorPresetHues[ambientColorPreset.value] ?? 0),
+  )
 
   async function refresh() {
     applyRuntimeInfo(await fetchPublicRuntimeInfo())
@@ -66,6 +81,8 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
     remoteVisualizerUrl.value = response.remote_visualizer_url
     remoteVisualizerReconnectMs.value = response.remote_visualizer_reconnect_ms
     remoteVisualizerFallback.value = response.remote_visualizer_fallback
+    ambientColorPreset.value = response.ambient_color_preset
+    ambientColorCustomHueDegrees.value = response.ambient_color_custom_hue_degrees
     displayRenderMode.value = response.display_render_mode
     remoteRendererBaseUrl.value = response.remote_renderer_base_url
     remoteRendererOutputPath.value = response.remote_renderer_output_path
@@ -83,6 +100,8 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
     remoteVisualizerUrl.value = config.remote_visualizer_url
     remoteVisualizerReconnectMs.value = config.remote_visualizer_reconnect_ms
     remoteVisualizerFallback.value = config.remote_visualizer_fallback
+    ambientColorPreset.value = config.ambient_color_preset
+    ambientColorCustomHueDegrees.value = config.ambient_color_custom_hue_degrees
     displayRenderMode.value = config.display_render_mode
     remoteRendererBaseUrl.value = config.remote_renderer_base_url
     remoteRendererOutputPath.value = config.remote_renderer_output_path
@@ -100,6 +119,9 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
     remoteVisualizerUrl,
     remoteVisualizerReconnectMs,
     remoteVisualizerFallback,
+    ambientColorPreset,
+    ambientColorCustomHueDegrees,
+    ambientHueShiftDegrees,
     displayRenderMode,
     remoteRendererBaseUrl,
     remoteRendererOutputPath,

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute } from 'vue-router'
 
 import type {
+  AmbientColorPreset,
   AppMode,
   ColorScheme,
   DisplayRenderMode,
@@ -69,6 +70,7 @@ type SystemActionNotice = {
 }
 
 const errorMessage = ref('')
+const displayThemeError = ref('')
 const visualizerError = ref('')
 const selfieError = ref('')
 const standbyError = ref('')
@@ -81,6 +83,7 @@ const systemActionNotice = ref<SystemActionNotice | null>(null)
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const optimisticMode = ref<AppMode | null>(null)
+const isSavingDisplayTheme = ref(false)
 const isSavingVisualizer = ref(false)
 const isSavingSelfie = ref(false)
 const isSavingStandby = ref(false)
@@ -119,7 +122,10 @@ const isDeleteAllUploadsDialogOpen = ref(false)
 const isGuestQrDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
 const isWorkspaceSectionTransitionActive = ref(false)
+const activeStandbyTextField = ref<'headline' | 'subheadline' | null>(null)
 const adminUploadFetchLimit = 100
+const ambientColorPresetDraft = ref<AmbientColorPreset>('blue')
+const ambientColorCustomHueDraft = ref(0)
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -176,14 +182,94 @@ const selfieDraft = reactive<{
 })
 
 const standbyDraft = reactive<{
+  screen_variant: 'standard' | 'new'
   headline: string
   subheadline: string
-  hue_shift_degrees: number
 }>({
+  screen_variant: 'standard',
   headline: 'Unterm Berg beginnt die Nacht',
   subheadline: 'Willkommen im Auberg-Keller',
-  hue_shift_degrees: 0,
 })
+
+const ambientColorPresets = [
+  {
+    id: 'blue',
+    label: 'Blau',
+    swatch: 'linear-gradient(135deg, #55c8ff 0%, #2d6dff 100%)',
+  },
+  {
+    id: 'cyan',
+    label: 'Cyan',
+    swatch: 'linear-gradient(135deg, #79f4ff 0%, #2fb8d8 100%)',
+  },
+  {
+    id: 'violet',
+    label: 'Violett',
+    swatch: 'linear-gradient(135deg, #8b7bff 0%, #d166ff 100%)',
+  },
+  {
+    id: 'custom',
+    label: 'Andere',
+    swatch: '',
+    icon: 'mdi-palette-outline',
+  },
+] as const
+
+const standbyScreenOptions = [
+  {
+    id: 'standard',
+    title: 'Standard',
+    note: 'Aktueller Screen',
+  },
+  {
+    id: 'new',
+    title: 'Neu',
+    note: 'In Entwicklung',
+  },
+] as const
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '')
+  const expanded = normalized.length === 3
+    ? normalized.split('').map((char) => `${char}${char}`).join('')
+    : normalized
+
+  const red = Number.parseInt(expanded.slice(0, 2), 16)
+  const green = Number.parseInt(expanded.slice(2, 4), 16)
+  const blue = Number.parseInt(expanded.slice(4, 6), 16)
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function getStandbyScreenPreviewStyle(dimmed = false) {
+  const previewPresetId = ambientColorPresetDraft.value === 'custom' ? 'violet' : ambientColorPresetDraft.value
+  const preset = ambientColorPresets.find((entry) => entry.id === previewPresetId)
+  const [startColor = '#55c8ff', endColor = '#2d6dff'] = preset?.swatch.match(/#(?:[0-9a-fA-F]{3}){1,2}/g) ?? []
+
+  return {
+    '--standby-preview-color-a': hexToRgba(startColor, dimmed ? 0.22 : 0.3),
+    '--standby-preview-color-a-strong': hexToRgba(startColor, dimmed ? 0.28 : 0.42),
+    '--standby-preview-color-b': hexToRgba(endColor, dimmed ? 0.18 : 0.24),
+    '--standby-preview-color-b-strong': hexToRgba(endColor, dimmed ? 0.22 : 0.3),
+    '--standby-preview-saturation': dimmed ? '0.72' : '1',
+    '--standby-preview-brightness': dimmed ? '0.8' : '1',
+    '--standby-preview-opacity': dimmed ? '0.84' : '1',
+  }
+}
+
+function normalizeAmbientHueShift(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.max(-180, Math.min(180, Math.round(value)))
+}
+
+function getAmbientCustomSwatch() {
+  const primaryHue = 205 + ambientColorCustomHueDraft.value
+  const secondaryHue = 228 + ambientColorCustomHueDraft.value
+  return `linear-gradient(135deg, hsl(${primaryHue} 92% 68%) 0%, hsl(${secondaryHue} 88% 58%) 100%)`
+}
 
 const videoDraft = reactive<{
   playlist_enabled: boolean
@@ -301,6 +387,7 @@ let standbyPersistTimer: number | undefined
 let videoPersistTimer: number | undefined
 let remoteVisualizerPersistTimer: number | undefined
 let remoteRendererPersistTimer: number | undefined
+let ambientColorPersistTimer: number | undefined
 let systemActionNoticeTimer: number | undefined
 let workspaceSectionTransitionTimer: number | undefined
 
@@ -858,6 +945,9 @@ onBeforeUnmount(() => {
   if (remoteRendererPersistTimer) {
     window.clearTimeout(remoteRendererPersistTimer)
   }
+  if (ambientColorPersistTimer) {
+    window.clearTimeout(ambientColorPersistTimer)
+  }
   if (systemActionNoticeTimer) {
     window.clearTimeout(systemActionNoticeTimer)
   }
@@ -897,6 +987,22 @@ watch(
 )
 
 watch(
+  () => publicRuntimeStore.ambientColorPreset,
+  (value) => {
+    ambientColorPresetDraft.value = value
+  },
+  { immediate: true },
+)
+
+watch(
+  () => publicRuntimeStore.ambientColorCustomHueDegrees,
+  (value) => {
+    ambientColorCustomHueDraft.value = value
+  },
+  { immediate: true },
+)
+
+watch(
   activeWorkspaceSection,
   (section) => {
     isWorkspaceSectionTransitionActive.value = false
@@ -925,9 +1031,9 @@ watch(
 
 watch(
   () => [
+    standbyDraft.screen_variant,
     standbyDraft.headline,
     standbyDraft.subheadline,
-    standbyDraft.hue_shift_degrees,
   ],
   () => {
     if (!isHydratingStandbyDraft.value) {
@@ -1063,9 +1169,11 @@ async function syncSelfieDraftFromStore() {
 
 async function syncStandbyDraftFromStore() {
   isHydratingStandbyDraft.value = true
-  standbyDraft.headline = standbyStore.headline
-  standbyDraft.subheadline = standbyStore.subheadline
-  standbyDraft.hue_shift_degrees = standbyStore.hueShiftDegrees
+  standbyDraft.screen_variant = standbyStore.screenVariant
+  if (!activeStandbyTextField.value) {
+    standbyDraft.headline = standbyStore.headline
+    standbyDraft.subheadline = standbyStore.subheadline
+  }
   await nextTick()
   isHydratingStandbyDraft.value = false
 }
@@ -1134,6 +1242,55 @@ function scheduleStandbyPersist() {
   standbyPersistTimer = window.setTimeout(() => {
     void saveStandbyDraft()
   }, 200)
+}
+
+function handleStandbyTextFocus(field: 'headline' | 'subheadline') {
+  activeStandbyTextField.value = field
+}
+
+async function handleStandbyTextBlur() {
+  activeStandbyTextField.value = null
+  if (standbyPersistTimer) {
+    window.clearTimeout(standbyPersistTimer)
+    standbyPersistTimer = undefined
+  }
+  await saveStandbyDraft()
+}
+
+function selectAmbientColorPreset(value: AmbientColorPreset) {
+  if (ambientColorPresetDraft.value === value) {
+    return
+  }
+
+  ambientColorPresetDraft.value = value
+  if (value === 'custom') {
+    void saveAmbientColorPreset()
+    return
+  }
+
+  void saveAmbientColorPreset()
+}
+
+function scheduleAmbientColorPersist() {
+  if (ambientColorPersistTimer) {
+    window.clearTimeout(ambientColorPersistTimer)
+  }
+
+  ambientColorPersistTimer = window.setTimeout(() => {
+    void saveAmbientColorPreset()
+  }, 140)
+}
+
+function handleAmbientCustomHueInput(value: number) {
+  ambientColorCustomHueDraft.value = normalizeAmbientHueShift(value)
+  if (ambientColorPresetDraft.value !== 'custom') {
+    ambientColorPresetDraft.value = 'custom'
+  }
+  scheduleAmbientColorPersist()
+}
+
+function selectStandbyScreenVariant(value: 'standard' | 'new') {
+  standbyDraft.screen_variant = value
 }
 
 function scheduleVideoPersist() {
@@ -1226,9 +1383,10 @@ async function saveStandbyDraft() {
   isSavingStandby.value = true
   try {
     await standbyStore.save({
+      screen_variant: standbyDraft.screen_variant,
       headline: standbyDraft.headline,
       subheadline: standbyDraft.subheadline,
-      hue_shift_degrees: standbyDraft.hue_shift_degrees,
+      hue_shift_degrees: publicRuntimeStore.ambientHueShiftDegrees,
     })
     await refreshSystemOnly()
   } catch (error) {
@@ -1258,6 +1416,20 @@ async function saveVideoDraft() {
     videoError.value = error instanceof Error ? error.message : 'Video-Settings konnten nicht gespeichert werden'
   } finally {
     isSavingVideo.value = false
+  }
+}
+
+async function saveAmbientColorPreset() {
+  displayThemeError.value = ''
+  isSavingDisplayTheme.value = true
+  try {
+    await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
+    await refreshSystemOnly()
+  } catch (error) {
+    displayThemeError.value =
+      error instanceof Error ? error.message : 'Farbwelt konnte nicht gespeichert werden'
+  } finally {
+    isSavingDisplayTheme.value = false
   }
 }
 
@@ -1312,6 +1484,8 @@ function buildRuntimeConfigPayload() {
       ? Math.round(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
       : 3000,
     remote_visualizer_fallback: remoteVisualizerDraft.remote_visualizer_fallback,
+    ambient_color_preset: ambientColorPresetDraft.value,
+    ambient_color_custom_hue_degrees: normalizeAmbientHueShift(ambientColorCustomHueDraft.value),
     display_render_mode: remoteRendererDraft.display_render_mode,
     remote_renderer_base_url: remoteRendererDraft.remote_renderer_base_url.trim(),
     remote_renderer_output_path: normalizeRuntimePath(remoteRendererDraft.remote_renderer_output_path, '/preview'),
@@ -2491,6 +2665,67 @@ function overlayModeLabel(mode: OverlayMode) {
         </v-col>
 
         <template v-if="activeWorkspaceSection === 'modus'">
+          <v-col
+            cols="12"
+            class="admin-global-display-col"
+            :class="{ 'admin-global-display-col--expanded': ambientColorPresetDraft === 'custom' }"
+          >
+            <section class="settings-section">
+              <div class="settings-group">
+                <div class="settings-control">
+                  <div class="settings-control__label">Farbwelt</div>
+                  <div class="display-color-presets" role="radiogroup" aria-label="Globale Farbwelt">
+                    <button
+                      v-for="preset in ambientColorPresets"
+                      :key="preset.id"
+                      type="button"
+                      class="display-color-preset"
+                      :class="{ 'display-color-preset--active': ambientColorPresetDraft === preset.id }"
+                      :disabled="isBooting || isSavingDisplayTheme"
+                      :aria-checked="ambientColorPresetDraft === preset.id"
+                      role="radio"
+                      @click="selectAmbientColorPreset(preset.id)"
+                    >
+                      <span
+                        class="display-color-preset__swatch"
+                        :style="{ background: preset.id === 'custom' ? getAmbientCustomSwatch() : preset.swatch }"
+                        aria-hidden="true"
+                      >
+                        <v-icon
+                          v-if="preset.id === 'custom'"
+                          :icon="preset.icon"
+                          size="14"
+                          class="display-color-preset__icon"
+                        />
+                      </span>
+                      <span class="display-color-preset__label">{{ preset.label }}</span>
+                    </button>
+                  </div>
+
+                  <v-expand-transition>
+                    <div v-if="ambientColorPresetDraft === 'custom'" class="display-color-custom-slider">
+                      <div class="display-color-custom-slider__header">
+                        <div class="display-color-custom-slider__label">Farbton</div>
+                      </div>
+                      <v-slider
+                        :model-value="ambientColorCustomHueDraft"
+                        min="-180"
+                        max="180"
+                        step="1"
+                        hide-details
+                        :disabled="isBooting || isSavingDisplayTheme"
+                        @update:model-value="handleAmbientCustomHueInput"
+                      />
+                    </div>
+                  </v-expand-transition>
+                </div>
+              </div>
+              <v-alert v-if="displayThemeError" type="error" variant="tonal" class="mt-4">
+                {{ displayThemeError }}
+              </v-alert>
+            </section>
+          </v-col>
+
           <v-col cols="12" class="admin-mode-sticky-col">
             <AdminShowControlHeader
               :current-mode="activeMode"
@@ -2527,43 +2762,82 @@ function overlayModeLabel(mode: OverlayMode) {
 
               <v-expand-transition>
                 <section v-show="isStandbyMode" class="settings-section">
-              <div class="settings-group">
+              <div class="settings-group settings-group--sectioned">
                 <div class="settings-control">
-                  <div class="settings-control__label">Headline</div>
-                  <v-text-field
-                    v-model="standbyDraft.headline"
-                    class="admin-text-input"
-                    :disabled="isBooting || isSavingStandby"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-
-                <div class="settings-control">
-                  <div class="settings-control__label">Subline</div>
-                  <v-text-field
-                    v-model="standbyDraft.subheadline"
-                    class="admin-text-input"
-                    :disabled="isBooting || isSavingStandby"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-
-                <div class="settings-slider-row settings-slider-row--wide settings-slider-row--spaced">
-                  <div class="settings-slider-row__header">
-                    <div class="settings-slider-row__label">Farbton</div>
-                    <div class="settings-slider-row__value">{{ standbyDraft.hue_shift_degrees }}°</div>
+                  <div class="settings-control__label">Bildschirm</div>
+                  <div class="standby-screen-options" role="radiogroup" aria-label="Bildschirm">
+                    <button
+                      v-for="option in standbyScreenOptions"
+                      :key="option.id"
+                      type="button"
+                      class="standby-screen-card"
+                      :class="{ 'standby-screen-card--active': standbyDraft.screen_variant === option.id }"
+                      :disabled="isBooting"
+                      :aria-checked="standbyDraft.screen_variant === option.id"
+                      role="radio"
+                      @click="selectStandbyScreenVariant(option.id)"
+                    >
+                      <div
+                        class="standby-screen-card__preview"
+                        :class="{
+                          'standby-screen-card__preview--standard': option.id === 'standard',
+                          'standby-screen-card__preview--new': option.id === 'new',
+                        }"
+                        :style="getStandbyScreenPreviewStyle(option.id === 'new')"
+                        aria-hidden="true"
+                      >
+                        <div
+                          v-if="option.id === 'new'"
+                          class="standby-screen-card__preview-plus"
+                        >
+                          <v-icon icon="mdi-plus" size="18" />
+                        </div>
+                      </div>
+                      <div class="standby-screen-card__body">
+                        <span class="standby-screen-card__title">{{ option.title }}</span>
+                        <div class="standby-screen-card__note">{{ option.note }}</div>
+                      </div>
+                    </button>
                   </div>
-                  <v-slider
-                    v-model="standbyDraft.hue_shift_degrees"
-                    min="-180"
-                    max="180"
-                    step="1"
-                    hide-details
-                  />
+                </div>
+
+                <template v-if="standbyDraft.screen_variant === 'standard'">
+                  <div class="settings-subsection settings-subsection--fields">
+                    <div class="settings-control">
+                      <div class="settings-control__label">Überschrift</div>
+                      <v-text-field
+                        v-model="standbyDraft.headline"
+                        class="admin-text-input"
+                        :disabled="isBooting"
+                        hide-details
+                        variant="solo"
+                        density="comfortable"
+                        @focus="handleStandbyTextFocus('headline')"
+                        @blur="handleStandbyTextBlur"
+                      />
+                    </div>
+
+                    <div class="settings-control">
+                      <div class="settings-control__label">Untertitel</div>
+                      <v-text-field
+                        v-model="standbyDraft.subheadline"
+                        class="admin-text-input"
+                        :disabled="isBooting"
+                        hide-details
+                        variant="solo"
+                        density="comfortable"
+                        @focus="handleStandbyTextFocus('subheadline')"
+                        @blur="handleStandbyTextBlur"
+                      />
+                    </div>
+                  </div>
+                </template>
+
+                <div v-else class="settings-placeholder-card settings-subsection">
+                  <div class="settings-placeholder-card__title">Neuer Screen</div>
+                  <div class="settings-placeholder-card__copy">
+                    Für diesen Standby-Screen sind noch keine Einstellungen verfügbar.
+                  </div>
                 </div>
               </div>
               <v-alert v-if="standbyError" type="error" variant="tonal" class="mt-4">
@@ -3555,12 +3829,21 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .admin-workspace > :first-child {
   padding-top: 0;
+  margin-top: 0;
 }
 
 .admin-workspace > .v-col,
 .admin-workspace > [class*='v-col-'] {
   padding: 6px;
   min-width: 0;
+}
+
+.admin-global-display-col {
+  padding-bottom: 1rem !important;
+}
+
+.admin-global-display-col--expanded {
+  padding-bottom: 1.4rem !important;
 }
 
 .admin-mode-sticky-col {
@@ -4183,6 +4466,19 @@ function overlayModeLabel(mode: OverlayMode) {
   display: grid;
   gap: 0.48rem;
   min-width: 0;
+}
+
+.settings-group--sectioned {
+  gap: 1.65rem;
+}
+
+.settings-subsection {
+  display: grid;
+  min-width: 0;
+}
+
+.settings-subsection--fields {
+  gap: 0.72rem;
 }
 
 .settings-group--spaced {
@@ -5313,6 +5609,293 @@ function overlayModeLabel(mode: OverlayMode) {
   line-height: 1;
 }
 
+.settings-control--spaced {
+  margin-top: 0.32rem;
+}
+
+.standby-screen-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.standby-screen-card {
+  appearance: none;
+  border: 1px solid rgba(167, 196, 224, 0.12);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(13, 20, 30, 0.9), rgba(9, 15, 23, 0.96));
+  min-height: 8.2rem;
+  padding: 0.45rem;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    box-shadow 180ms ease,
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+
+.standby-screen-card:disabled {
+  opacity: 0.6;
+}
+
+.standby-screen-card__preview {
+  position: relative;
+  min-height: 4.85rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, var(--standby-preview-color-a), transparent 34%),
+    radial-gradient(circle at 52% 54%, var(--standby-preview-color-b), transparent 52%),
+    linear-gradient(180deg, rgba(9, 20, 34, 0.96), rgba(5, 11, 20, 0.98));
+  filter:
+    saturate(var(--standby-preview-saturation, 1))
+    brightness(var(--standby-preview-brightness, 1));
+  opacity: var(--standby-preview-opacity, 1);
+}
+
+.standby-screen-card__preview::before,
+.standby-screen-card__preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.standby-screen-card__preview::before {
+  background:
+    radial-gradient(circle at 50% 14%, var(--standby-preview-color-a-strong), transparent 26%),
+    radial-gradient(circle at 28% 78%, rgba(18, 38, 64, 0.42), transparent 40%),
+    radial-gradient(circle at 76% 72%, var(--standby-preview-color-b), transparent 42%);
+  filter: blur(16px);
+  opacity: 0.92;
+}
+
+.standby-screen-card__preview::after {
+  inset: -8%;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.1), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 32%, rgba(0, 0, 0, 0.18) 100%);
+  filter: blur(18px);
+  opacity: 0.78;
+}
+
+.standby-screen-card__preview--standard {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 26px rgba(5, 11, 20, 0.2);
+}
+
+.standby-screen-card__preview--standard .standby-screen-card__preview-plus {
+  display: none;
+}
+
+.standby-screen-card__preview--standard {
+  --ghost-top: 38%;
+  --ghost-bottom: 56%;
+}
+
+.standby-screen-card__preview--standard::before {
+  background:
+    radial-gradient(circle at 50% 16%, var(--standby-preview-color-a-strong), transparent 24%),
+    radial-gradient(circle at 54% 56%, var(--standby-preview-color-b-strong), transparent 46%),
+    linear-gradient(180deg, transparent 0%, transparent 100%);
+}
+
+.standby-screen-card__preview--standard::after {
+  background:
+    radial-gradient(circle at 50% 12%, rgba(255, 255, 255, 0.12), transparent 16%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 30%, rgba(0, 0, 0, 0.14) 100%),
+    linear-gradient(90deg, transparent 22%, rgba(243, 248, 255, 0.12) 38%, rgba(243, 248, 255, 0.18) 50%, rgba(243, 248, 255, 0.12) 62%, transparent 78%),
+    linear-gradient(90deg, transparent 18%, rgba(200, 216, 236, 0.1) 35%, rgba(200, 216, 236, 0.14) 50%, rgba(200, 216, 236, 0.1) 65%, transparent 82%);
+  background-size:
+    auto,
+    auto,
+    100% 0.54rem,
+    100% 0.32rem;
+  background-position:
+    center,
+    center,
+    center var(--ghost-top),
+    center var(--ghost-bottom);
+  background-repeat: no-repeat;
+  filter: blur(12px);
+  opacity: 0.82;
+}
+
+.standby-screen-card__preview--new {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 8px 18px rgba(4, 10, 18, 0.12);
+}
+
+.standby-screen-card__preview--new::before {
+  opacity: 0.74;
+}
+
+.standby-screen-card__preview--new::after {
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.07), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%, rgba(0, 0, 0, 0.18) 100%);
+  filter: blur(16px);
+  opacity: 0.66;
+}
+
+.standby-screen-card__preview-plus {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  color: rgba(229, 238, 247, 0.78);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 20px rgba(4, 10, 18, 0.14);
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+}
+
+.standby-screen-card__body {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.standby-screen-card__title {
+  color: rgba(245, 249, 255, 0.96);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.standby-screen-card__note {
+  color: rgba(194, 208, 223, 0.58);
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.standby-screen-card--active {
+  border-color: rgba(101, 215, 255, 0.52);
+  background:
+    linear-gradient(180deg, rgba(17, 29, 42, 0.98), rgba(11, 18, 27, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(94, 216, 255, 0.18),
+    0 8px 18px rgba(7, 16, 28, 0.1);
+  transform: scale(1.012);
+}
+
+.settings-placeholder-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.settings-placeholder-card__title {
+  color: rgba(245, 249, 255, 0.96);
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.settings-placeholder-card__copy {
+  color: rgba(201, 214, 228, 0.62);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.display-color-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.display-color-preset {
+  appearance: none;
+  border: 1px solid rgba(167, 196, 224, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  min-height: 4rem;
+  padding: 0.55rem 0.45rem 0.5rem;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.35rem;
+  transition:
+    border-color 150ms ease,
+    box-shadow 180ms ease,
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+
+.display-color-preset:disabled {
+  opacity: 0.6;
+}
+
+.display-color-preset__swatch {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 18px rgba(4, 10, 18, 0.22);
+}
+
+.display-color-preset__icon {
+  color: rgba(247, 251, 255, 0.96);
+  filter: drop-shadow(0 1px 4px rgba(6, 12, 20, 0.24));
+}
+
+.display-color-preset__label {
+  color: rgba(221, 232, 243, 0.74);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.display-color-preset--active {
+  border-color: rgba(101, 215, 255, 0.4);
+  background: rgba(79, 198, 255, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(94, 216, 255, 0.18),
+    0 10px 22px rgba(8, 18, 30, 0.16);
+}
+
+.display-color-preset--active .display-color-preset__label {
+  color: rgba(245, 250, 255, 0.96);
+}
+
+.display-color-custom-slider {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.22rem;
+  padding: 0.48rem 0.1rem 0.04rem;
+}
+
+.display-color-custom-slider__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.display-color-custom-slider__label {
+  color: rgba(221, 231, 241, 0.74);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -5541,8 +6124,55 @@ function overlayModeLabel(mode: OverlayMode) {
     gap: 0.55rem;
   }
 
+  .settings-group--sectioned {
+    gap: 1.55rem;
+  }
+
+  .settings-subsection--fields {
+    gap: 0.68rem;
+  }
+
   .settings-group--spaced {
     margin-bottom: 0.5rem;
+  }
+
+  .standby-screen-options {
+    gap: 0.5rem;
+  }
+
+  .admin-global-display-col {
+    padding-bottom: 0.9rem !important;
+  }
+
+  .admin-global-display-col--expanded {
+    padding-bottom: 1.25rem !important;
+  }
+
+  .standby-screen-card {
+    padding: 0.42rem;
+    min-height: 7.7rem;
+  }
+
+  .standby-screen-card__preview {
+    min-height: 4.45rem;
+  }
+
+  .display-color-presets {
+    gap: 0.55rem;
+  }
+
+  .display-color-preset {
+    min-height: 3.7rem;
+    padding-inline: 0.35rem;
+  }
+
+  .display-color-preset__swatch {
+    width: 1.8rem;
+    height: 1.8rem;
+  }
+
+  .display-color-custom-slider {
+    margin-top: 0.18rem;
   }
 
   .upload-card__status-row {

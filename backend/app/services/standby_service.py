@@ -27,6 +27,7 @@ class StandbyService:
 
     def update_state(self, payload: StandbyStateUpdate) -> StandbyStateRead:
         state = self.ensure_state()
+        state.screen_variant = payload.screen_variant
         state.headline = payload.headline.strip()
         state.subheadline = payload.subheadline.strip()
         state.hue_shift_degrees = payload.hue_shift_degrees
@@ -45,6 +46,14 @@ class StandbyService:
             StandbyState.__table__.create(bind, checkfirst=True)
             return
         columns = {column["name"] for column in inspector.get_columns(StandbyState.__tablename__)}
+        if "screen_variant" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE standby_state "
+                    "ADD COLUMN screen_variant VARCHAR(24) NOT NULL DEFAULT 'standard'"
+                )
+            )
+            self.db.commit()
         if "hue_shift_degrees" not in columns:
             self.db.execute(
                 text(

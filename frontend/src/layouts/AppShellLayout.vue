@@ -408,7 +408,7 @@ function showUploadsBadge(hash: string) {
 }
 
 .admin-shell-container {
-  padding-top: 5rem;
+  padding-top: 3.6rem;
 }
 
 .admin-login-shell-container {
@@ -545,7 +545,7 @@ function showUploadsBadge(hash: string) {
   }
 
   .admin-shell-container {
-    padding-top: 4.75rem;
+    padding-top: 3.5rem;
   }
 
   .admin-login-shell-container {

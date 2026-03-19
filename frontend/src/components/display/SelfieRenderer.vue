@@ -107,6 +107,7 @@ function shuffle(items: UploadItem[]) {
       :event-tagline="publicRuntimeStore.eventTagline"
       :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
       :reaction-token="props.standbyReactionToken"
+      :hue-shift-degrees="publicRuntimeStore.ambientHueShiftDegrees"
     />
     <SelfiePolaroidStage
       v-else

@@ -183,7 +183,7 @@ const rendererProps = computed(() => {
       reactionToken: idleReactionToken.value,
       headline: standbyStore.headline,
       subheadline: standbyStore.subheadline,
-      hueShiftDegrees: standbyStore.hueShiftDegrees,
+      hueShiftDegrees: publicRuntimeStore.ambientHueShiftDegrees,
     }
   }
 

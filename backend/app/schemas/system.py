@@ -4,7 +4,12 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.schemas.mode import ModeType
-from app.schemas.runtime import DisplayRenderMode, RemoteRendererFallback, RemoteVisualizerFallback
+from app.schemas.runtime import (
+    AmbientColorPreset,
+    DisplayRenderMode,
+    RemoteRendererFallback,
+    RemoteVisualizerFallback,
+)
 from app.schemas.selfie import ModerationMode
 
 
@@ -74,6 +79,8 @@ class ApplianceInfo(BaseModel):
     remote_visualizer_url: str
     remote_visualizer_reconnect_ms: int
     remote_visualizer_fallback: RemoteVisualizerFallback
+    ambient_color_preset: AmbientColorPreset
+    ambient_color_custom_hue_degrees: int
     display_render_mode: DisplayRenderMode
     remote_renderer_base_url: str
     remote_renderer_output_path: str
@@ -94,6 +101,8 @@ class PublicRuntimeInfoResponse(BaseModel):
     remote_visualizer_url: str
     remote_visualizer_reconnect_ms: int
     remote_visualizer_fallback: RemoteVisualizerFallback
+    ambient_color_preset: AmbientColorPreset
+    ambient_color_custom_hue_degrees: int
     display_render_mode: DisplayRenderMode
     remote_renderer_base_url: str
     remote_renderer_output_path: str

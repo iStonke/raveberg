@@ -10,6 +10,7 @@ class StandbyState(Base):
     __tablename__ = "standby_state"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    screen_variant: Mapped[str] = mapped_column(String(24), default="standard")
     headline: Mapped[str] = mapped_column(String(160), default="Unterm Berg beginnt die Nacht")
     subheadline: Mapped[str] = mapped_column(String(200), default="Willkommen im Auberg-Keller")
     hue_shift_degrees: Mapped[int] = mapped_column(default=0)

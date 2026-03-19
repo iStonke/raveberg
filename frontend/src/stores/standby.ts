@@ -5,6 +5,7 @@ import type { StandbyState } from '../services/api'
 import { fetchStandbyState, updateStandbyState } from '../services/api'
 
 export const useStandbyStore = defineStore('standby', () => {
+  const screenVariant = ref<'standard' | 'new'>('standard')
   const headline = ref('Unterm Berg beginnt die Nacht')
   const subheadline = ref('Willkommen im Auberg-Keller')
   const hueShiftDegrees = ref(0)
@@ -24,6 +25,7 @@ export const useStandbyStore = defineStore('standby', () => {
   }
 
   function applyState(state: StandbyState) {
+    screenVariant.value = state.screen_variant
     headline.value = state.headline
     subheadline.value = state.subheadline
     hueShiftDegrees.value = state.hue_shift_degrees
@@ -31,6 +33,7 @@ export const useStandbyStore = defineStore('standby', () => {
   }
 
   return {
+    screenVariant,
     headline,
     subheadline,
     hueShiftDegrees,

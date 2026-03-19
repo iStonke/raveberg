@@ -28,6 +28,7 @@ class RateLimitTriggeredEvent(BaseModel):
 RemoteVisualizerFallback = Literal["local", "none"]
 DisplayRenderMode = Literal["local", "remote_headless"]
 RemoteRendererFallback = Literal["local", "notice"]
+AmbientColorPreset = Literal["blue", "cyan", "violet", "custom"]
 
 
 class RemoteVisualizerConfigBase(BaseModel):
@@ -35,6 +36,8 @@ class RemoteVisualizerConfigBase(BaseModel):
     remote_visualizer_url: str = Field(default="", max_length=2048)
     remote_visualizer_reconnect_ms: int = Field(default=3000, ge=1000, le=60000)
     remote_visualizer_fallback: RemoteVisualizerFallback = "local"
+    ambient_color_preset: AmbientColorPreset = "blue"
+    ambient_color_custom_hue_degrees: int = Field(default=0, ge=-180, le=180)
     display_render_mode: DisplayRenderMode = "local"
     remote_renderer_base_url: str = Field(default="", max_length=2048)
     remote_renderer_output_path: str = Field(default="/preview", max_length=1024)

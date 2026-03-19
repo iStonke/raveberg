@@ -9,6 +9,7 @@ export type OverlayMode = 'logo' | 'qr' | 'off'
 export type RemoteVisualizerFallback = 'local' | 'none'
 export type DisplayRenderMode = 'local' | 'remote_headless'
 export type RemoteRendererFallback = 'local' | 'notice'
+export type AmbientColorPreset = 'blue' | 'cyan' | 'violet' | 'custom'
 export type HydraQuality = 'low' | 'medium' | 'high'
 export type HydraPaletteMode = 'auto' | 'neon' | 'warm' | 'cold' | 'acid'
 
@@ -79,6 +80,8 @@ export interface SystemInfoResponse {
     remote_visualizer_url: string
     remote_visualizer_reconnect_ms: number
     remote_visualizer_fallback: RemoteVisualizerFallback
+    ambient_color_preset: AmbientColorPreset
+    ambient_color_custom_hue_degrees: number
     display_render_mode: DisplayRenderMode
     remote_renderer_base_url: string
     remote_renderer_output_path: string
@@ -115,6 +118,8 @@ export interface PublicRuntimeInfoResponse {
   remote_visualizer_url: string
   remote_visualizer_reconnect_ms: number
   remote_visualizer_fallback: RemoteVisualizerFallback
+  ambient_color_preset: AmbientColorPreset
+  ambient_color_custom_hue_degrees: number
   display_render_mode: DisplayRenderMode
   remote_renderer_base_url: string
   remote_renderer_output_path: string
@@ -186,6 +191,8 @@ export interface RuntimeConfig {
   remote_visualizer_url: string
   remote_visualizer_reconnect_ms: number
   remote_visualizer_fallback: RemoteVisualizerFallback
+  ambient_color_preset: AmbientColorPreset
+  ambient_color_custom_hue_degrees: number
   display_render_mode: DisplayRenderMode
   remote_renderer_base_url: string
   remote_renderer_output_path: string
@@ -234,6 +241,7 @@ export interface SelfieState {
 }
 
 export interface StandbyState {
+  screen_variant: 'standard' | 'new'
   headline: string
   subheadline: string
   hue_shift_degrees: number
