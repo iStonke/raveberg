@@ -182,7 +182,7 @@ const selfieDraft = reactive<{
 })
 
 const standbyDraft = reactive<{
-  screen_variant: 'standard' | 'new'
+  screen_variant: 'standard' | 'spotlight_reveal'
   headline: string
   subheadline: string
 }>({
@@ -218,13 +218,15 @@ const ambientColorPresets = [
 const standbyScreenOptions = [
   {
     id: 'standard',
-    title: 'Standard',
-    note: 'Aktueller Screen',
+    title: 'Particle Chaos',
+    note: 'Standard-Bühne',
+    disabled: false,
   },
   {
-    id: 'new',
-    title: 'Neu',
-    note: 'In Entwicklung',
+    id: 'spotlight_reveal',
+    title: 'Spotlight Reveal',
+    note: 'Derzeit deaktiviert',
+    disabled: true,
   },
 ] as const
 
@@ -1289,7 +1291,7 @@ function handleAmbientCustomHueInput(value: number) {
   scheduleAmbientColorPersist()
 }
 
-function selectStandbyScreenVariant(value: 'standard' | 'new') {
+function selectStandbyScreenVariant(value: 'standard' | 'spotlight_reveal') {
   standbyDraft.screen_variant = value
 }
 
@@ -2771,8 +2773,11 @@ function overlayModeLabel(mode: OverlayMode) {
                       :key="option.id"
                       type="button"
                       class="standby-screen-card"
-                      :class="{ 'standby-screen-card--active': standbyDraft.screen_variant === option.id }"
-                      :disabled="isBooting"
+                      :class="{
+                        'standby-screen-card--active': standbyDraft.screen_variant === option.id,
+                        'standby-screen-card--disabled': option.disabled,
+                      }"
+                      :disabled="isBooting || option.disabled"
                       :aria-checked="standbyDraft.screen_variant === option.id"
                       role="radio"
                       @click="selectStandbyScreenVariant(option.id)"
@@ -2781,16 +2786,16 @@ function overlayModeLabel(mode: OverlayMode) {
                         class="standby-screen-card__preview"
                         :class="{
                           'standby-screen-card__preview--standard': option.id === 'standard',
-                          'standby-screen-card__preview--new': option.id === 'new',
+                          'standby-screen-card__preview--spotlight-reveal': option.id === 'spotlight_reveal',
                         }"
-                        :style="getStandbyScreenPreviewStyle(option.id === 'new')"
+                        :style="getStandbyScreenPreviewStyle()"
                         aria-hidden="true"
                       >
                         <div
-                          v-if="option.id === 'new'"
-                          class="standby-screen-card__preview-plus"
+                          v-if="option.id === 'spotlight_reveal'"
+                          class="standby-screen-card__preview-spotlight"
                         >
-                          <v-icon icon="mdi-plus" size="18" />
+                          <span class="standby-screen-card__preview-spot" />
                         </div>
                       </div>
                       <div class="standby-screen-card__body">
@@ -2801,42 +2806,33 @@ function overlayModeLabel(mode: OverlayMode) {
                   </div>
                 </div>
 
-                <template v-if="standbyDraft.screen_variant === 'standard'">
-                  <div class="settings-subsection settings-subsection--fields">
-                    <div class="settings-control">
-                      <div class="settings-control__label">Überschrift</div>
-                      <v-text-field
-                        v-model="standbyDraft.headline"
-                        class="admin-text-input"
-                        :disabled="isBooting"
-                        hide-details
-                        variant="solo"
-                        density="comfortable"
-                        @focus="handleStandbyTextFocus('headline')"
-                        @blur="handleStandbyTextBlur"
-                      />
-                    </div>
-
-                    <div class="settings-control">
-                      <div class="settings-control__label">Untertitel</div>
-                      <v-text-field
-                        v-model="standbyDraft.subheadline"
-                        class="admin-text-input"
-                        :disabled="isBooting"
-                        hide-details
-                        variant="solo"
-                        density="comfortable"
-                        @focus="handleStandbyTextFocus('subheadline')"
-                        @blur="handleStandbyTextBlur"
-                      />
-                    </div>
+                <div class="settings-subsection settings-subsection--fields">
+                  <div class="settings-control">
+                    <div class="settings-control__label">Überschrift</div>
+                    <v-text-field
+                      v-model="standbyDraft.headline"
+                      class="admin-text-input"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                      @focus="handleStandbyTextFocus('headline')"
+                      @blur="handleStandbyTextBlur"
+                    />
                   </div>
-                </template>
 
-                <div v-else class="settings-placeholder-card settings-subsection">
-                  <div class="settings-placeholder-card__title">Neuer Screen</div>
-                  <div class="settings-placeholder-card__copy">
-                    Für diesen Standby-Screen sind noch keine Einstellungen verfügbar.
+                  <div class="settings-control">
+                    <div class="settings-control__label">Untertitel</div>
+                    <v-text-field
+                      v-model="standbyDraft.subheadline"
+                      class="admin-text-input"
+                      :disabled="isBooting"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                      @focus="handleStandbyTextFocus('subheadline')"
+                      @blur="handleStandbyTextBlur"
+                    />
                   </div>
                 </div>
               </div>
@@ -5642,6 +5638,10 @@ function overlayModeLabel(mode: OverlayMode) {
   opacity: 0.6;
 }
 
+.standby-screen-card--disabled {
+  cursor: not-allowed;
+}
+
 .standby-screen-card__preview {
   position: relative;
   min-height: 4.85rem;
@@ -5689,10 +5689,6 @@ function overlayModeLabel(mode: OverlayMode) {
     0 10px 26px rgba(5, 11, 20, 0.2);
 }
 
-.standby-screen-card__preview--standard .standby-screen-card__preview-plus {
-  display: none;
-}
-
 .standby-screen-card__preview--standard {
   --ghost-top: 38%;
   --ghost-bottom: 56%;
@@ -5726,40 +5722,46 @@ function overlayModeLabel(mode: OverlayMode) {
   opacity: 0.82;
 }
 
-.standby-screen-card__preview--new {
+.standby-screen-card__preview--spotlight-reveal {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.025),
-    0 8px 18px rgba(4, 10, 18, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    0 8px 18px rgba(4, 10, 18, 0.14);
 }
 
-.standby-screen-card__preview--new::before {
-  opacity: 0.74;
-}
-
-.standby-screen-card__preview--new::after {
+.standby-screen-card__preview--spotlight-reveal::before {
   background:
-    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.07), transparent 18%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%, rgba(0, 0, 0, 0.18) 100%);
+    radial-gradient(circle at 50% 78%, rgba(16, 28, 42, 0.2), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent 30%, rgba(0, 0, 0, 0.18) 100%);
   filter: blur(16px);
   opacity: 0.66;
 }
 
-.standby-screen-card__preview-plus {
+.standby-screen-card__preview--spotlight-reveal::after {
+  background:
+    radial-gradient(circle at 50% 44%, rgba(255, 255, 255, 0.025), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 30%, rgba(0, 0, 0, 0.22) 100%);
+  filter: blur(16px);
+  opacity: 0.54;
+}
+
+.standby-screen-card__preview-spotlight {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  border-radius: 999px;
-  color: rgba(229, 238, 247, 0.78);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 20px rgba(4, 10, 18, 0.14);
-  transform: translate(-50%, -50%);
-  backdrop-filter: blur(8px);
+  inset: 0;
+}
+
+.standby-screen-card__preview-spot {
+  position: absolute;
+  top: 22%;
+  left: 22%;
+  width: 44%;
+  height: 42%;
+  border-radius: 58% 42% 54% 46% / 44% 56% 46% 54%;
+  transform: rotate(-8deg);
+  filter: blur(6px);
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse at 48% 50%, rgba(248, 252, 255, 0.44) 0%, rgba(194, 230, 255, 0.2) 20%, rgba(92, 174, 255, 0.08) 38%, transparent 72%);
+  opacity: 0.9;
 }
 
 .standby-screen-card__body {
@@ -5788,28 +5790,6 @@ function overlayModeLabel(mode: OverlayMode) {
     0 0 0 1px rgba(94, 216, 255, 0.18),
     0 8px 18px rgba(7, 16, 28, 0.1);
   transform: scale(1.012);
-}
-
-.settings-placeholder-card {
-  display: grid;
-  gap: 0.3rem;
-  padding: 0.9rem 1rem;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.settings-placeholder-card__title {
-  color: rgba(245, 249, 255, 0.96);
-  font-size: 0.96rem;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.settings-placeholder-card__copy {
-  color: rgba(201, 214, 228, 0.62);
-  font-size: 0.83rem;
-  line-height: 1.45;
 }
 
 .display-color-presets {

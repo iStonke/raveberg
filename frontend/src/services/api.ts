@@ -241,7 +241,7 @@ export interface SelfieState {
 }
 
 export interface StandbyState {
-  screen_variant: 'standard' | 'new'
+  screen_variant: 'standard' | 'spotlight_reveal'
   headline: string
   subheadline: string
   hue_shift_degrees: number

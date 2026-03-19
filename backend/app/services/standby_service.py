@@ -19,6 +19,12 @@ class StandbyService:
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)
+        normalized_variant = self._normalize_screen_variant(state.screen_variant)
+        if state.screen_variant != normalized_variant:
+            state.screen_variant = normalized_variant
+            self.db.add(state)
+            self.db.commit()
+            self.db.refresh(state)
         return state
 
     def get_state(self) -> StandbyStateRead:
@@ -27,7 +33,7 @@ class StandbyService:
 
     def update_state(self, payload: StandbyStateUpdate) -> StandbyStateRead:
         state = self.ensure_state()
-        state.screen_variant = payload.screen_variant
+        state.screen_variant = self._normalize_screen_variant(payload.screen_variant)
         state.headline = payload.headline.strip()
         state.subheadline = payload.subheadline.strip()
         state.hue_shift_degrees = payload.hue_shift_degrees
@@ -62,3 +68,9 @@ class StandbyService:
                 )
             )
             self.db.commit()
+
+    @staticmethod
+    def _normalize_screen_variant(value: str) -> str:
+        if value in {"new", "nebel_pulse"}:
+            return "spotlight_reveal"
+        return value

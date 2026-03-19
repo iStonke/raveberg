@@ -181,6 +181,7 @@ const rendererProps = computed(() => {
   if (appModeStore.mode === 'idle') {
     return {
       reactionToken: idleReactionToken.value,
+      screenVariant: standbyStore.screenVariant,
       headline: standbyStore.headline,
       subheadline: standbyStore.subheadline,
       hueShiftDegrees: publicRuntimeStore.ambientHueShiftDegrees,

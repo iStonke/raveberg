@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import AuroraPolaroidEngine from './AuroraPolaroidEngine.vue'
 import RavebergLogo from '../branding/RavebergLogo.vue'
@@ -8,25 +8,48 @@ import { useVirtualStageScale } from './useVirtualStageScale'
 const props = withDefaults(
   defineProps<{
     reactionToken?: number
+    screenVariant?: 'standard' | 'spotlight_reveal'
     headline?: string
     subheadline?: string
     hueShiftDegrees?: number
   }>(),
   {
     reactionToken: 0,
+    screenVariant: 'standard',
     headline: 'Unterm Berg beginnt die Nacht',
     subheadline: 'Willkommen im Auberg-Keller',
     hueShiftDegrees: 0,
   },
 )
 
-const backgroundStyle = computed(() => ({
-  '--standby-hue-shift': `${props.hueShiftDegrees}deg`,
-}))
+const isSpotlightRevealVariant = computed(() => props.screenVariant === 'spotlight_reveal')
 
 const STAGE_SCALE_BOOST = 1.78
 
 const { stageShellStyle } = useVirtualStageScale({ scaleBoost: STAGE_SCALE_BOOST })
+
+const spotlightX = ref(24)
+const spotlightY = ref(34)
+const spotlightScale = ref(1)
+const spotlightOpacity = ref(0.76)
+const contentFocus = ref(0.12)
+const stageVisibility = ref(0.46)
+const logoVisibility = ref(0.52)
+const headlineVisibility = ref(0.5)
+const sublineVisibility = ref(0.38)
+
+const rendererStyle = computed(() => ({
+  '--standby-hue-shift': `${props.hueShiftDegrees}deg`,
+  '--spotlight-x': `${spotlightX.value}%`,
+  '--spotlight-y': `${spotlightY.value}%`,
+  '--spotlight-scale': spotlightScale.value.toFixed(3),
+  '--spotlight-opacity': spotlightOpacity.value.toFixed(3),
+  '--content-focus': contentFocus.value.toFixed(3),
+  '--stage-visibility': stageVisibility.value.toFixed(3),
+  '--logo-visibility': logoVisibility.value.toFixed(3),
+  '--headline-visibility': headlineVisibility.value.toFixed(3),
+  '--subline-visibility': sublineVisibility.value.toFixed(3),
+}))
 
 const fogLayers = [
   {
@@ -107,68 +130,509 @@ const particles = [
   { x: '58%', y: '82%', size: '0.26rem', blur: '0px', opacity: '0.18', delay: '-9s', duration: '28s', driftX: '0.9rem', driftY: '-0.7rem' },
   { x: '86%', y: '78%', size: '0.42rem', blur: '2px', opacity: '0.13', delay: '-21s', duration: '33s', driftX: '-0.8rem', driftY: '1.2rem' },
 ]
+
+type SpotlightPhase = 'search' | 'settle' | 'reveal' | 'hold' | 'fade'
+
+const SPOTLIGHT_CENTER_X = 50
+const SPOTLIGHT_CENTER_Y = 42.5
+const SPOTLIGHT_EXCLUSION_RADIUS_X = 24
+const SPOTLIGHT_EXCLUSION_RADIUS_Y = 18
+const SPOTLIGHT_ORBIT_MIN_RADIUS_X = SPOTLIGHT_EXCLUSION_RADIUS_X + 12
+const SPOTLIGHT_ORBIT_MAX_RADIUS_X = 64
+const SPOTLIGHT_ORBIT_MIN_RADIUS_Y = SPOTLIGHT_EXCLUSION_RADIUS_Y + 6
+const SPOTLIGHT_ORBIT_MAX_RADIUS_Y = 52
+
+let spotlightAnimationFrame = 0
+let spotlightLastFrame = 0
+let spotlightReducedMotion = false
+let spotlightPhase: SpotlightPhase = 'search'
+let spotlightPhaseTime = 0
+let spotlightSearchTime = 0
+let spotlightSearchDuration = 7.4
+let spotlightHoldDuration = 2.6
+let spotlightTargetX = 24
+let spotlightTargetY = 34
+let spotlightVelocityX = 0
+let spotlightVelocityY = 0
+let spotlightGuideX = 24
+let spotlightGuideY = 34
+let spotlightSegmentFromX = 24
+let spotlightSegmentFromY = 34
+let spotlightSegmentToX = 24
+let spotlightSegmentToY = 34
+let spotlightSegmentElapsed = 0
+let spotlightSegmentDuration = 3.2
+let spotlightSegmentPause = 0.28
+let spotlightOrbitAngle = 0
+let spotlightOrbitStartAngle = 0
+let spotlightOrbitEndAngle = 0
+let spotlightOrbitElapsed = 0
+let spotlightOrbitDuration = 3.4
+let spotlightOrbitPause = 0.24
+let spotlightOrbitRadiusX = SPOTLIGHT_ORBIT_MIN_RADIUS_X
+let spotlightOrbitRadiusY = SPOTLIGHT_ORBIT_MIN_RADIUS_Y
+let spotlightOrbitStartRadiusX = SPOTLIGHT_ORBIT_MIN_RADIUS_X
+let spotlightOrbitStartRadiusY = SPOTLIGHT_ORBIT_MIN_RADIUS_Y
+let spotlightOrbitTargetRadiusX = SPOTLIGHT_ORBIT_MIN_RADIUS_X
+let spotlightOrbitTargetRadiusY = SPOTLIGHT_ORBIT_MIN_RADIUS_Y
+let spotlightOrbitDirection = 1
+
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function easeInOutSine(value: number) {
+  return -(Math.cos(Math.PI * value) - 1) / 2
+}
+
+function easeOutCubic(value: number) {
+  return 1 - (1 - value) ** 3
+}
+
+function lerp(from: number, to: number, amount: number) {
+  return from + (to - from) * amount
+}
+
+function pickRandomOffstageStart() {
+  const side = Math.floor(Math.random() * 4)
+
+  if (side === 0) {
+    return {
+      x: randomBetween(-24, -10),
+      y: randomBetween(-8, 108),
+      direction: 1 as const,
+    }
+  }
+
+  if (side === 1) {
+    return {
+      x: randomBetween(110, 124),
+      y: randomBetween(-8, 108),
+      direction: -1 as const,
+    }
+  }
+
+  if (side === 2) {
+    return {
+      x: randomBetween(-10, 110),
+      y: randomBetween(-22, -10),
+      direction: Math.random() < 0.5 ? -1 as const : 1 as const,
+    }
+  }
+
+  return {
+    x: randomBetween(-10, 110),
+    y: randomBetween(110, 124),
+    direction: Math.random() < 0.5 ? -1 as const : 1 as const,
+  }
+}
+
+function radiansFromStagePoint(x: number, y: number) {
+  return Math.atan2(y - SPOTLIGHT_CENTER_Y, x - SPOTLIGHT_CENTER_X)
+}
+
+function startSpotlightSegment(nextX: number, nextY: number, durationSeconds: number, pauseSeconds: number) {
+  spotlightSegmentFromX = spotlightGuideX
+  spotlightSegmentFromY = spotlightGuideY
+  spotlightSegmentToX = nextX
+  spotlightSegmentToY = nextY
+  spotlightSegmentElapsed = 0
+  spotlightSegmentDuration = durationSeconds
+  spotlightSegmentPause = pauseSeconds
+}
+
+function startSearchSegment() {
+  if (Math.random() < 0.16) {
+    spotlightOrbitDirection *= -1
+  }
+
+  spotlightOrbitStartAngle = spotlightOrbitAngle
+  spotlightOrbitEndAngle = spotlightOrbitAngle + spotlightOrbitDirection * randomBetween(0.46, 1.06)
+  spotlightOrbitElapsed = 0
+  spotlightOrbitDuration = randomBetween(2.8, 4.3)
+  spotlightOrbitPause = randomBetween(0.2, 0.46)
+  spotlightOrbitStartRadiusX = spotlightOrbitRadiusX
+  spotlightOrbitStartRadiusY = spotlightOrbitRadiusY
+  spotlightOrbitTargetRadiusX = randomBetween(SPOTLIGHT_ORBIT_MIN_RADIUS_X, SPOTLIGHT_ORBIT_MAX_RADIUS_X)
+  spotlightOrbitTargetRadiusY = randomBetween(SPOTLIGHT_ORBIT_MIN_RADIUS_Y, SPOTLIGHT_ORBIT_MAX_RADIUS_Y)
+}
+
+function advanceSearchOrbit(deltaSeconds: number, timestamp: number) {
+  if (spotlightOrbitElapsed < spotlightOrbitDuration) {
+    spotlightOrbitElapsed = Math.min(spotlightOrbitElapsed + deltaSeconds, spotlightOrbitDuration)
+    const progress = easeInOutSine(clamp(spotlightOrbitElapsed / Math.max(spotlightOrbitDuration, 0.001), 0, 1))
+    const angle = lerp(spotlightOrbitStartAngle, spotlightOrbitEndAngle, progress)
+    const radiusX = lerp(spotlightOrbitStartRadiusX, spotlightOrbitTargetRadiusX, progress)
+    const radiusY = lerp(spotlightOrbitStartRadiusY, spotlightOrbitTargetRadiusY, progress)
+    const microArcOffsetX = Math.sin(timestamp / 960 + angle * 1.1) * 0.45
+    const microArcOffsetY = Math.cos(timestamp / 1120 + angle * 0.9) * 0.34
+
+    spotlightGuideX = SPOTLIGHT_CENTER_X + Math.cos(angle) * radiusX + microArcOffsetX
+    spotlightGuideY = SPOTLIGHT_CENTER_Y + Math.sin(angle) * radiusY + microArcOffsetY
+    return false
+  }
+
+  spotlightOrbitAngle = spotlightOrbitEndAngle
+  spotlightOrbitRadiusX = spotlightOrbitTargetRadiusX
+  spotlightOrbitRadiusY = spotlightOrbitTargetRadiusY
+  spotlightGuideX = SPOTLIGHT_CENTER_X + Math.cos(spotlightOrbitAngle) * spotlightOrbitRadiusX
+  spotlightGuideY = SPOTLIGHT_CENTER_Y + Math.sin(spotlightOrbitAngle) * spotlightOrbitRadiusY
+
+  if (spotlightOrbitPause > 0) {
+    spotlightOrbitPause = Math.max(spotlightOrbitPause - deltaSeconds, 0)
+    return false
+  }
+
+  return true
+}
+
+function advanceSpotlightGuide(deltaSeconds: number, timestamp: number, allowMicrosway: boolean) {
+  if (spotlightSegmentElapsed < spotlightSegmentDuration) {
+    spotlightSegmentElapsed = Math.min(spotlightSegmentElapsed + deltaSeconds, spotlightSegmentDuration)
+    const progress = clamp(spotlightSegmentElapsed / Math.max(spotlightSegmentDuration, 0.001), 0, 1)
+    const eased = easeInOutSine(progress)
+    spotlightGuideX = lerp(spotlightSegmentFromX, spotlightSegmentToX, eased)
+    spotlightGuideY = lerp(spotlightSegmentFromY, spotlightSegmentToY, eased)
+    return false
+  }
+
+  const swayX = allowMicrosway ? Math.sin(timestamp / 860) * 0.28 : 0
+  const swayY = allowMicrosway ? Math.cos(timestamp / 1040) * 0.22 : 0
+  spotlightGuideX = spotlightSegmentToX + swayX
+  spotlightGuideY = spotlightSegmentToY + swayY
+
+  if (spotlightSegmentPause > 0) {
+    spotlightSegmentPause = Math.max(spotlightSegmentPause - deltaSeconds, 0)
+    return false
+  }
+
+  return true
+}
+
+function resetSpotlightLoopState() {
+  const startPoint = pickRandomOffstageStart()
+
+  spotlightPhase = 'search'
+  spotlightPhaseTime = 0
+  spotlightSearchTime = 0
+  spotlightSearchDuration = randomBetween(6.8, 9.8)
+  spotlightTargetX = startPoint.x
+  spotlightTargetY = startPoint.y
+  spotlightX.value = startPoint.x
+  spotlightY.value = startPoint.y
+  spotlightScale.value = 1.02
+  spotlightOpacity.value = 0.84
+  contentFocus.value = 0.12
+  stageVisibility.value = 0.46
+  logoVisibility.value = 0.52
+  headlineVisibility.value = 0.5
+  sublineVisibility.value = 0.38
+  spotlightVelocityX = 0
+  spotlightVelocityY = 0
+  spotlightGuideX = startPoint.x
+  spotlightGuideY = startPoint.y
+  spotlightOrbitAngle = radiansFromStagePoint(startPoint.x, startPoint.y)
+  spotlightOrbitStartAngle = spotlightOrbitAngle
+  spotlightOrbitEndAngle = spotlightOrbitAngle
+  spotlightOrbitElapsed = 0
+  spotlightOrbitDuration = 3.4
+  spotlightOrbitPause = 0.2
+  spotlightOrbitRadiusX = clamp(Math.abs(startPoint.x - SPOTLIGHT_CENTER_X), SPOTLIGHT_ORBIT_MIN_RADIUS_X, SPOTLIGHT_ORBIT_MAX_RADIUS_X)
+  spotlightOrbitRadiusY = clamp(Math.abs(startPoint.y - SPOTLIGHT_CENTER_Y), SPOTLIGHT_ORBIT_MIN_RADIUS_Y, SPOTLIGHT_ORBIT_MAX_RADIUS_Y)
+  spotlightOrbitStartRadiusX = spotlightOrbitRadiusX
+  spotlightOrbitStartRadiusY = spotlightOrbitRadiusY
+  spotlightOrbitTargetRadiusX = spotlightOrbitRadiusX
+  spotlightOrbitTargetRadiusY = spotlightOrbitRadiusY
+  spotlightOrbitDirection = startPoint.direction
+  spotlightSegmentFromX = startPoint.x
+  spotlightSegmentFromY = startPoint.y
+  spotlightSegmentToX = startPoint.x
+  spotlightSegmentToY = startPoint.y
+  spotlightSegmentElapsed = 0
+  spotlightSegmentDuration = 3.4
+  spotlightSegmentPause = 0.2
+}
+
+function stopSpotlightLoop() {
+  if (spotlightAnimationFrame) {
+    cancelAnimationFrame(spotlightAnimationFrame)
+    spotlightAnimationFrame = 0
+  }
+}
+
+function setStaticSpotlightState() {
+  spotlightX.value = SPOTLIGHT_CENTER_X
+  spotlightY.value = SPOTLIGHT_CENTER_Y
+  spotlightScale.value = 2.55
+  spotlightOpacity.value = 0.96
+  contentFocus.value = 0.94
+  stageVisibility.value = 1
+  logoVisibility.value = 1
+  headlineVisibility.value = 1
+  sublineVisibility.value = 0.94
+  spotlightVelocityX = 0
+  spotlightVelocityY = 0
+  spotlightGuideX = SPOTLIGHT_CENTER_X
+  spotlightGuideY = SPOTLIGHT_CENTER_Y
+  spotlightOrbitAngle = 0
+  spotlightOrbitStartAngle = 0
+  spotlightOrbitEndAngle = 0
+}
+
+function updateSpotlightFrame(timestamp: number) {
+  if (!isSpotlightRevealVariant.value) {
+    stopSpotlightLoop()
+    return
+  }
+
+  if (!spotlightLastFrame) {
+    spotlightLastFrame = timestamp
+  }
+
+  const deltaSeconds = Math.min((timestamp - spotlightLastFrame) / 1000, 0.05)
+  spotlightLastFrame = timestamp
+  spotlightPhaseTime += deltaSeconds
+
+  if (spotlightPhase === 'search') {
+    spotlightSearchTime += deltaSeconds
+
+    if (spotlightSearchTime >= spotlightSearchDuration) {
+      spotlightPhase = 'settle'
+      spotlightPhaseTime = 0
+      startSpotlightSegment(SPOTLIGHT_CENTER_X, SPOTLIGHT_CENTER_Y, 1.8, 0.58)
+    } else if (advanceSearchOrbit(deltaSeconds, timestamp)) {
+      startSearchSegment()
+    }
+  } else if (spotlightPhase === 'settle') {
+    spotlightGuideX = SPOTLIGHT_CENTER_X
+    spotlightGuideY = SPOTLIGHT_CENTER_Y
+    if (advanceSpotlightGuide(deltaSeconds, timestamp, false)) {
+      spotlightPhase = 'reveal'
+      spotlightPhaseTime = 0
+    }
+  } else if (spotlightPhase === 'reveal' && spotlightPhaseTime >= 1.05) {
+    spotlightPhase = 'hold'
+    spotlightPhaseTime = 0
+    spotlightHoldDuration = randomBetween(2.2, 3.1)
+  } else if (spotlightPhase === 'hold' && spotlightPhaseTime >= spotlightHoldDuration) {
+    spotlightPhase = 'fade'
+    spotlightPhaseTime = 0
+  } else if (spotlightPhase === 'fade' && spotlightPhaseTime >= 1.35) {
+    resetSpotlightLoopState()
+    startSearchSegment()
+  }
+
+  if (spotlightPhase === 'reveal' || spotlightPhase === 'hold' || spotlightPhase === 'fade') {
+    spotlightGuideX = SPOTLIGHT_CENTER_X
+    spotlightGuideY = SPOTLIGHT_CENTER_Y
+  }
+
+  const springStrength = spotlightPhase === 'search'
+    ? 9.2
+    : spotlightPhase === 'settle'
+      ? 10.8
+      : 12.6
+  const dampingStrength = spotlightPhase === 'search'
+    ? 6.1
+    : spotlightPhase === 'settle'
+      ? 6.8
+      : 7.4
+
+  const accelX = (spotlightGuideX - spotlightX.value) * springStrength - spotlightVelocityX * dampingStrength
+  const accelY = (spotlightGuideY - spotlightY.value) * springStrength - spotlightVelocityY * dampingStrength
+
+  spotlightVelocityX += accelX * deltaSeconds
+  spotlightVelocityY += accelY * deltaSeconds
+  spotlightX.value += spotlightVelocityX * deltaSeconds
+  spotlightY.value += spotlightVelocityY * deltaSeconds
+
+  const distanceToCenter = Math.hypot(
+    spotlightX.value - SPOTLIGHT_CENTER_X,
+    spotlightY.value - SPOTLIGHT_CENTER_Y,
+  )
+  const centerStageFocus = clamp(1 - distanceToCenter / 30, 0, 1)
+  const stageInfluenceRadius = 36 + (spotlightScale.value - 1) * 10
+  const stageDistanceLight = clamp(1 - distanceToCenter / stageInfluenceRadius, 0, 1)
+  const easedStageDistanceLight = easeInOutSine(stageDistanceLight)
+  const manualSweepDrift = Math.sin(timestamp / 720) * 0.02 + Math.cos(timestamp / 1180) * 0.015
+
+  if (spotlightPhase === 'search') {
+    spotlightScale.value = 1.02 + centerStageFocus * 0.18 + manualSweepDrift
+    spotlightOpacity.value = 0.82 + centerStageFocus * 0.06
+    contentFocus.value = 0.04 + centerStageFocus * 0.54
+  } else if (spotlightPhase === 'settle') {
+    const settleProgress = easeInOutSine(clamp(spotlightPhaseTime / 0.9, 0, 1))
+    spotlightScale.value = lerp(1.16, 1.34, settleProgress)
+    spotlightOpacity.value = lerp(0.84, 0.9, settleProgress)
+    contentFocus.value = lerp(0.46, 0.7, settleProgress)
+  } else if (spotlightPhase === 'reveal') {
+    const revealProgress = easeOutCubic(clamp(spotlightPhaseTime / 1.05, 0, 1))
+    spotlightScale.value = lerp(1.34, 2.78, revealProgress)
+    spotlightOpacity.value = lerp(0.9, 0.96, revealProgress)
+    contentFocus.value = lerp(0.7, 1, revealProgress)
+  } else if (spotlightPhase === 'hold') {
+    const breathing = Math.sin(timestamp / 760) * 0.015
+    spotlightScale.value = 2.78 + breathing
+    spotlightOpacity.value = 0.96 + breathing * 0.3
+    contentFocus.value = 1
+  } else {
+    const fadeProgress = easeInOutSine(clamp(spotlightPhaseTime / 1.35, 0, 1))
+    spotlightScale.value = lerp(2.78, 1.08, fadeProgress)
+    spotlightOpacity.value = lerp(0.96, 0.82, fadeProgress)
+    contentFocus.value = lerp(1, 0.18, fadeProgress)
+  }
+
+  const stageVisibilityTarget = (() => {
+    if (spotlightPhase === 'hold') {
+      return 1
+    }
+    if (spotlightPhase === 'reveal') {
+      return clamp(0.76 + easeOutCubic(clamp(spotlightPhaseTime / 1.05, 0, 1)) * 0.24, 0.76, 1)
+    }
+
+    const hardRadius = stageInfluenceRadius * 0.86
+    const softRadius = stageInfluenceRadius * 1.02
+
+    if (distanceToCenter <= hardRadius) {
+      return 1
+    }
+    if (distanceToCenter >= softRadius) {
+      return 0.46
+    }
+
+    const edgeProgress = 1 - (distanceToCenter - hardRadius) / Math.max(softRadius - hardRadius, 0.001)
+    return lerp(0.46, 1, clamp(edgeProgress, 0, 1))
+  })()
+  const stageVisibilitySmoothing = stageVisibilityTarget > stageVisibility.value
+    ? 1 - Math.exp(-deltaSeconds * 4.6)
+    : 1 - Math.exp(-deltaSeconds * 1.9)
+
+  stageVisibility.value += (stageVisibilityTarget - stageVisibility.value) * stageVisibilitySmoothing
+  logoVisibility.value = clamp(0.44 + stageVisibility.value * 0.56, 0.44, 1)
+  headlineVisibility.value = clamp(0.42 + stageVisibility.value * 0.58, 0.42, 1)
+  sublineVisibility.value = clamp(0.3 + stageVisibility.value * 0.56, 0.3, 0.92)
+
+  spotlightAnimationFrame = requestAnimationFrame(updateSpotlightFrame)
+}
+
+function startSpotlightLoop() {
+  stopSpotlightLoop()
+
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  spotlightReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  if (!isSpotlightRevealVariant.value) {
+    return
+  }
+
+  if (spotlightReducedMotion) {
+    setStaticSpotlightState()
+    return
+  }
+
+  spotlightLastFrame = 0
+  resetSpotlightLoopState()
+  startSearchSegment()
+  spotlightAnimationFrame = requestAnimationFrame(updateSpotlightFrame)
+}
+
+watch(() => props.screenVariant, startSpotlightLoop)
+
+onMounted(startSpotlightLoop)
+onBeforeUnmount(stopSpotlightLoop)
+
 </script>
 
 <template>
-  <div class="standby-renderer" :style="backgroundStyle">
+  <div
+    class="standby-renderer"
+    :class="{ 'standby-renderer--spotlight-reveal': isSpotlightRevealVariant }"
+    :style="rendererStyle"
+  >
     <div class="standby-background" aria-hidden="true">
-      <div class="standby-base-layer">
-        <AuroraPolaroidEngine
-          class="standby-engine"
-          color-mode="cool"
-          quality="auto"
-          :intensity="0.8"
-          :particle-density="0.52"
-          :pulse-token="reactionToken"
-        />
-        <div class="standby-color-field standby-color-a" />
-        <div class="standby-color-field standby-color-b" />
-        <div class="standby-color-field standby-color-c" />
-        <div class="standby-ribbon standby-ribbon-a" />
-        <div class="standby-ribbon standby-ribbon-b" />
-      </div>
+      <template v-if="!isSpotlightRevealVariant">
+        <div class="standby-base-layer">
+          <AuroraPolaroidEngine
+            class="standby-engine"
+            color-mode="cool"
+            quality="auto"
+            :intensity="0.8"
+            :particle-density="0.52"
+            :pulse-token="reactionToken"
+          />
+          <div class="standby-color-field standby-color-a" />
+          <div class="standby-color-field standby-color-b" />
+          <div class="standby-color-field standby-color-c" />
+          <div class="standby-ribbon standby-ribbon-a" />
+          <div class="standby-ribbon standby-ribbon-b" />
+        </div>
 
-      <div class="standby-fog-field">
-        <div
-          v-for="(fog, index) in fogLayers"
-          :key="`standby-fog-${index}`"
-          :class="fog.className"
-          :style="fog.style"
-        />
-      </div>
+        <div class="standby-fog-field">
+          <div
+            v-for="(fog, index) in fogLayers"
+            :key="`standby-fog-${index}`"
+            :class="fog.className"
+            :style="fog.style"
+          />
+        </div>
 
-      <div class="standby-particle-field">
-        <span
-          v-for="(particle, index) in particles"
-          :key="`standby-particle-${index}`"
-          class="standby-particle"
-          :style="{
-            '--particle-x': particle.x,
-            '--particle-y': particle.y,
-            '--particle-size': particle.size,
-            '--particle-blur': particle.blur,
-            '--particle-opacity': particle.opacity,
-            '--particle-delay': particle.delay,
-            '--particle-duration': particle.duration,
-            '--particle-drift-x': particle.driftX,
-            '--particle-drift-y': particle.driftY,
-          }"
-        />
-      </div>
+        <div class="standby-particle-field">
+          <span
+            v-for="(particle, index) in particles"
+            :key="`standby-particle-${index}`"
+            class="standby-particle"
+            :style="{
+              '--particle-x': particle.x,
+              '--particle-y': particle.y,
+              '--particle-size': particle.size,
+              '--particle-blur': particle.blur,
+              '--particle-opacity': particle.opacity,
+              '--particle-delay': particle.delay,
+              '--particle-duration': particle.duration,
+              '--particle-drift-x': particle.driftX,
+              '--particle-drift-y': particle.driftY,
+            }"
+          />
+        </div>
 
-      <div class="standby-luma-layer" />
-      <div class="standby-noise" />
-      <div class="standby-vignette" />
+        <div class="standby-luma-layer" />
+        <div class="standby-noise" />
+        <div class="standby-vignette" />
+      </template>
+
+      <template v-else>
+        <div class="standby-spotlight-base" />
+        <div class="standby-vignette standby-vignette--deep" />
+      </template>
+    </div>
+
+    <div v-if="isSpotlightRevealVariant" class="standby-spotlight-field" aria-hidden="true">
+      <div class="standby-spotlight-search" />
     </div>
 
     <div class="standby-stage-shell" :style="stageShellStyle">
       <div class="standby-stage">
-        <div class="standby-content-glow" aria-hidden="true" />
+        <div
+          class="standby-content-glow"
+          :class="{ 'standby-content-glow--spotlight': isSpotlightRevealVariant }"
+          aria-hidden="true"
+        />
 
         <div class="standby-content">
           <div class="standby-brand-wrap">
             <div class="standby-brand-group">
-              <RavebergLogo class="standby-logo" muted />
+              <RavebergLogo
+                class="standby-logo"
+                :class="{ 'standby-logo--spotlight': isSpotlightRevealVariant }"
+                muted
+              />
 
               <div class="standby-copy">
                 <h1 class="standby-headline">{{ headline }}</h1>
@@ -198,6 +662,12 @@ const particles = [
   background:
     radial-gradient(circle at 50% 16%, rgba(50, 124, 194, 0.14), transparent 28%),
     linear-gradient(180deg, #040912 0%, #071220 44%, #02050a 100%);
+}
+
+.standby-renderer--spotlight-reveal {
+  background:
+    radial-gradient(circle at 50% 12%, rgba(20, 40, 62, 0.03), transparent 22%),
+    linear-gradient(180deg, #010308 0%, #010206 48%, #000102 100%);
 }
 
 .standby-background {
@@ -359,6 +829,43 @@ const particles = [
   animation-delay: var(--particle-delay), calc(var(--particle-delay) * 0.6);
 }
 
+.standby-spotlight-base,
+.standby-spotlight-field {
+  position: absolute;
+  inset: 0;
+}
+
+.standby-spotlight-base {
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 54%, rgba(12, 20, 30, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(1, 3, 6, 0.995), rgba(0, 2, 4, 0.998));
+}
+
+.standby-spotlight-field {
+  z-index: 1;
+  overflow: hidden;
+}
+
+.standby-spotlight-search {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+.standby-spotlight-search {
+  top: var(--spotlight-y, 50%);
+  left: var(--spotlight-x, 50%);
+  width: clamp(18rem, 24vw, 26rem);
+  height: clamp(18rem, 24vw, 26rem);
+  opacity: var(--spotlight-opacity, 0.76);
+  filter: none;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.94) 0 84%, rgba(255, 255, 255, 0.94) 85%, transparent 86%);
+  transform: translate3d(-50%, -50%, 0) scale(var(--spotlight-scale, 1));
+}
+
 .standby-luma-layer {
   z-index: 3;
   background:
@@ -402,6 +909,13 @@ const particles = [
     linear-gradient(180deg, rgba(2, 6, 11, 0.05), rgba(2, 6, 11, 0.24));
 }
 
+.standby-vignette--deep {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(194, 232, 255, 0.018), transparent 14%),
+    radial-gradient(circle at 50% 50%, transparent 22%, rgba(0, 2, 4, 0.44) 58%, rgba(0, 1, 3, 0.88) 100%),
+    linear-gradient(180deg, rgba(0, 2, 4, 0.12), rgba(0, 2, 4, 0.42));
+}
+
 .standby-stage-shell {
   position: absolute;
   top: 50%;
@@ -433,6 +947,10 @@ const particles = [
   filter: blur(40px);
   opacity: 0.62;
   animation: standbyContentGlow 11s ease-in-out infinite;
+}
+
+.standby-content-glow--spotlight {
+  display: none;
 }
 
 .standby-content {
@@ -474,6 +992,14 @@ const particles = [
   animation: standbyLogoGlow 10.5s ease-in-out infinite;
 }
 
+.standby-logo--spotlight {
+  filter:
+    brightness(var(--logo-visibility, 0.52))
+    drop-shadow(0 10px 24px rgba(4, 8, 14, 0.3));
+  opacity: var(--logo-visibility, 0.52);
+  transition: opacity 320ms ease, filter 320ms ease;
+}
+
 .standby-copy {
   display: grid;
   justify-items: center;
@@ -498,6 +1024,30 @@ const particles = [
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: rgba(221, 234, 247, 0.58);
+}
+
+.standby-renderer--spotlight-reveal .standby-stage {
+  transform: translate3d(0, -1rem, 0);
+  animation: none;
+}
+
+.standby-renderer--spotlight-reveal .standby-brand-group {
+  animation: none;
+  transform: none;
+}
+
+.standby-renderer--spotlight-reveal .standby-headline {
+  opacity: var(--headline-visibility, 0.5);
+  filter: brightness(calc(0.74 + var(--headline-visibility, 0.5) * 0.26));
+  text-shadow: 0 2px 12px rgba(2, 6, 11, 0.36);
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+
+.standby-renderer--spotlight-reveal .standby-subheadline {
+  opacity: var(--subline-visibility, 0.38);
+  filter: brightness(calc(0.7 + var(--subline-visibility, 0.38) * 0.22));
+  text-shadow: none;
+  transition: opacity 360ms ease, filter 360ms ease;
 }
 
 @keyframes standbyBlobDriftA {
