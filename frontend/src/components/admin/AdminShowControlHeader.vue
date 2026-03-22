@@ -283,10 +283,6 @@ function modeIcon(mode: AppMode) {
     border-color 160ms ease;
 }
 
-.context-action-btn:hover {
-  box-shadow: 0 6px 12px rgba(6, 17, 26, 0.1);
-}
-
 .context-action-btn:active {
   transform: scale(0.985);
 }
@@ -347,11 +343,6 @@ function modeIcon(mode: AppMode) {
   --action-bg-active: linear-gradient(180deg, rgba(71, 122, 195, 0.42), rgba(42, 86, 153, 0.34));
 }
 
-.context-action-btn--visualizer:hover {
-  background: rgba(49, 101, 178, 0.22);
-  border-color: rgba(106, 178, 255, 0.24);
-}
-
 .context-action-btn--selfie {
   --action-text-inactive: rgba(214, 245, 238, 0.86);
   --action-border-inactive: rgba(62, 214, 183, 0.14);
@@ -359,11 +350,6 @@ function modeIcon(mode: AppMode) {
   --action-text-active: rgba(233, 253, 248, 0.98);
   --action-border-active: rgba(98, 231, 202, 0.28);
   --action-bg-active: linear-gradient(180deg, rgba(46, 158, 139, 0.42), rgba(28, 114, 99, 0.34));
-}
-
-.context-action-btn--selfie:hover {
-  background: rgba(31, 144, 125, 0.22);
-  border-color: rgba(84, 228, 199, 0.24);
 }
 
 .context-action-btn--video {
@@ -375,11 +361,6 @@ function modeIcon(mode: AppMode) {
   --action-bg-active: linear-gradient(180deg, rgba(184, 112, 56, 0.42), rgba(145, 86, 38, 0.34));
 }
 
-.context-action-btn--video:hover {
-  background: rgba(178, 95, 28, 0.22);
-  border-color: rgba(255, 180, 108, 0.24);
-}
-
 .context-action-btn--idle {
   --action-text-inactive: rgba(229, 236, 244, 0.86);
   --action-border-inactive: rgba(144, 159, 178, 0.14);
@@ -389,11 +370,6 @@ function modeIcon(mode: AppMode) {
   --action-bg-active: linear-gradient(180deg, rgba(99, 114, 133, 0.4), rgba(78, 91, 108, 0.32));
 }
 
-.context-action-btn--idle:hover {
-  background: rgba(94, 109, 127, 0.22);
-  border-color: rgba(162, 176, 194, 0.22);
-}
-
 .context-action-btn--blackout {
   --action-text-inactive: rgba(255, 226, 226, 0.9);
   --action-border-inactive: rgba(236, 106, 106, 0.14);
@@ -401,11 +377,6 @@ function modeIcon(mode: AppMode) {
   --action-text-active: rgba(255, 240, 240, 0.98);
   --action-border-active: rgba(244, 128, 128, 0.26);
   --action-bg-active: linear-gradient(180deg, rgba(166, 62, 62, 0.42), rgba(133, 48, 48, 0.34));
-}
-
-.context-action-btn--blackout:hover {
-  background: rgba(171, 57, 57, 0.24);
-  border-color: rgba(244, 128, 128, 0.22);
 }
 
 .context-action-btn :deep(.v-btn__content) {

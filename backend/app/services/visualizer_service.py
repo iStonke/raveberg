@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ from app.schemas.visualizer import (
     HydraQuality,
     VisualizerOptionsResponse,
     VisualizerPreset,
+    VisualizerPresetOrderRead,
+    VisualizerPresetOrderUpdate,
     VisualizerStateRead,
     VisualizerStateUpdate,
 )
@@ -74,6 +77,8 @@ class VisualizerService:
                 overlay_mode="logo",
                 auto_cycle_enabled=settings.default_visualizer_auto_cycle_enabled,
                 auto_cycle_interval_seconds=settings.default_visualizer_auto_cycle_interval_seconds,
+                preset_sequence=self._serialize_preset_sequence(PRESETS),
+                skipped_presets="",
             )
             self.db.add(state)
             self.db.commit()
@@ -95,6 +100,16 @@ class VisualizerService:
             if state.auto_cycle_interval_seconds < 300 or state.auto_cycle_interval_seconds > 1800:
                 state.auto_cycle_interval_seconds = settings.default_visualizer_auto_cycle_interval_seconds
                 changed = True
+            sanitized_sequence = self._deserialize_preset_sequence(state.preset_sequence)
+            serialized_sequence = self._serialize_preset_sequence(sanitized_sequence)
+            if state.preset_sequence != serialized_sequence:
+                state.preset_sequence = serialized_sequence
+                changed = True
+            sanitized_skips = self._deserialize_skipped_presets(state.skipped_presets)
+            serialized_skips = self._serialize_preset_sequence(sanitized_skips)
+            if state.skipped_presets != serialized_skips:
+                state.skipped_presets = serialized_skips
+                changed = True
             if not changed:
                 return state
             state.updated_at = datetime.now(timezone.utc)
@@ -106,6 +121,13 @@ class VisualizerService:
     def get_state(self) -> VisualizerStateRead:
         state = self.ensure_state()
         return VisualizerStateRead.model_validate(state, from_attributes=True)
+
+    def get_preset_order(self) -> VisualizerPresetOrderRead:
+        state = self.ensure_state()
+        return VisualizerPresetOrderRead(
+            presets=self._get_rotation_presets(state),
+            skipped_presets=self._get_skipped_presets(state),
+        )
 
     def update_state(self, payload: VisualizerStateUpdate) -> VisualizerUpdateResult:
         state = self.ensure_state()
@@ -152,6 +174,23 @@ class VisualizerService:
             auto_cycle_changed=auto_cycle_changed,
         )
 
+    def update_preset_order(self, payload: VisualizerPresetOrderUpdate) -> VisualizerPresetOrderRead:
+        state = self.ensure_state()
+        sanitized_sequence = self._sanitize_rotation_presets(payload.presets)
+        sanitized_skips = self._sanitize_skipped_presets(payload.skipped_presets)
+        state.preset_sequence = self._serialize_preset_sequence(sanitized_sequence)
+        state.skipped_presets = self._serialize_preset_sequence(sanitized_skips)
+        self.db.add(state)
+        self.db.commit()
+        self.db.refresh(state)
+        logger.info(
+            "[VisualizerAutoSwitch] sequence_updated active=%s sequence=%s skipped=%s",
+            state.active_preset,
+            ",".join(sanitized_sequence),
+            ",".join(sanitized_skips),
+        )
+        return VisualizerPresetOrderRead(presets=sanitized_sequence, skipped_presets=sanitized_skips)
+
     def cycle_if_due(self) -> VisualizerStateRead | None:
         state = self.ensure_state()
         if not state.auto_cycle_enabled:
@@ -159,7 +198,7 @@ class VisualizerService:
         if ModeService(self.db).get_mode().mode != "visualizer":
             return None
 
-        rotation_presets = self._get_rotation_presets()
+        rotation_presets = self._get_active_rotation_presets(state)
         if len(rotation_presets) < 2:
             return None
 
@@ -186,9 +225,19 @@ class VisualizerService:
             hydra_palette_modes=HYDRA_PALETTE_MODES,
         )
 
-    @staticmethod
-    def _get_rotation_presets() -> list[VisualizerPreset]:
-        return PRESETS
+    def _get_rotation_presets(self, state: VisualizerState | None = None) -> list[VisualizerPreset]:
+        target_state = state or self.ensure_state()
+        return self._deserialize_preset_sequence(target_state.preset_sequence)
+
+    def _get_skipped_presets(self, state: VisualizerState | None = None) -> list[VisualizerPreset]:
+        target_state = state or self.ensure_state()
+        return self._deserialize_skipped_presets(target_state.skipped_presets)
+
+    def _get_active_rotation_presets(self, state: VisualizerState | None = None) -> list[VisualizerPreset]:
+        rotation_presets = self._get_rotation_presets(state)
+        skipped_presets = set(self._get_skipped_presets(state))
+        active_presets = [preset for preset in rotation_presets if preset not in skipped_presets]
+        return active_presets or rotation_presets
 
     @staticmethod
     def _pick_next_preset(
@@ -311,5 +360,76 @@ class VisualizerService:
                 )
             )
             changed = True
+        if "preset_sequence" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE visualizer_state "
+                    "ADD COLUMN preset_sequence VARCHAR(512) NOT NULL DEFAULT ''"
+                )
+            )
+            changed = True
+        if "skipped_presets" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE visualizer_state "
+                    "ADD COLUMN skipped_presets VARCHAR(512) NOT NULL DEFAULT ''"
+                )
+            )
+            changed = True
         if changed:
             self.db.commit()
+
+    @staticmethod
+    def _serialize_preset_sequence(presets: list[VisualizerPreset]) -> str:
+        return ",".join(presets)
+
+    @staticmethod
+    def _deserialize_preset_sequence(raw_sequence: str | None) -> list[VisualizerPreset]:
+        if not raw_sequence:
+            return PRESETS.copy()
+
+        presets = [entry.strip() for entry in raw_sequence.split(",") if entry.strip()]
+        return VisualizerService._sanitize_rotation_presets(presets)
+
+    @staticmethod
+    def _deserialize_skipped_presets(raw_sequence: str | None) -> list[VisualizerPreset]:
+        if not raw_sequence:
+            return []
+
+        presets = [entry.strip() for entry in raw_sequence.split(",") if entry.strip()]
+        return VisualizerService._sanitize_skipped_presets(presets)
+
+    @staticmethod
+    def _sanitize_rotation_presets(presets: list[str]) -> list[VisualizerPreset]:
+        seen: set[str] = set()
+        sanitized: list[VisualizerPreset] = []
+
+        for preset in presets:
+            if preset not in PRESETS or preset in seen:
+                continue
+            seen.add(preset)
+            sanitized.append(cast(VisualizerPreset, preset))
+
+        for preset in PRESETS:
+            if preset in seen:
+                continue
+            seen.add(preset)
+            sanitized.append(preset)
+
+        return sanitized
+
+    @staticmethod
+    def _sanitize_skipped_presets(presets: list[str]) -> list[VisualizerPreset]:
+        seen: set[str] = set()
+        sanitized: list[VisualizerPreset] = []
+
+        for preset in presets:
+            if preset not in PRESETS or preset in seen:
+                continue
+            seen.add(preset)
+            sanitized.append(cast(VisualizerPreset, preset))
+
+        if len(sanitized) >= len(PRESETS):
+            return sanitized[:-1]
+
+        return sanitized

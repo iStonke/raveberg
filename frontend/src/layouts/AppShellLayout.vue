@@ -18,7 +18,9 @@ const isSetupRoute = computed(() => route.path.startsWith('/setup'))
 const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
 const isAdminVideoManager = computed(() => route.name === 'admin-videos')
-const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminVideoManager.value)
+const isAdminVisualizerManager = computed(() => route.name === 'admin-visualizers')
+const isAdminSubmenuRoute = computed(() => isAdminVideoManager.value || isAdminVisualizerManager.value)
+const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminSubmenuRoute.value)
 const isLogoutDialogOpen = ref(false)
 const isLoggingOut = ref(false)
 
@@ -114,7 +116,7 @@ function showUploadsBadge(hash: string) {
     >
       <div
         class="admin-nav-strip__inner"
-        :class="{ 'admin-nav-strip__inner--single': isAdminVideoManager }"
+        :class="{ 'admin-nav-strip__inner--single': isAdminSubmenuRoute }"
       >
         <template v-if="isAdminDashboard">
           <router-link
@@ -160,7 +162,7 @@ function showUploadsBadge(hash: string) {
         :class="{
           'admin-shell-container': isAdminRoute,
           'admin-workspace-container': isAdminDashboard,
-          'admin-video-manager-container': isAdminVideoManager,
+          'admin-video-manager-container': isAdminSubmenuRoute,
           'admin-login-shell-container': isAdminLogin,
           'setup-shell-container': isSetupRoute,
         }"

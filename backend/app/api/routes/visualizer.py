@@ -6,6 +6,8 @@ from app.auth.dependencies import require_admin_user
 from app.schemas.auth import SessionUser
 from app.schemas.visualizer import (
     VisualizerOptionsResponse,
+    VisualizerPresetOrderRead,
+    VisualizerPresetOrderUpdate,
     VisualizerStateRead,
     VisualizerStateUpdate,
 )
@@ -38,3 +40,20 @@ async def update_visualizer(
 @router.get("/presets", response_model=VisualizerOptionsResponse)
 def read_visualizer_presets() -> VisualizerOptionsResponse:
     return VisualizerService.get_options()
+
+
+@router.get("/order", response_model=VisualizerPresetOrderRead)
+def read_visualizer_order(
+    db: Session = Depends(get_db),
+    _: SessionUser = Depends(require_admin_user),
+) -> VisualizerPresetOrderRead:
+    return VisualizerService(db).get_preset_order()
+
+
+@router.put("/order", response_model=VisualizerPresetOrderRead)
+def update_visualizer_order(
+    payload: VisualizerPresetOrderUpdate,
+    db: Session = Depends(get_db),
+    _: SessionUser = Depends(require_admin_user),
+) -> VisualizerPresetOrderRead:
+    return VisualizerService(db).update_preset_order(payload)

@@ -26,4 +26,6 @@ class VisualizerState(Base):
     overlay_mode: Mapped[str] = mapped_column(String(32), default="logo")
     auto_cycle_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_cycle_interval_seconds: Mapped[int] = mapped_column(Integer, default=600)
+    preset_sequence: Mapped[str] = mapped_column(String(512), default="")
+    skipped_presets: Mapped[str] = mapped_column(String(512), default="")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

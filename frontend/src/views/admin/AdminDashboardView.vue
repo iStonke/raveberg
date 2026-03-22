@@ -38,6 +38,10 @@ import {
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
 import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
 import SystemSettingsPanel from '../../components/admin/SystemSettingsPanel.vue'
+import {
+  defaultVisualizerPresetSequence,
+  visualizerPresetLabels,
+} from '../../constants/visualizerPresets'
 import { useAdminVideoLibrary } from '../../composables/useAdminVideoLibrary'
 import { useAdminAlert } from '../../stores/adminAlert'
 import { useAdminUploadsBadgeStore } from '../../stores/adminUploadsBadge'
@@ -295,32 +299,16 @@ function buildNumericSelectOptions(
     }))
 }
 
+function clampVisualizerPercentStep(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value / 25) * 25))
+}
+
 const visualizerSpeedOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.speed, (value) => `${value}`),
+  buildNumericSelectOptions(0, 100, 25, clampVisualizerPercentStep(visualizerDraft.speed), (value) => `${value}%`),
 )
 
 const visualizerIntensityOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.intensity, (value) => `${value}`),
-)
-
-const visualizerBrightnessOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.brightness, (value) => `${value}`),
-)
-
-const visualizerHydraColorfulnessOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_colorfulness, (value) => `${value}`),
-)
-
-const visualizerHydraSceneChangeRateOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_scene_change_rate, (value) => `${value}`),
-)
-
-const visualizerHydraSymmetryAmountOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_symmetry_amount, (value) => `${value}`),
-)
-
-const visualizerHydraFeedbackAmountOptions = computed(() =>
-  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_feedback_amount, (value) => `${value}`),
+  buildNumericSelectOptions(0, 100, 25, clampVisualizerPercentStep(visualizerDraft.intensity), (value) => `${value}%`),
 )
 
 const visualizerAutoCycleIntervalOptions = computed(() =>
@@ -455,35 +443,6 @@ const uploadSessionTimeoutItems = [
   { title: '72 Stunden', value: 72 },
 ] as const
 
-const visualizerPresetLabels: Record<VisualizerPreset, string> = {
-  particles: 'Particles',
-  kaleidoscope: 'Kaleidoscope',
-  warehouse: 'Warehouse',
-  storm_lightning: 'Storm Lightning',
-  retro_cube: 'Retro Cube',
-  retro_pipes: 'Retro Pipes',
-  dvd_bounce: 'DVD Bounce',
-  matrix_screen: 'Matrix Screen',
-  nebel: 'Nebel',
-  vanta_halo: 'Vanta HALO',
-  hydra_rave: 'Hydra Rave',
-  hydra_chromaflow: 'Hydra Chromaflow',
-}
-
-const hydraQualityLabels: Record<HydraQuality, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-}
-
-const hydraPaletteModeLabels: Record<HydraPaletteMode, string> = {
-  auto: 'Auto',
-  neon: 'Neon',
-  warm: 'Warm',
-  cold: 'Cold',
-  acid: 'Acid',
-}
-
 let visualizerPersistTimer: number | undefined
 let selfiePersistTimer: number | undefined
 let standbyPersistTimer: number | undefined
@@ -592,9 +551,9 @@ function nextOverlayModeForModule(module: OverlayControlModule, current: Overlay
 function overlayModeLabelForModule(module: OverlayControlModule, mode: OverlayMode) {
   const normalized = normalizeOverlayModeForModule(module, mode)
   if (module === 'video' || module === 'visualizer') {
-    return normalized === 'off' ? 'Overlay aus' : 'Overlay ein'
+    return normalized === 'off' ? 'Overlay aus' : 'Overlay an'
   }
-  if (normalized === 'qr') return 'Overlay ein'
+  if (normalized === 'qr') return 'Overlay an'
   return 'Overlay aus'
 }
 
@@ -653,7 +612,7 @@ const contextActions = computed(() => {
     return [
       {
         id: 'video:playlist',
-        label: videoDraft.playlist_enabled ? 'Nacheinander abspielen ein' : 'Nacheinander abspielen aus',
+        label: videoDraft.playlist_enabled ? 'Automatikwechsel an' : 'Automatikwechsel aus',
         color: 'primary' as const,
         loading: false,
         disabled: isBooting.value,
@@ -661,7 +620,7 @@ const contextActions = computed(() => {
       },
       {
         id: 'video:vintage',
-        label: videoDraft.vintage_filter_enabled ? 'Vintage ein' : 'Vintage aus',
+        label: videoDraft.vintage_filter_enabled ? 'Vintage an' : 'Vintage aus',
         color: 'primary' as const,
         loading: false,
         disabled: isBooting.value,
@@ -669,7 +628,7 @@ const contextActions = computed(() => {
       },
       {
         id: 'video:transition',
-        label: videoDraft.transition === 'fade' ? 'Übergang ein' : 'Übergang aus',
+        label: videoDraft.transition === 'fade' ? 'Übergang an' : 'Übergang aus',
         color: 'primary' as const,
         loading: false,
         disabled: isBooting.value,
@@ -702,37 +661,13 @@ const visualizerTelemetryLabel = computed(
     `T ${visualizerStore.speed} / I ${visualizerStore.intensity} / H ${visualizerStore.brightness}`,
 )
 
-const visualizerPresetItems = computed(() => {
-  const presets: VisualizerPreset[] = visualizerStore.presets.length
-    ? [...visualizerStore.presets]
-    : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'dvd_bounce', 'matrix_screen', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
+const activeVisualizerPresetLabel = computed(
+  () => visualizerPresetLabels[visualizerDraft.active_preset] ?? visualizerDraft.active_preset,
+)
 
-  return presets.map((preset) => ({
-    title: visualizerPresetLabels[preset] ?? preset,
-    value: preset,
-  }))
-})
-
-const hydraQualityItems = computed(() => {
-  const qualities: HydraQuality[] = visualizerStore.hydraQualities.length
-    ? [...visualizerStore.hydraQualities]
-    : ['low', 'medium', 'high']
-
-  return qualities.map((quality) => ({
-    title: hydraQualityLabels[quality] ?? quality,
-    value: quality,
-  }))
-})
-
-const hydraPaletteModeItems = computed(() => {
-  const modes: HydraPaletteMode[] = visualizerStore.hydraPaletteModes.length
-    ? [...visualizerStore.hydraPaletteModes]
-    : ['auto', 'neon', 'warm', 'cold', 'acid']
-
-  return modes.map((mode) => ({
-    title: hydraPaletteModeLabels[mode] ?? mode,
-    value: mode,
-  }))
+const visualizerSequenceCountLabel = computed(() => {
+  const count = visualizerStore.presetSequence.length || defaultVisualizerPresetSequence.length
+  return `${count} Stile`
 })
 
 const isHydraChromaflowPreset = computed(
@@ -1100,6 +1035,7 @@ onMounted(async () => {
       systemStatusStore.refresh(adminToken),
       visualizerStore.refresh(),
       visualizerStore.refreshOptions(),
+      visualizerStore.refreshPresetSequence(),
     ])
 
     applyUploadSummary(initialUploadPage)
@@ -1328,8 +1264,8 @@ async function switchMode(mode: AppMode) {
 async function syncVisualizerDraftFromStore() {
   isHydratingVisualizerDraft.value = true
   visualizerDraft.active_preset = visualizerStore.activePreset
-  visualizerDraft.intensity = visualizerStore.intensity
-  visualizerDraft.speed = visualizerStore.speed
+  visualizerDraft.intensity = clampVisualizerPercentStep(visualizerStore.intensity)
+  visualizerDraft.speed = clampVisualizerPercentStep(visualizerStore.speed)
   visualizerDraft.brightness = visualizerStore.brightness
   visualizerDraft.color_scheme = visualizerStore.colorScheme
   visualizerDraft.hydra_colorfulness = visualizerStore.hydraColorfulness
@@ -1524,6 +1460,8 @@ async function saveVisualizerDraft() {
   isSavingVisualizer.value = true
   try {
     visualizerDraft.overlay_mode = normalizeOverlayModeForModule('visualizer', visualizerDraft.overlay_mode)
+    visualizerDraft.intensity = clampVisualizerPercentStep(visualizerDraft.intensity)
+    visualizerDraft.speed = clampVisualizerPercentStep(visualizerDraft.speed)
     await visualizerStore.save({
       active_preset: visualizerDraft.active_preset,
       intensity: visualizerDraft.intensity,
@@ -2122,12 +2060,14 @@ async function advancePresetQuick() {
     }
     isHydratingVisualizerDraft.value = true
 
-    const presets: VisualizerPreset[] = visualizerStore.presets.length
-      ? [...visualizerStore.presets]
-      : ['particles', 'kaleidoscope', 'warehouse', 'storm_lightning', 'retro_cube', 'retro_pipes', 'dvd_bounce', 'matrix_screen', 'nebel', 'vanta_halo', 'hydra_rave', 'hydra_chromaflow']
-    const currentIndex = presets.indexOf(visualizerDraft.active_preset)
-    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0
-    visualizerDraft.active_preset = presets[nextIndex]
+    const presets: VisualizerPreset[] = visualizerStore.presetSequence.length
+      ? [...visualizerStore.presetSequence]
+      : (visualizerStore.presets.length ? [...visualizerStore.presets] : [...defaultVisualizerPresetSequence])
+    const activePresets = presets.filter((preset) => !visualizerStore.skippedPresets.includes(preset))
+    const rotationPresets = activePresets.length ? activePresets : presets
+    const currentIndex = rotationPresets.indexOf(visualizerDraft.active_preset)
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % rotationPresets.length : 0
+    visualizerDraft.active_preset = rotationPresets[nextIndex]
     await nextTick()
     isHydratingVisualizerDraft.value = false
     await saveVisualizerDraft()
@@ -2249,6 +2189,10 @@ async function runHeaderAction(actionId: string) {
 
 function openVideoManager() {
   void router.push({ name: 'admin-videos' })
+}
+
+function openVisualizerManager() {
+  void router.push({ name: 'admin-visualizers' })
 }
 
 function formatVideoDurationLabel(value: number) {
@@ -2922,6 +2866,21 @@ function formatModeLabel(mode: AppMode) {
                 <section v-else-if="isSlideshowMode" key="selfie" class="settings-section">
               <div class="settings-group settings-group--menu-stack">
                 <div class="settings-control">
+                  <div class="settings-control__label">Start nach</div>
+                  <v-select
+                    v-model="selfieDraft.slideshow_min_uploads_to_start"
+                    class="admin-select"
+                    :items="slideshowStartAfterOptions"
+                    :disabled="isBooting || isSavingSelfie"
+                    item-title="label"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+
+                <div class="settings-control">
                   <div class="settings-control__label">Einblend-Intervall</div>
                   <v-select
                     v-model="selfieDraft.slideshow_interval_seconds"
@@ -2951,21 +2910,6 @@ function formatModeLabel(mode: AppMode) {
                   />
                 </div>
 
-                <div class="settings-control">
-                  <div class="settings-control__label">Start nach</div>
-                  <v-select
-                    v-model="selfieDraft.slideshow_min_uploads_to_start"
-                    class="admin-select"
-                    :items="slideshowStartAfterOptions"
-                    :disabled="isBooting || isSavingSelfie"
-                    item-title="label"
-                    item-value="value"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-
                 <div class="settings-action settings-control--spaced">
                   <v-btn
                     color="primary"
@@ -2982,84 +2926,47 @@ function formatModeLabel(mode: AppMode) {
                 </section>
 
                 <section v-else-if="isVisualizerMode" key="visualizer" class="settings-section settings-section--field-stack">
-              <div class="settings-group">
-                <div class="settings-control">
-                  <div class="settings-control__label">Stil</div>
-                  <v-select
-                    v-model="visualizerDraft.active_preset"
-                    class="admin-select"
-                    :items="visualizerPresetItems"
-                    :disabled="isBooting"
-                    item-title="title"
-                    item-value="value"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-              </div>
+	                <div class="settings-group settings-group--menu-stack">
+	                <div class="settings-group__label">Visualizer</div>
+	                <button
+	                  type="button"
+	                  class="video-library-entry"
+	                  :disabled="isBooting"
+	                  @click="openVisualizerManager"
+	                  @keydown.enter.prevent="openVisualizerManager"
+	                  @keydown.space.prevent="openVisualizerManager"
+	                >
+	                  <div class="video-library-entry__body">
+	                    <div class="video-library-entry__header">
+	                      <div class="video-library-entry__title">Stil festlegen</div>
+	                      <v-icon icon="mdi-chevron-right" size="20" class="video-library-entry__chevron" />
+	                    </div>
+	                    <div class="video-library-entry__meta video-library-entry__meta--visualizer">
+	                      <span>{{ activeVisualizerPresetLabel }}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{{ visualizerSequenceCountLabel }}</span>
+	                    </div>
+	                  </div>
+	                </button>
 
-              <div class="settings-group">
-                <div v-if="!isHydraChromaflowPreset" class="settings-control">
-                  <div class="settings-control__label">Farbwelt</div>
-                  <v-select
-                    v-model="visualizerDraft.color_scheme"
+		                <div v-if="!isHydraChromaflowPreset" class="settings-control">
+		                  <div class="settings-control__label">Farbwelt</div>
+	                  <v-select
+	                    v-model="visualizerDraft.color_scheme"
                     class="admin-select"
                     :items="visualizerStore.colorSchemes"
                     :disabled="isBooting"
                     hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-                <template v-else>
-                  <div class="settings-control">
-                    <div class="settings-control__label">Palette</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_palette_mode"
-                      class="admin-select"
-                      :items="hydraPaletteModeItems"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                  <div class="settings-control settings-control--spaced">
-                    <div class="settings-control__label">Qualität</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_quality"
-                      class="admin-select"
-                      :items="hydraQualityItems"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                  <div class="settings-control settings-control--spaced">
-                    <div class="settings-control__label">Audio-Reaktivität</div>
-                    <v-switch
-                      v-model="visualizerDraft.hydra_audio_reactivity_enabled"
-                      color="primary"
-                      hide-details
-                      inset
-                    />
-                  </div>
-                </template>
-              </div>
-
-              <div class="settings-group settings-group--menu-stack">
-                <v-expand-transition>
+	                    variant="solo"
+	                    density="comfortable"
+	                  />
+	                </div>
+	                <v-expand-transition>
                   <div
                     v-if="visualizerDraft.auto_cycle_enabled"
                     class="settings-control"
                   >
-                    <div class="settings-control__label">Presetwechsel alle</div>
+                    <div class="settings-control__label">Stilwechsel</div>
                     <v-select
                       v-model="visualizerDraft.auto_cycle_interval_minutes"
                       class="admin-select"
@@ -3073,107 +2980,39 @@ function formatModeLabel(mode: AppMode) {
                     />
                   </div>
                 </v-expand-transition>
-                <div class="settings-control">
-                  <div class="settings-control__label">Tempo</div>
-                  <v-select
-                    v-model="visualizerDraft.speed"
-                    class="admin-select"
+              </div>
+
+		              <div class="settings-group settings-group--menu-stack">
+	                <div class="settings-group__label">Feinjustieren</div>
+	                <div class="settings-control">
+	                  <div class="settings-control__label">Tempo</div>
+	                  <v-select
+	                    v-model="visualizerDraft.speed"
+	                    class="admin-select"
                     :items="visualizerSpeedOptions"
                     :disabled="isBooting"
                     item-title="title"
                     item-value="value"
                     hide-details
                     variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-                <div class="settings-control">
-                  <div class="settings-control__label">Intensität</div>
-                  <v-select
-                    v-model="visualizerDraft.intensity"
-                    class="admin-select"
+	                    density="comfortable"
+	                  />
+	                </div>
+	                <div class="settings-control">
+	                  <div class="settings-control__label">Stärke</div>
+	                  <v-select
+	                    v-model="visualizerDraft.intensity"
+	                    class="admin-select"
                     :items="visualizerIntensityOptions"
                     :disabled="isBooting"
                     item-title="title"
                     item-value="value"
                     hide-details
                     variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-                <div class="settings-control">
-                  <div class="settings-control__label">Helligkeit</div>
-                  <v-select
-                    v-model="visualizerDraft.brightness"
-                    class="admin-select"
-                    :items="visualizerBrightnessOptions"
-                    :disabled="isBooting"
-                    item-title="title"
-                    item-value="value"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-                <template v-if="isHydraChromaflowPreset">
-                  <div class="settings-control">
-                    <div class="settings-control__label">Colorfulness</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_colorfulness"
-                      class="admin-select"
-                      :items="visualizerHydraColorfulnessOptions"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                  <div class="settings-control">
-                    <div class="settings-control__label">Scene Change Rate</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_scene_change_rate"
-                      class="admin-select"
-                      :items="visualizerHydraSceneChangeRateOptions"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                  <div class="settings-control">
-                    <div class="settings-control__label">Symmetry Amount</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_symmetry_amount"
-                      class="admin-select"
-                      :items="visualizerHydraSymmetryAmountOptions"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                  <div class="settings-control">
-                    <div class="settings-control__label">Feedback Amount</div>
-                    <v-select
-                      v-model="visualizerDraft.hydra_feedback_amount"
-                      class="admin-select"
-                      :items="visualizerHydraFeedbackAmountOptions"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                </template>
-              </div>
+	                    density="comfortable"
+	                  />
+	                </div>
+	              </div>
                       </section>
                     </Transition>
                   </div>
@@ -6080,10 +5919,14 @@ function formatModeLabel(mode: AppMode) {
   flex-wrap: wrap;
   gap: 0.24rem;
   align-items: center;
-  color: rgba(181, 231, 213, 0.78);
+  color: rgba(255, 191, 122, 0.84);
   font-size: 0.71rem;
   font-weight: 650;
   line-height: 1.2;
+}
+
+.video-library-entry__meta--visualizer {
+  color: rgba(137, 189, 255, 0.84);
 }
 
 @media (max-width: 959px) {

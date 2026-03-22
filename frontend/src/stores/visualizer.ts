@@ -11,6 +11,7 @@ import type {
 } from '../services/api'
 import {
   fetchVisualizerOptions,
+  fetchVisualizerPresetOrder,
   fetchVisualizerState,
   updateVisualizerState,
 } from '../services/api'
@@ -32,6 +33,8 @@ export const useVisualizerStore = defineStore('visualizer', () => {
   const autoCycleEnabled = ref(false)
   const autoCycleIntervalSeconds = ref(600)
   const updatedAt = ref<string | null>(null)
+  const presetSequence = ref<VisualizerPreset[]>([])
+  const skippedPresets = ref<VisualizerPreset[]>([])
   const presets = ref<VisualizerOptionsResponse['presets']>([])
   const colorSchemes = ref<VisualizerOptionsResponse['color_schemes']>([])
   const hydraQualities = ref<VisualizerOptionsResponse['hydra_qualities']>([])
@@ -47,6 +50,17 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     colorSchemes.value = options.color_schemes
     hydraQualities.value = options.hydra_qualities
     hydraPaletteModes.value = options.hydra_palette_modes
+  }
+
+  async function refreshPresetSequence() {
+    const token = localStorage.getItem('raveberg-admin-token')
+    if (!token) {
+      return
+    }
+
+    const response = await fetchVisualizerPresetOrder(token)
+    applyPresetSequence(response.presets)
+    applySkippedPresets(response.skipped_presets)
   }
 
   async function save(nextState: Omit<VisualizerState, 'updated_at'>) {
@@ -77,6 +91,14 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     updatedAt.value = state.updated_at
   }
 
+  function applyPresetSequence(nextPresetSequence: VisualizerPreset[]) {
+    presetSequence.value = [...nextPresetSequence]
+  }
+
+  function applySkippedPresets(nextSkippedPresets: VisualizerPreset[]) {
+    skippedPresets.value = [...nextSkippedPresets]
+  }
+
   return {
     activePreset,
     intensity,
@@ -94,13 +116,18 @@ export const useVisualizerStore = defineStore('visualizer', () => {
     autoCycleEnabled,
     autoCycleIntervalSeconds,
     updatedAt,
+    presetSequence,
+    skippedPresets,
     presets,
     colorSchemes,
     hydraQualities,
     hydraPaletteModes,
     refresh,
     refreshOptions,
+    refreshPresetSequence,
     save,
     applyState,
+    applyPresetSequence,
+    applySkippedPresets,
   }
 })

@@ -66,3 +66,13 @@ class VisualizerOptionsResponse(BaseModel):
     color_schemes: list[ColorScheme]
     hydra_qualities: list[HydraQuality]
     hydra_palette_modes: list[HydraPaletteMode]
+
+
+class VisualizerPresetOrderRead(BaseModel):
+    presets: list[VisualizerPreset]
+    skipped_presets: list[VisualizerPreset]
+
+
+class VisualizerPresetOrderUpdate(BaseModel):
+    presets: list[VisualizerPreset] = Field(min_length=1)
+    skipped_presets: list[VisualizerPreset] = Field(default_factory=list)

@@ -358,6 +358,11 @@ export interface VisualizerOptionsResponse {
   hydra_palette_modes: HydraPaletteMode[]
 }
 
+export interface VisualizerPresetOrderResponse {
+  presets: VisualizerPreset[]
+  skipped_presets: VisualizerPreset[]
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {})
   if (init?.body && !headers.has('Content-Type')) {
@@ -803,6 +808,12 @@ export function fetchVisualizerOptions() {
   return request<VisualizerOptionsResponse>('/api/visualizer/presets')
 }
 
+export function fetchVisualizerPresetOrder(token: string) {
+  return request<VisualizerPresetOrderResponse>('/api/visualizer/order', {
+    headers: withAuth(token),
+  })
+}
+
 export function updateSelfieState(payload: Omit<SelfieState, 'slideshow_updated_at'>, token: string) {
   return request<SelfieState>('/api/selfie', {
     method: 'PUT',
@@ -881,5 +892,17 @@ export function updateVisualizerState(payload: Omit<VisualizerState, 'updated_at
     method: 'PUT',
     headers: withAuth(token),
     body: JSON.stringify(payload),
+  })
+}
+
+export function updateVisualizerPresetOrder(
+  presets: VisualizerPreset[],
+  skippedPresets: VisualizerPreset[],
+  token: string,
+) {
+  return request<VisualizerPresetOrderResponse>('/api/visualizer/order', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify({ presets, skipped_presets: skippedPresets }),
   })
 }
