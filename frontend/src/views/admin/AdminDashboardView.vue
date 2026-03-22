@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import type {
   AdminUploadListResponse,
@@ -16,7 +16,6 @@ import type {
   RemoteRendererFallback,
   RemoteVisualizerFallback,
   UploadItem,
-  VideoAsset,
   VideoObjectFit,
   VideoPlaybackOrder,
   VideoTransition,
@@ -24,24 +23,22 @@ import type {
 } from '../../services/api'
 import {
   approveUpload,
-  deleteVideoAsset,
   deleteUpload,
   downloadAdminUploadArchive,
   fetchAdminUploads,
   fetchGuestUploadConfig,
   rejectUpload,
-  reorderVideoAssets,
   startSetupMode,
   stopSetupMode,
   triggerSystemRestart,
   triggerSystemShutdown,
   updateAdminAccess,
   updateGuestUploadConfig,
-  uploadAdminVideo,
 } from '../../services/api'
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
 import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
 import SystemSettingsPanel from '../../components/admin/SystemSettingsPanel.vue'
+import { useAdminVideoLibrary } from '../../composables/useAdminVideoLibrary'
 import { useAdminAlert } from '../../stores/adminAlert'
 import { useAdminUploadsBadgeStore } from '../../stores/adminUploadsBadge'
 import { useAppModeStore } from '../../stores/appMode'
@@ -54,6 +51,7 @@ import { useVideoStore } from '../../stores/video'
 import { useVisualizerStore } from '../../stores/visualizer'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const adminAlert = useAdminAlert()
 const adminUploadsBadgeStore = useAdminUploadsBadgeStore()
@@ -64,6 +62,15 @@ const standbyStore = useStandbyStore()
 const systemStatusStore = useSystemStatusStore()
 const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
+const {
+  orderedVideoAssets,
+  totalVideoDurationSeconds,
+  refreshVideoLibrary,
+  loadVideoMetadata,
+} = useAdminVideoLibrary({
+  onVideoStateSynced: syncVideoDraftFromStore,
+  onSystemRefresh: refreshSystemOnly,
+})
 
 type AdminWorkspaceSection = 'modus' | 'system' | 'uploads'
 type UploadGalleryFilter = 'all' | 'pending' | 'rejected' | 'new'
@@ -87,7 +94,6 @@ const isSavingStandby = ref(false)
 const isSavingVideo = ref(false)
 const isSavingRemoteVisualizer = ref(false)
 const isSavingRemoteRenderer = ref(false)
-const isUploadingVideos = ref(false)
 const isSavingAccess = ref(false)
 const isSavingSecurity = ref(false)
 const securityError = ref('')
@@ -119,10 +125,6 @@ const pendingOperationalRefresh = ref(false)
 const isRefreshingUploadWorkspace = ref(false)
 const pendingUploadWorkspaceRefresh = ref(false)
 const recentEvents = ref<RecentEventEntry[]>([])
-const videoFileInput = ref<HTMLInputElement | null>(null)
-const videoDurations = ref<Record<number, string>>({})
-const videoMetadataLoading = ref<Record<number, boolean>>({})
-const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
 const uploadListSentinel = ref<HTMLElement | null>(null)
 const uploadListHasMore = ref(false)
@@ -194,7 +196,7 @@ const selfieDraft = reactive<{
   slideshow_max_visible_photos: 4,
   slideshow_min_uploads_to_start: 3,
   slideshow_shuffle: true,
-  overlay_mode: 'logo',
+  overlay_mode: 'qr',
   vintage_look_enabled: false,
   moderation_mode: 'auto_approve',
 })
@@ -424,14 +426,9 @@ const modeButtons: Array<{ label: string; value: AppMode }> = [
   { label: 'Blackout', value: 'blackout' },
 ]
 
-const videoOrderItems = [
-  { title: 'Hochladereihenfolge', value: 'upload_order' },
-  { title: 'Zufällig', value: 'random' },
-] as const
-
 const videoFitItems = [
-  { title: 'Einpassen', value: 'contain' },
-  { title: 'Zuschneiden', value: 'cover' },
+  { title: 'Video einpassen', value: 'contain' },
+  { title: 'Video zuschneiden', value: 'cover' },
 ] as const
 
 const remoteVisualizerFallbackItems = [
@@ -572,6 +569,34 @@ const activeWorkspaceSection = computed<AdminWorkspaceSection>(() => {
 })
 
 const activeMode = computed(() => optimisticMode.value ?? appModeStore.mode)
+type OverlayControlModule = 'visualizer' | 'selfie' | 'video'
+
+function normalizeOverlayModeForModule(module: OverlayControlModule, mode: OverlayMode): OverlayMode {
+  if (module === 'selfie') {
+    return mode === 'qr' ? 'qr' : 'off'
+  }
+
+  return mode === 'logo' ? 'logo' : 'off'
+}
+
+function nextOverlayModeForModule(module: OverlayControlModule, current: OverlayMode): OverlayMode {
+  const normalized = normalizeOverlayModeForModule(module, current)
+
+  if (module === 'selfie') {
+    return normalized === 'qr' ? 'off' : 'qr'
+  }
+
+  return normalized === 'logo' ? 'off' : 'logo'
+}
+
+function overlayModeLabelForModule(module: OverlayControlModule, mode: OverlayMode) {
+  const normalized = normalizeOverlayModeForModule(module, mode)
+  if (module === 'video' || module === 'visualizer') {
+    return normalized === 'off' ? 'Overlay aus' : 'Overlay ein'
+  }
+  if (normalized === 'qr') return 'Overlay ein'
+  return 'Overlay aus'
+}
 
 const contextActions = computed(() => {
   if (activeMode.value === 'selfie') {
@@ -594,32 +619,17 @@ const contextActions = computed(() => {
       },
       {
         id: 'selfie:overlay-mode',
-        label: overlayModeLabel(selfieDraft.overlay_mode),
+        label: overlayModeLabelForModule('selfie', selfieDraft.overlay_mode),
         color: 'primary' as const,
         loading: isBusy('selfie:overlay-mode'),
         disabled: isBooting.value,
-        active: selfieDraft.overlay_mode !== 'off',
-      },
-      {
-        id: 'selfie:guest-qr',
-        label: 'Gäste-Upload QR-Code',
-        color: 'primary' as const,
-        loading: false,
-        disabled: isBooting.value || !guestUploadUrl.value,
-        active: false,
+        active: normalizeOverlayModeForModule('selfie', selfieDraft.overlay_mode) !== 'off',
       },
     ]
   }
 
   if (activeMode.value === 'visualizer') {
     return [
-      {
-        id: 'visualizer:next-preset',
-        label: 'Preset weiter',
-        color: 'secondary' as const,
-        loading: isBusy('visualizer:next-preset'),
-        disabled: isBooting.value,
-      },
       {
         id: 'visualizer:auto-cycle',
         label: visualizerDraft.auto_cycle_enabled ? 'Automatikwechsel an' : 'Automatikwechsel aus',
@@ -630,11 +640,11 @@ const contextActions = computed(() => {
       },
       {
         id: 'visualizer:overlay-mode',
-        label: overlayModeLabel(visualizerDraft.overlay_mode),
+        label: overlayModeLabelForModule('visualizer', visualizerDraft.overlay_mode),
         color: 'secondary' as const,
         loading: isBusy('visualizer:overlay-mode'),
         disabled: isBooting.value,
-        active: visualizerDraft.overlay_mode !== 'off',
+        active: normalizeOverlayModeForModule('visualizer', visualizerDraft.overlay_mode) !== 'off',
       },
     ]
   }
@@ -642,11 +652,12 @@ const contextActions = computed(() => {
   if (activeMode.value === 'video') {
     return [
       {
-        id: 'video:upload',
-        label: 'Video hochladen',
+        id: 'video:playlist',
+        label: videoDraft.playlist_enabled ? 'Nacheinander abspielen ein' : 'Nacheinander abspielen aus',
         color: 'primary' as const,
-        loading: isUploadingVideos.value || isSavingVideo.value,
+        loading: false,
         disabled: isBooting.value,
+        active: videoDraft.playlist_enabled,
       },
       {
         id: 'video:vintage',
@@ -666,11 +677,11 @@ const contextActions = computed(() => {
       },
       {
         id: 'video:overlay-mode',
-        label: overlayModeLabel(videoDraft.overlay_mode),
+        label: overlayModeLabelForModule('video', videoDraft.overlay_mode),
         color: 'primary' as const,
         loading: isBusy('video:overlay-mode'),
         disabled: isBooting.value,
-        active: videoDraft.overlay_mode !== 'off',
+        active: normalizeOverlayModeForModule('video', videoDraft.overlay_mode) !== 'off',
       },
     ]
   }
@@ -742,13 +753,28 @@ const isVideoMode = computed(() => activeMode.value === 'video')
 
 const isVisualizerMode = computed(() => activeMode.value === 'visualizer')
 
-const orderedVideoAssets = computed(() =>
-  [...videoStore.assets].sort((left, right) => left.position - right.position),
-)
+const videoLibrarySummaryLabel = computed(() => {
+  const count = orderedVideoAssets.value.length
+  if (count === 0) {
+    return 'Noch keine Videos hochgeladen'
+  }
+  if (count === 1) {
+    return '1 Video hochgeladen'
+  }
+  return `${count} Videos hochgeladen`
+})
 
-const videoSizeLimitLabel = computed(() =>
-  formatBytes(systemStatusStore.videoUploadMaxBytes),
-)
+const videoLibraryDurationLabel = computed(() => {
+  if (!orderedVideoAssets.value.length) {
+    return 'Gesamtdauer 0:00'
+  }
+
+  if (totalVideoDurationSeconds.value <= 0) {
+    return 'Gesamtdauer wird gelesen'
+  }
+
+  return `Gesamtdauer ${formatVideoDurationLabel(totalVideoDurationSeconds.value)}`
+})
 
 const cpuLoadLabel = computed(() => formatPercent(systemStatusStore.cpuLoadPercent))
 
@@ -1070,7 +1096,7 @@ onMounted(async () => {
       selfieStore.refresh(),
       standbyStore.refresh(),
       videoStore.refreshState(),
-      videoStore.refreshAdminLibrary(adminToken),
+      refreshVideoLibrary(),
       systemStatusStore.refresh(adminToken),
       visualizerStore.refresh(),
       visualizerStore.refreshOptions(),
@@ -1090,7 +1116,6 @@ onMounted(async () => {
     ])
     applyGuestUploadConfig(guestUploadConfig)
     syncThumbnailCache(initialUploadPage.items)
-    await loadVideoMetadata(videoStore.assets)
     connectLiveEvents()
   } catch (error) {
     adminAlert.error(
@@ -1314,7 +1339,7 @@ async function syncVisualizerDraftFromStore() {
   visualizerDraft.hydra_quality = visualizerStore.hydraQuality
   visualizerDraft.hydra_audio_reactivity_enabled = visualizerStore.hydraAudioReactivityEnabled
   visualizerDraft.hydra_palette_mode = visualizerStore.hydraPaletteMode
-  visualizerDraft.overlay_mode = visualizerStore.overlayMode
+  visualizerDraft.overlay_mode = normalizeOverlayModeForModule('visualizer', visualizerStore.overlayMode)
   visualizerDraft.auto_cycle_enabled = visualizerStore.autoCycleEnabled
   visualizerDraft.auto_cycle_interval_minutes = clampAutoCycleMinutes(
     Math.round(visualizerStore.autoCycleIntervalSeconds / 60),
@@ -1332,7 +1357,7 @@ async function syncSelfieDraftFromStore() {
     selfieStore.slideshowMinUploadsToStart,
   )
   selfieDraft.slideshow_shuffle = selfieStore.slideshowShuffle
-  selfieDraft.overlay_mode = selfieStore.overlayMode
+  selfieDraft.overlay_mode = normalizeOverlayModeForModule('selfie', selfieStore.overlayMode)
   selfieDraft.vintage_look_enabled = selfieStore.vintageLookEnabled
   selfieDraft.moderation_mode = selfieStore.moderationMode
   await nextTick()
@@ -1356,7 +1381,7 @@ async function syncVideoDraftFromStore() {
   videoDraft.loop_enabled = videoStore.loopEnabled
   videoDraft.playback_order = videoStore.playbackOrder
   videoDraft.vintage_filter_enabled = videoStore.vintageFilterEnabled
-  videoDraft.overlay_mode = videoStore.overlayMode
+  videoDraft.overlay_mode = normalizeOverlayModeForModule('video', videoStore.overlayMode)
   videoDraft.object_fit = videoStore.objectFit
   videoDraft.transition = videoStore.transition
   videoDraft.active_video_id = videoStore.activeVideoId
@@ -1498,6 +1523,7 @@ function scheduleRemoteRendererPersist() {
 async function saveVisualizerDraft() {
   isSavingVisualizer.value = true
   try {
+    visualizerDraft.overlay_mode = normalizeOverlayModeForModule('visualizer', visualizerDraft.overlay_mode)
     await visualizerStore.save({
       active_preset: visualizerDraft.active_preset,
       intensity: visualizerDraft.intensity,
@@ -1526,6 +1552,7 @@ async function saveVisualizerDraft() {
 async function saveSelfieDraft() {
   isSavingSelfie.value = true
   try {
+    selfieDraft.overlay_mode = normalizeOverlayModeForModule('selfie', selfieDraft.overlay_mode)
     await selfieStore.save({
       slideshow_enabled: selfieDraft.slideshow_enabled,
       slideshow_interval_seconds: selfieDraft.slideshow_interval_seconds,
@@ -1570,10 +1597,12 @@ async function saveStandbyDraft() {
 async function saveVideoDraft() {
   isSavingVideo.value = true
   try {
+    videoDraft.overlay_mode = normalizeOverlayModeForModule('video', videoDraft.overlay_mode)
+    const playlistEnabled = videoDraft.playlist_enabled
     await videoStore.save({
-      playlist_enabled: videoDraft.playlist_enabled,
-      loop_enabled: videoDraft.loop_enabled,
-      playback_order: videoDraft.playback_order,
+      playlist_enabled: playlistEnabled,
+      loop_enabled: playlistEnabled ? true : videoDraft.loop_enabled,
+      playback_order: playlistEnabled ? 'upload_order' : videoDraft.playback_order,
       vintage_filter_enabled: videoDraft.vintage_filter_enabled,
       overlay_mode: videoDraft.overlay_mode,
       object_fit: videoDraft.object_fit,
@@ -1692,14 +1721,6 @@ function applyGuestUploadConfig(payload: {
   guestUploadSessionExpired.value = payload.session_is_expired
 }
 
-async function refreshVideos() {
-  if (!authStore.token) {
-    return
-  }
-  await videoStore.refreshAdminLibrary(authStore.token)
-  await loadVideoMetadata(videoStore.assets)
-}
-
 async function refreshOperationalState() {
   if (!authStore.token) {
     return
@@ -1711,7 +1732,7 @@ async function refreshOperationalState() {
 
   isRefreshingOperationalState.value = true
   try {
-    await Promise.all([refreshUploads(), refreshVideos(), systemStatusStore.refresh(authStore.token)])
+    await Promise.all([refreshUploads(), refreshVideoLibrary(), systemStatusStore.refresh(authStore.token)])
   } finally {
     isRefreshingOperationalState.value = false
     if (pendingOperationalRefresh.value) {
@@ -2140,7 +2161,7 @@ async function cycleVisualizerOverlayModeQuick(actionKey = 'visualizer:overlay-m
       window.clearTimeout(visualizerPersistTimer)
     }
     isHydratingVisualizerDraft.value = true
-    visualizerDraft.overlay_mode = nextOverlayMode(visualizerDraft.overlay_mode)
+    visualizerDraft.overlay_mode = nextOverlayModeForModule('visualizer', visualizerDraft.overlay_mode)
     await nextTick()
     isHydratingVisualizerDraft.value = false
     await saveVisualizerDraft()
@@ -2157,7 +2178,7 @@ async function cycleSelfieOverlayModeQuick() {
       window.clearTimeout(selfiePersistTimer)
     }
     isHydratingSelfieDraft.value = true
-    selfieDraft.overlay_mode = nextOverlayMode(selfieDraft.overlay_mode)
+    selfieDraft.overlay_mode = nextOverlayModeForModule('selfie', selfieDraft.overlay_mode)
     await nextTick()
     isHydratingSelfieDraft.value = false
     await saveSelfieDraft()
@@ -2174,7 +2195,7 @@ async function cycleVideoOverlayModeQuick() {
       window.clearTimeout(videoPersistTimer)
     }
     isHydratingVideoDraft.value = true
-    videoDraft.overlay_mode = nextOverlayMode(videoDraft.overlay_mode)
+    videoDraft.overlay_mode = nextOverlayModeForModule('video', videoDraft.overlay_mode)
     await nextTick()
     isHydratingVideoDraft.value = false
     await saveVideoDraft()
@@ -2196,10 +2217,6 @@ async function runHeaderAction(actionId: string) {
     await cycleSelfieOverlayModeQuick()
     return
   }
-  if (actionId === 'selfie:guest-qr') {
-    openGuestQrDialog()
-    return
-  }
   if (actionId === 'visualizer:next-preset') {
     await advancePresetQuick()
     return
@@ -2216,6 +2233,10 @@ async function runHeaderAction(actionId: string) {
     toggleVideoVintageFilter()
     return
   }
+  if (actionId === 'video:playlist') {
+    toggleVideoPlaylist()
+    return
+  }
   if (actionId === 'video:transition') {
     toggleVideoTransition()
     return
@@ -2224,153 +2245,27 @@ async function runHeaderAction(actionId: string) {
     await cycleVideoOverlayModeQuick()
     return
   }
-  if (actionId === 'video:upload') {
-    openVideoPicker()
-  }
 }
 
-function openVideoPicker() {
-  videoFileInput.value?.click()
+function openVideoManager() {
+  void router.push({ name: 'admin-videos' })
 }
 
-async function handleVideoFileSelection(event: Event) {
-  const input = event.target as HTMLInputElement
-  const files = Array.from(input.files ?? [])
-  input.value = ''
-  if (!files.length) {
-    return
-  }
-  await uploadSelectedVideos(files)
-}
-
-async function uploadSelectedVideos(files: File[]) {
-  if (!authStore.token) {
-    return
+function formatVideoDurationLabel(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0:00'
   }
 
-  isUploadingVideos.value = true
-  videoUploadLabel.value = ''
-  const errors: string[] = []
+  const totalSeconds = Math.round(value)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
 
-  try {
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index]
-      const validationError = validateVideoFile(file)
-      if (validationError) {
-        errors.push(`${file.name}: ${validationError}`)
-        continue
-      }
-
-      videoUploadLabel.value = `${file.name} (${index + 1}/${files.length})`
-      try {
-        await uploadAdminVideo(file, authStore.token, (progress) => {
-          videoUploadLabel.value = `${file.name} (${progress}%)`
-        })
-      } catch (error) {
-        errors.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload fehlgeschlagen'}`)
-      }
-    }
-
-    await refreshVideos()
-    await syncVideoDraftFromStore()
-    await refreshSystemOnly()
-  } finally {
-    isUploadingVideos.value = false
-    videoUploadLabel.value = ''
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
-  if (errors.length) {
-    adminAlert.error(errors.join(' | '), {
-      title: 'Video-Upload unvollständig',
-      duration: 7000,
-    })
-    return
-  }
-
-  adminAlert.success(
-    files.length === 1 ? 'Video wurde hinzugefügt.' : `${files.length} Videos wurden hinzugefügt.`,
-    {
-      title: 'Video-Bibliothek aktualisiert',
-    },
-  )
-}
-
-function validateVideoFile(file: File) {
-  const extension = `.${file.name.split('.').pop()?.toLowerCase() ?? ''}`
-  if (!['.mp4', '.webm'].includes(extension)) {
-    return 'nur MP4 oder WebM'
-  }
-  if (file.size > systemStatusStore.videoUploadMaxBytes) {
-    return `zu gross, maximal ${videoSizeLimitLabel.value}`
-  }
-  return ''
-}
-
-async function moveVideo(asset: VideoAsset, direction: -1 | 1) {
-  if (!authStore.token) {
-    return
-  }
-
-  const assets = [...orderedVideoAssets.value]
-  const currentIndex = assets.findIndex((entry) => entry.id === asset.id)
-  const nextIndex = currentIndex + direction
-  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= assets.length) {
-    return
-  }
-
-  const key = `video:move:${asset.id}`
-  setBusy(key, true)
-
-  try {
-    const nextAssets = [...assets]
-    ;[nextAssets[currentIndex], nextAssets[nextIndex]] = [nextAssets[nextIndex], nextAssets[currentIndex]]
-    const response = await reorderVideoAssets(
-      nextAssets.map((entry) => entry.id),
-      authStore.token,
-    )
-    videoStore.applyLibrary(response)
-    await loadVideoMetadata(videoStore.assets)
-  } catch (error) {
-    adminAlert.error(
-      error instanceof Error ? error.message : 'Video-Reihenfolge konnte nicht gespeichert werden',
-    )
-  } finally {
-    setBusy(key, false)
-  }
-}
-
-async function removeVideo(asset: VideoAsset) {
-  if (!authStore.token) {
-    return
-  }
-
-  const key = `video:delete:${asset.id}`
-  setBusy(key, true)
-
-  try {
-    await deleteVideoAsset(asset.id, authStore.token)
-    await refreshVideos()
-    await syncVideoDraftFromStore()
-    await refreshSystemOnly()
-    adminAlert.info('Das Video wurde aus der Bibliothek entfernt.', {
-      title: 'Video gelöscht',
-    })
-  } catch (error) {
-    adminAlert.error(error instanceof Error ? error.message : 'Video konnte nicht gelöscht werden')
-  } finally {
-    setBusy(key, false)
-  }
-}
-
-async function setActiveVideo(asset: VideoAsset) {
-  if (videoPersistTimer) {
-    window.clearTimeout(videoPersistTimer)
-  }
-  isHydratingVideoDraft.value = true
-  videoDraft.active_video_id = asset.id
-  await nextTick()
-  isHydratingVideoDraft.value = false
-  await saveVideoDraft()
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 function pushRecentEvent(name: string) {
@@ -2655,91 +2550,11 @@ function parseEventPayload(event: Event) {
   }
 }
 
-async function loadVideoMetadata(items: VideoAsset[]) {
-  const activeIds = new Set(items.map((asset) => asset.id))
-  const nextDurations = { ...videoDurations.value }
-  for (const key of Object.keys(nextDurations)) {
-    if (!activeIds.has(Number(key))) {
-      delete nextDurations[Number(key)]
-    }
-  }
-  videoDurations.value = nextDurations
-
-  await Promise.all(
-    items.map(async (asset) => {
-      if (videoDurations.value[asset.id] || videoMetadataLoading.value[asset.id]) {
-        return
-      }
-
-      videoMetadataLoading.value = { ...videoMetadataLoading.value, [asset.id]: true }
-      try {
-        const duration = await readVideoDuration(asset.stream_url)
-        videoDurations.value = {
-          ...videoDurations.value,
-          [asset.id]: formatDuration(duration),
-        }
-      } catch {
-        videoDurations.value = {
-          ...videoDurations.value,
-          [asset.id]: 'Unbekannt',
-        }
-      } finally {
-        const nextLoading = { ...videoMetadataLoading.value }
-        delete nextLoading[asset.id]
-        videoMetadataLoading.value = nextLoading
-      }
-    }),
-  )
-}
-
-function readVideoDuration(url: string) {
-  return new Promise<number>((resolve, reject) => {
-    const video = document.createElement('video')
-    video.preload = 'metadata'
-    const cleanup = () => {
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-    }
-    video.onloadedmetadata = () => {
-      const duration = Number.isFinite(video.duration) ? video.duration : 0
-      cleanup()
-      resolve(duration)
-    }
-    video.onerror = () => {
-      cleanup()
-      reject(new Error('metadata'))
-    }
-    video.src = url
-  })
-}
-
 function revokeAllThumbnails() {
   for (const url of Object.values(thumbnailUrls.value)) {
     URL.revokeObjectURL(url)
   }
   thumbnailUrls.value = {}
-}
-
-function formatDuration(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 'Unbekannt'
-  }
-  const totalSeconds = Math.round(value)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-function formatVideoMimeLabel(value: string) {
-  if (value === 'video/mp4') {
-    return 'MP4'
-  }
-  if (value === 'video/webm') {
-    return 'WebM'
-  }
-  const subtype = value.split('/')[1]
-  return subtype ? subtype.toUpperCase() : value.toUpperCase()
 }
 
 function setUploadGalleryFilter(filter: UploadGalleryFilter) {
@@ -2782,6 +2597,10 @@ function moderationActionCount(upload: UploadItem) {
 
 function toggleVideoVintageFilter() {
   videoDraft.vintage_filter_enabled = !videoDraft.vintage_filter_enabled
+}
+
+function toggleVideoPlaylist() {
+  videoDraft.playlist_enabled = !videoDraft.playlist_enabled
 }
 
 function toggleVideoTransition() {
@@ -2938,18 +2757,6 @@ function formatModeLabel(mode: AppMode) {
   if (mode === 'video') return 'Video'
   return 'Visualizer'
 }
-
-function nextOverlayMode(current: OverlayMode): OverlayMode {
-  if (current === 'logo') return 'qr'
-  if (current === 'qr') return 'off'
-  return 'logo'
-}
-
-function overlayModeLabel(mode: OverlayMode) {
-  if (mode === 'logo') return 'Overlay: Logo'
-  if (mode === 'qr') return 'Overlay: QR-Code'
-  return 'Overlay: Aus'
-}
 </script>
 
 <template>
@@ -3069,122 +2876,34 @@ function overlayModeLabel(mode: OverlayMode) {
                 </section>
 
                 <section v-else-if="isVideoMode" key="video" class="settings-section">
-              <input
-                ref="videoFileInput"
-                type="file"
-                class="sr-only"
-                accept="video/mp4,video/webm,.mp4,.webm"
-                multiple
-                @change="handleVideoFileSelection"
-              />
-
               <div class="settings-group">
                 <div class="settings-group__label">Videos</div>
-                <div v-if="isUploadingVideos" class="video-upload-status">
-                  <v-progress-linear indeterminate color="primary" rounded />
-                  <div class="inline-note">{{ videoUploadLabel || 'Videos werden hochgeladen …' }}</div>
-                </div>
-
-                <div v-if="orderedVideoAssets.length" class="video-library-list">
-                  <div
-                    v-for="(asset, index) in orderedVideoAssets"
-                    :key="asset.id"
-                    class="video-library-item"
-                    :class="{ 'video-library-item--active': videoDraft.active_video_id === asset.id }"
-                    @click="setActiveVideo(asset)"
-                  >
-                    <div class="video-library-item__thumb">
-                      <div class="video-library-item__order">{{ index + 1 }}</div>
-                      <div class="video-library-item__placeholder">
-                        <v-icon icon="mdi-play-circle-outline" size="24" />
-                      </div>
+                <div
+                  class="video-library-entry"
+                  role="link"
+                  tabindex="0"
+                  aria-label="Videoverwaltung öffnen"
+                  @click="openVideoManager"
+                  @keydown.enter.prevent="openVideoManager"
+                  @keydown.space.prevent="openVideoManager"
+                >
+                  <div class="video-library-entry__body">
+                    <div class="video-library-entry__header">
+                      <div class="video-library-entry__title">Videos verwalten</div>
+                      <v-icon icon="mdi-chevron-right" size="20" class="video-library-entry__chevron" />
                     </div>
-                    <div class="video-library-item__body">
-                      <div class="video-library-item__content">
-                        <div class="video-library-item__title-row">
-                          <div class="video-library-item__title">{{ asset.filename_original }}</div>
-                        </div>
-                        <div class="video-library-item__meta">
-                          <span>{{ videoDurations[asset.id] || (videoMetadataLoading[asset.id] ? 'Wird gelesen' : 'Unbekannt') }}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{{ formatBytes(asset.size) }}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{{ formatVideoMimeLabel(asset.mime_type) }}</span>
-                        </div>
-                      </div>
-                      <div class="video-library-item__actions">
-                        <v-btn
-                          size="small"
-                          variant="text"
-                          class="video-library-action"
-                          icon="mdi-arrow-up"
-                          :disabled="index === 0"
-                          :loading="isBusy(`video:move:${asset.id}`)"
-                          @click.stop="moveVideo(asset, -1)"
-                        />
-                        <v-btn
-                          size="small"
-                          variant="text"
-                          class="video-library-action"
-                          icon="mdi-arrow-down"
-                          :disabled="index === orderedVideoAssets.length - 1"
-                          :loading="isBusy(`video:move:${asset.id}`)"
-                          @click.stop="moveVideo(asset, 1)"
-                        />
-                        <v-btn
-                          size="small"
-                          color="error"
-                          variant="text"
-                          class="video-library-action video-library-action--danger"
-                          icon="mdi-trash-can-outline"
-                          :loading="isBusy(`video:delete:${asset.id}`)"
-                          @click.stop="removeVideo(asset)"
-                        />
-                      </div>
+                    <div class="video-library-entry__meta">
+                      <span>{{ videoLibrarySummaryLabel }}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{{ videoLibraryDurationLabel }}</span>
                     </div>
                   </div>
                 </div>
-                <div v-else class="inline-note">Noch keine Videos vorhanden.</div>
               </div>
 
               <div class="settings-group settings-group--video-section">
                 <div class="settings-group__label">Wiedergabe</div>
                 <div class="settings-control">
-                  <div class="settings-control__label">Reihenfolge</div>
-                  <v-select
-                    v-model="videoDraft.playback_order"
-                    class="admin-select"
-                    :items="videoOrderItems"
-                    item-title="title"
-                    item-value="value"
-                    hide-details
-                    variant="solo"
-                    density="comfortable"
-                  />
-                </div>
-                <v-switch
-                  v-model="videoDraft.playlist_enabled"
-                  color="primary"
-                  inset
-                  label="Videos nacheinander abspielen"
-                  hide-details
-                />
-                <v-switch
-                  v-model="videoDraft.loop_enabled"
-                  color="primary"
-                  inset
-                  label="Endlosschleife"
-                  hide-details
-                />
-                <div v-if="!videoDraft.playlist_enabled" class="inline-note">
-                  Wenn die Playlist deaktiviert ist, wird das oben markierte Einzelvideo abgespielt.
-                </div>
-              </div>
-
-              <div class="settings-group settings-group--video-section">
-                <div class="settings-group__label">Darstellung</div>
-                <div class="settings-control">
-                  <div class="settings-control__label">Bildfüllung</div>
                   <v-select
                     v-model="videoDraft.object_fit"
                     class="admin-select"
@@ -3245,6 +2964,19 @@ function overlayModeLabel(mode: OverlayMode) {
                     variant="solo"
                     density="comfortable"
                   />
+                </div>
+
+                <div class="settings-action settings-control--spaced">
+                  <v-btn
+                    color="primary"
+                    variant="outlined"
+                    class="settings-action__button"
+                    prepend-icon="mdi-lightning-bolt-outline"
+                    :disabled="isBooting || !guestUploadUrl"
+                    @click="openGuestQrDialog"
+                  >
+                    Gäste-Upload QR-Code
+                  </v-btn>
                 </div>
               </div>
                 </section>
@@ -6270,151 +6002,88 @@ function overlayModeLabel(mode: OverlayMode) {
   border: 0;
 }
 
-.video-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .video-upload-status {
   display: grid;
   gap: 0.35rem;
 }
 
-.video-library-list {
+.video-library-entry {
   display: grid;
-  gap: 0.6rem;
-}
-
-.video-library-item {
-  display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
-  gap: 0.8rem;
-  align-items: stretch;
-  padding: 0.72rem;
+  gap: 0.55rem;
+  padding: 0.72rem 0.8rem;
   border-radius: 18px;
-  background: rgba(14, 21, 31, 0.52);
-  border: 1px solid rgba(160, 194, 226, 0.045);
-  min-width: 0;
-  cursor: pointer;
+  border: 1px solid rgba(126, 189, 226, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(86, 209, 255, 0.08), transparent 36%),
+    rgba(13, 22, 33, 0.72);
+  color: inherit;
+  text-decoration: none;
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
+    transform 150ms ease,
     box-shadow 180ms ease;
+  cursor: pointer;
 }
 
-.video-library-item:hover {
-  border-color: rgba(102, 215, 231, 0.12);
-  background: rgba(15, 24, 35, 0.6);
-}
-
-.video-library-item--active {
-  border-color: rgba(102, 215, 231, 0.16);
-  background: rgba(16, 27, 39, 0.68);
-  box-shadow: inset 0 0 0 1px rgba(102, 215, 231, 0.05);
-}
-
-.video-library-item__thumb {
-  position: relative;
-  display: grid;
-  place-items: center;
-  min-height: 70px;
-  border-radius: 14px;
+.video-library-entry:hover {
+  border-color: rgba(102, 215, 231, 0.24);
   background:
-    linear-gradient(180deg, rgba(27, 38, 52, 0.72), rgba(17, 27, 39, 0.78));
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  overflow: hidden;
+    radial-gradient(circle at top right, rgba(86, 209, 255, 0.12), transparent 40%),
+    rgba(14, 24, 36, 0.82);
+  box-shadow:
+    0 14px 28px rgba(5, 12, 20, 0.18),
+    inset 0 0 0 1px rgba(102, 215, 231, 0.06);
 }
 
-.video-library-item__placeholder {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: rgba(160, 193, 224, 0.48);
+.video-library-entry:focus-visible {
+  outline: none;
+  border-color: rgba(102, 215, 231, 0.32);
+  box-shadow:
+    0 0 0 1px rgba(102, 215, 231, 0.16),
+    0 14px 28px rgba(5, 12, 20, 0.18);
 }
 
-.video-library-item__order {
-  position: absolute;
-  top: 0.38rem;
-  left: 0.38rem;
-  display: grid;
-  place-items: center;
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: 999px;
-  background: rgba(7, 12, 18, 0.42);
-  color: rgba(239, 245, 250, 0.7);
-  font-size: 0.67rem;
-  font-weight: 700;
-}
-
-.video-library-item__body {
-  display: flex;
+.video-library-entry__body {
   min-width: 0;
-  flex-direction: column;
+  display: grid;
+  gap: 0.26rem;
+}
+
+.video-library-entry__header {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.48rem;
+  gap: 0.55rem;
 }
 
-.video-library-item__content {
-  min-width: 0;
-  display: grid;
-  gap: 0.28rem;
-}
-
-.video-library-item__title-row {
-  display: flex;
-  min-width: 0;
-}
-
-.video-library-item__title {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.video-library-entry__title {
   color: rgba(245, 249, 255, 0.96);
-  font-weight: 620;
+  font-size: 0.92rem;
+  font-weight: 720;
   line-height: 1.2;
 }
 
-.video-library-item__meta {
+.video-library-entry__chevron {
+  color: rgba(154, 198, 231, 0.62);
+}
+
+.video-library-entry__copy {
+  color: rgba(205, 218, 231, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.36;
+  max-width: 34rem;
+}
+
+.video-library-entry__meta {
   display: flex;
   flex-wrap: wrap;
+  gap: 0.24rem;
   align-items: center;
-  gap: 0.3rem;
-  color: rgba(201, 214, 228, 0.62);
-  font-size: 0.74rem;
-  line-height: 1.25;
-}
-
-.video-library-item__actions {
-  display: flex;
-  justify-content: flex-start;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.video-library-action {
-  opacity: 0.78;
-}
-
-:deep(.video-library-action.v-btn) {
-  min-width: 2rem;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-}
-
-:deep(.video-library-action:hover) {
-  background: rgba(255, 255, 255, 0.045);
-  opacity: 1;
-}
-
-.video-library-action--danger {
-  opacity: 0.72;
+  color: rgba(181, 231, 213, 0.78);
+  font-size: 0.71rem;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 @media (max-width: 959px) {
@@ -6590,16 +6259,8 @@ function overlayModeLabel(mode: OverlayMode) {
     font-size: 0.94rem;
   }
 
-  .video-library-item {
-    grid-template-columns: 72px minmax(0, 1fr);
-  }
-
-  .video-library-item__thumb {
-    min-height: 66px;
-  }
-
-  .video-library-item__actions {
-    justify-content: flex-start;
+  .video-library-entry {
+    padding: 0.7rem 0.72rem;
   }
 }
 </style>

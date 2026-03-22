@@ -81,7 +81,7 @@ async function syncPlaybackState() {
     const nextQueue = buildQueue()
     const queueChanged = !sameQueue(queueIds.value, nextQueue)
     const preferredId =
-      props.settings.playback_order === 'upload_order' && queueChanged
+      queueChanged
         ? nextQueue[0]
         : currentAssetId.value && nextQueue.includes(currentAssetId.value)
         ? currentAssetId.value
@@ -111,7 +111,7 @@ async function syncPlaybackState() {
 
 function buildQueue() {
   const ids = orderedAssets.value.map((asset) => asset.id)
-  if (props.settings.playback_order === 'upload_order') {
+  if (props.settings.playlist_enabled || props.settings.playback_order === 'upload_order') {
     return ids
   }
   return shuffle(ids)
@@ -182,10 +182,6 @@ function handleEnded() {
   const nextIndex = currentIndex + 1
   if (nextIndex < queue.length) {
     void playAsset(queue[nextIndex])
-    return
-  }
-
-  if (!props.settings.loop_enabled) {
     return
   }
 

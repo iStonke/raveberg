@@ -4,6 +4,7 @@ import AppShellLayout from '../layouts/AppShellLayout.vue'
 import DisplayLayout from '../layouts/DisplayLayout.vue'
 import AdminDashboardView from '../views/admin/AdminDashboardView.vue'
 import AdminLoginView from '../views/admin/AdminLoginView.vue'
+import AdminVideoManagerView from '../views/admin/AdminVideoManagerView.vue'
 import GuestUploadView from '../views/guest/GuestUploadView.vue'
 import SetupView from '../views/setup/SetupView.vue'
 import DisplayView from '../views/display/DisplayView.vue'
@@ -36,6 +37,12 @@ const router = createRouter({
           path: 'admin/dashboard',
           name: 'admin-dashboard',
           component: AdminDashboardView,
+          meta: { audience: 'admin', requiresAuth: true, requiredRole: 'admin' },
+        },
+        {
+          path: 'admin/videos',
+          name: 'admin-videos',
+          component: AdminVideoManagerView,
           meta: { audience: 'admin', requiresAuth: true, requiredRole: 'admin' },
         },
         {

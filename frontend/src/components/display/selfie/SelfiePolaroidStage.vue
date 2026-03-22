@@ -52,6 +52,15 @@ interface InsertMetric {
   reason?: 'stage_not_full' | 'post_remove' | 'force_progress' | 'replace_during_fade'
   source?: 'unseen' | 'recycle'
   coverageBefore?: number
+  chosenX?: number
+  chosenY?: number
+  chosenRotation?: number
+  candidatesTested?: number
+  chosenCandidateIndex?: number
+  candidatePoolSize?: number
+  region?: string
+  placementScore?: number
+  overlapScore?: number
 }
 
 interface TickSelection {
@@ -177,6 +186,8 @@ let flashCounter = 0
 let knownPoolIds = new Set<number>()
 let priorityQueue: number[] = []
 let recentHistory: number[] = []
+let layoutRandomSessionSeed = Math.random() * 10_000
+let layoutPlacementCounter = 0
 const queuedAtByIdentity = new Map<number, number>()
 const removedAtByIdentity = new Map<number, number>()
 const shownAtByIdentity = new Map<number, number>()
@@ -1021,6 +1032,7 @@ function runSchedulerTick(force: boolean) {
       reason: lastProgressReason.value === 'fade-complete' ? 'post_remove' : 'force_progress',
       source: shownAtByIdentity.has(decision.selection.upload.id) ? 'recycle' : 'unseen',
       coverageBefore: getCurrentCoverage(),
+      placement: decision.placement,
     })
     advanceSchedulerTick(now, force)
     return
@@ -1193,6 +1205,7 @@ function prepareSpawn(
     reason: 'stage_not_full' | 'post_remove' | 'force_progress' | 'replace_during_fade'
     source: 'unseen' | 'recycle'
     coverageBefore: number
+    placement?: ReturnType<typeof assessPlacementForNextItem>
   },
 ) {
   clearPlacementFailure(upload.id)
@@ -1209,6 +1222,15 @@ function prepareSpawn(
     reason: debugContext?.reason,
     source: debugContext?.source,
     coverageBefore: debugContext?.coverageBefore,
+    chosenX: debugContext?.placement?.chosenX,
+    chosenY: debugContext?.placement?.chosenY,
+    chosenRotation: debugContext?.placement?.chosenRotation,
+    candidatesTested: debugContext?.placement?.attempts,
+    chosenCandidateIndex: debugContext?.placement?.chosenCandidateIndex,
+    candidatePoolSize: debugContext?.placement?.candidatePoolSize,
+    region: debugContext?.placement?.region,
+    placementScore: debugContext?.placement?.score,
+    overlapScore: debugContext?.placement?.maxOverlapRatio,
   })
   logInsert('prepared', item.instanceId, {
     spawnDelay: normalizedDelayMs,
@@ -2241,6 +2263,13 @@ function logBuildAbortToRotation(
     selectedInsertImageId: selection.upload?.id ?? null,
     placementScore: placement?.score ?? null,
     placementOverlap: placement?.maxOverlapRatio ?? null,
+    chosenX: placement?.chosenX ?? null,
+    chosenY: placement?.chosenY ?? null,
+    chosenRotation: placement?.chosenRotation ?? null,
+    numberOfCandidatesTested: placement?.attempts ?? null,
+    chosenCandidateIndex: placement?.chosenCandidateIndex ?? null,
+    candidatePoolSize: placement?.candidatePoolSize ?? null,
+    region: placement?.region ?? null,
   }
 
   logSlideshowDebug('BUILD_STALLED', payload)
@@ -2266,11 +2295,12 @@ function getActiveExitFlowItem() {
 }
 
 function assessPlacementForNextItem(upload: UploadItem & { display_url: string }) {
+  layoutPlacementCounter += 1
   return assessPolaroidPlacement(
     stageSize.value,
     getOccupiedLayouts(),
     targetVisibleCount.value,
-    (upload.id * 0.137 + (instanceCounter + 1) * 0.271) % 1,
+    layoutRandomSessionSeed + layoutPlacementCounter * 0.619 + upload.id * 0.137 + Math.random() * 0.913,
   )
 }
 
@@ -2896,6 +2926,15 @@ function logInsertEvent(item: ActivePolaroid, metric?: InsertMetric) {
       visibleCountAfterInsert: visibleItems.value.length,
       coverageBefore: metric?.coverageBefore == null ? null : Number((metric.coverageBefore * 100).toFixed(1)),
       coverageAfter: Number((coverage * 100).toFixed(1)),
+      chosenX: metric?.chosenX ?? Math.round(item.layout.x),
+      chosenY: metric?.chosenY ?? Math.round(item.layout.y),
+      chosenRotation: metric?.chosenRotation ?? Number(item.layout.rotation.toFixed(2)),
+      numberOfCandidatesTested: metric?.candidatesTested ?? null,
+      chosenCandidateIndex: metric?.chosenCandidateIndex ?? null,
+      candidatePoolSize: metric?.candidatePoolSize ?? null,
+      overlapScore: metric?.overlapScore ?? null,
+      placementScore: metric?.placementScore ?? null,
+      region: metric?.region ?? null,
       ...getProgressTimestamps(),
     },
     [
@@ -2904,6 +2943,7 @@ function logInsertEvent(item: ActivePolaroid, metric?: InsertMetric) {
       `→ source: ${metric?.source ?? 'unseen'}`,
       `→ reason: ${metric?.reason ?? 'force_progress'}`,
       `→ coverage: ${metric?.coverageBefore == null ? 'n/a' : `${Number((metric.coverageBefore * 100).toFixed(1))}%`} → ${Number((coverage * 100).toFixed(1))}%`,
+      `→ x: ${metric?.chosenX ?? Math.round(item.layout.x)} | y: ${metric?.chosenY ?? Math.round(item.layout.y)} | rotation: ${metric?.chosenRotation ?? Number(item.layout.rotation.toFixed(2))} | tested: ${metric?.candidatesTested ?? 'n/a'} | chosenIdx: ${metric?.chosenCandidateIndex ?? 'n/a'} | region: ${metric?.region ?? 'n/a'}`,
     ],
   )
 }
@@ -3062,6 +3102,15 @@ function logSchedulerDecision(decision: TickDecision) {
       selectedExitIsTop3: exitFreshness?.isTop3 ?? null,
       selectedExitFilterProfile: exitFreshness?.filterProfile ?? null,
       selectedInsertImageId: decision.selection.upload?.id ?? null,
+      chosenX: decision.placement?.chosenX ?? null,
+      chosenY: decision.placement?.chosenY ?? null,
+      chosenRotation: decision.placement?.chosenRotation ?? null,
+      numberOfCandidatesTested: decision.placement?.attempts ?? null,
+      chosenCandidateIndex: decision.placement?.chosenCandidateIndex ?? null,
+      candidatePoolSize: decision.placement?.candidatePoolSize ?? null,
+      placementScore: decision.placement?.score ?? null,
+      overlapScore: decision.placement?.maxOverlapRatio ?? null,
+      region: decision.placement?.region ?? null,
       totalStageArea: coverageStats.totalStageArea,
       occupiedArea: coverageStats.occupiedArea,
       lastProgressTimestamp: Math.round(lastStageMutationAt.value),
@@ -3075,6 +3124,7 @@ function logSchedulerDecision(decision: TickDecision) {
       `→ configuredInterval: ${Math.round(timings.value.spawnIntervalMs / 1000)}s | effectiveMinHold: ${Math.round(getEffectiveMinVisibleHoldMs() / 1000)}s | overdue: ${isInsertCadenceOverdue() ? 'yes' : 'no'} | actualSinceLastInsert: ${Math.round(getActualTimeSinceLastVisibleInsertMs() / 1000)}s | avgEffective: ${Math.round(getAverageEffectiveInsertIntervalMs() / 1000)}s`,
       `→ aging: ${Math.round(timings.value.agingDurationMs / 1000)}s | fade: ${Math.round(timings.value.exitDurationMs / 1000)}s | waitingForRemoval: ${Math.round(getTimeSpentWaitingForRemovalMs() / 1000)}s`,
       `→ nextCandidate: ${decision.selection.upload?.id ?? 'none'} | placementSuccess: ${decision.placementSuccess == null ? 'n/a' : decision.placementSuccess ? 'yes' : 'no'} | removeTarget: ${decision.exitCandidate?.uploadId ?? 'none'}`,
+      `→ x: ${decision.placement?.chosenX ?? 'n/a'} | y: ${decision.placement?.chosenY ?? 'n/a'} | rotation: ${decision.placement?.chosenRotation ?? 'n/a'} | tested: ${decision.placement?.attempts ?? 'n/a'} | chosenIdx: ${decision.placement?.chosenCandidateIndex ?? 'n/a'} | region: ${decision.placement?.region ?? 'n/a'}`,
       `→ exitPipeline: ${exitPipeline.state} | agingImage: ${exitPipeline.imageId ?? 'none'} | lastTransition: ${lastProgressReason.value}`,
     ],
   )

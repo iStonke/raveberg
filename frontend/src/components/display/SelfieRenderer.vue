@@ -130,13 +130,15 @@ function shuffle(items: UploadItem[]) {
       :moderation-mode="props.settings.moderation_mode"
       :manual-advance-token="manualAdvanceToken"
     />
-    <DisplayOverlay
-      v-if="props.overlayMode !== 'off' && !shouldShowStandby"
-      class="selfie-renderer__overlay"
-      :mode="props.overlayMode"
-      :guest-upload-url="props.guestUploadUrl"
-      position="absolute"
-    />
+    <Transition name="selfie-overlay-fade" appear>
+      <DisplayOverlay
+        v-if="props.overlayMode !== 'off' && !shouldShowStandby"
+        class="selfie-renderer__overlay"
+        :mode="props.overlayMode"
+        :guest-upload-url="props.guestUploadUrl"
+        position="absolute"
+      />
+    </Transition>
   </div>
 </template>
 
@@ -149,5 +151,28 @@ function shuffle(items: UploadItem[]) {
 
 .selfie-renderer__overlay {
   z-index: 20;
+}
+
+.selfie-overlay-fade-enter-active,
+.selfie-overlay-fade-leave-active {
+  transition:
+    opacity 320ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+
+.selfie-overlay-fade-enter-from,
+.selfie-overlay-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  filter: blur(10px);
+}
+
+.selfie-overlay-fade-enter-to,
+.selfie-overlay-fade-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 </style>

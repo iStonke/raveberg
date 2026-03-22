@@ -8,6 +8,8 @@ import type { PolaroidLayout, StageSize } from './polaroidTypes'
 interface LayoutCandidate {
   layout: PolaroidLayout
   score: number
+  region: string
+  index: number
 }
 
 interface LayoutZoneLike {
@@ -24,6 +26,12 @@ export interface PolaroidPlacementAssessment {
   coverageAfter: number
   maxOverlapRatio: number
   attempts: number
+  chosenCandidateIndex: number
+  candidatePoolSize: number
+  region: string
+  chosenX: number
+  chosenY: number
+  chosenRotation: number
 }
 
 interface LayoutFootprint {
@@ -55,51 +63,24 @@ export function assessPolaroidPlacement(
   const dimensions = getPolaroidDimensions(stageSize, maxVisiblePhotos)
   const safeBounds = getSafeBounds(stageSize, dimensions)
   const occupiedAnchors = new Set(existingLayouts.map((layout) => layout.anchorId))
-  let best: LayoutCandidate | null = null
+  const candidates: LayoutCandidate[] = []
   let attempts = 0
+  let candidateIndex = 0
 
-  for (const zone of POLAROID_CONFIG.layoutZones) {
-    for (let attempt = 0; attempt < POLAROID_CONFIG.layout.candidateAttemptsPerZone; attempt += 1) {
-      attempts += 1
-      const jitterSeed = randomSeed + attempt * 0.173 + zone.x * 0.31 + zone.y * 0.29
-      const normalizedX = clamp(zone.x + randomBetween(-0.09, 0.09, jitterSeed), 0.01, 0.99)
-      const normalizedY = clamp(zone.y + randomBetween(-0.1, 0.1, jitterSeed + 0.11), 0.01, 0.99)
-      const layout = createLayoutFromNormalized(
-        stageSize,
-        dimensions.width,
-        normalizedX,
-        normalizedY,
-        zone.id,
-        randomBetween(POLAROID_CONFIG.rotation.min, POLAROID_CONFIG.rotation.max, jitterSeed + 0.19),
-        RESTING_POLAROID_SCALE,
-      )
-
-      const score = scoreLayoutCandidate(
-        layout,
-        existingLayouts,
-        safeBounds,
-        occupiedAnchors.has(zone.id),
-        zone,
-        density,
-        jitterSeed,
-      )
-
-      if (!best || score < best.score) {
-        best = { layout, score }
-      }
-    }
-  }
-
-  for (const zone of buildGridCandidateZones()) {
+  const registerCandidate = (
+    zone: LayoutZoneLike,
+    normalizedX: number,
+    normalizedY: number,
+    candidateSeed: number,
+  ) => {
     attempts += 1
-    const jitterSeed = randomSeed + zone.weight * 0.271 + zone.id.length * 0.019
     const layout = createLayoutFromNormalized(
       stageSize,
       dimensions.width,
-      clamp(zone.normalizedX + randomBetween(-0.025, 0.025, jitterSeed), 0.01, 0.99),
-      clamp(zone.normalizedY + randomBetween(-0.03, 0.03, jitterSeed + 0.11), 0.01, 0.99),
+      normalizedX,
+      normalizedY,
       zone.id,
-      randomBetween(POLAROID_CONFIG.rotation.min, POLAROID_CONFIG.rotation.max, jitterSeed + 0.19),
+      randomBetween(POLAROID_CONFIG.rotation.min, POLAROID_CONFIG.rotation.max, candidateSeed + 0.19),
       RESTING_POLAROID_SCALE,
     )
 
@@ -110,25 +91,70 @@ export function assessPolaroidPlacement(
       occupiedAnchors.has(zone.id),
       zone,
       density,
-      jitterSeed,
+      candidateSeed,
     )
 
-    if (!best || score < best.score) {
-      best = { layout, score }
+    candidates.push({
+      layout,
+      score,
+      region: getLayoutRegion(layout),
+      index: candidateIndex,
+    })
+    candidateIndex += 1
+  }
+
+  for (const zone of shuffleBySeed(POLARAROID_LAYOUT_ZONES, randomSeed + 0.07)) {
+    for (let attempt = 0; attempt < POLAROID_CONFIG.layout.candidateAttemptsPerZone; attempt += 1) {
+      const jitterSeed = randomSeed + attempt * 0.173 + zone.x * 0.31 + zone.y * 0.29
+      registerCandidate(
+        zone,
+        clamp(zone.x + randomBetween(-0.12, 0.12, jitterSeed), 0.01, 0.99),
+        clamp(zone.y + randomBetween(-0.13, 0.13, jitterSeed + 0.11), 0.01, 0.99),
+        jitterSeed,
+      )
     }
   }
 
+  for (const zone of shuffleBySeed(buildGridCandidateZones(), randomSeed + 0.33)) {
+    const jitterSeed = randomSeed + zone.weight * 0.271 + zone.id.length * 0.019
+    registerCandidate(
+      zone,
+      clamp(zone.normalizedX + randomBetween(-0.08, 0.08, jitterSeed), 0.01, 0.99),
+      clamp(zone.normalizedY + randomBetween(-0.08, 0.08, jitterSeed + 0.11), 0.01, 0.99),
+      jitterSeed,
+    )
+  }
+
+  for (const zone of buildFreeformCandidateZones(randomSeed)) {
+    registerCandidate(zone, zone.normalizedX, zone.normalizedY, zone.seed)
+  }
+
+  const sortedCandidates = [...candidates].sort((left, right) => left.score - right.score)
+  const best = sortedCandidates[0] ?? null
+  const candidatePool = best
+    ? sortedCandidates
+        .filter((candidate) => candidate.score <= best.score + POLAROID_CONFIG.layout.candidateSelectionScoreWindow)
+        .slice(0, POLAROID_CONFIG.layout.candidateSelectionPoolSize)
+    : []
+  const chosen =
+    chooseCandidate(candidatePool, randomSeed + attempts * 0.047 + existingLayouts.length * 0.131) ?? best
   const fallbackLayout =
-    best?.layout ??
+    chosen?.layout ??
     createLayoutFromNormalized(stageSize, dimensions.width, 0.5, 0.4, 'fallback', 0, RESTING_POLAROID_SCALE)
 
   return {
     layout: fallbackLayout,
-    score: best?.score ?? 0,
+    score: chosen?.score ?? 0,
     coverageBefore: measureLayoutCoverage(stageSize, existingLayouts),
     coverageAfter: measureLayoutCoverage(stageSize, [...existingLayouts, fallbackLayout]),
     maxOverlapRatio: getMaxOverlapRatio(fallbackLayout, existingLayouts),
     attempts,
+    chosenCandidateIndex: chosen?.index ?? -1,
+    candidatePoolSize: candidatePool.length,
+    region: chosen?.region ?? getLayoutRegion(fallbackLayout),
+    chosenX: Math.round(fallbackLayout.x),
+    chosenY: Math.round(fallbackLayout.y),
+    chosenRotation: Number(fallbackLayout.rotation.toFixed(2)),
   }
 }
 
@@ -230,7 +256,17 @@ function scoreLayoutCandidate(
   const candidateBounds = getLayoutFootprint(candidate, 'collision')
   const centerDistance = Math.abs(candidate.normalizedX - 0.5) + Math.abs(candidate.normalizedY - 0.5)
   const verticalSpreadBias = Math.abs(candidate.normalizedY - 0.5)
-  let score = (anchorAlreadyUsed ? 120 : 0) + (1.08 - zone.weight) * 180 - centerDistance * 42 - verticalSpreadBias * 36
+  const edgeDistance = Math.max(Math.abs(candidate.normalizedX - 0.5), Math.abs(candidate.normalizedY - 0.5)) * 2
+  const region = getLayoutRegion(candidate)
+  let score =
+    (anchorAlreadyUsed ? POLAROID_CONFIG.layout.anchorReusePenalty : 0) +
+    (1.04 - zone.weight) * 68 -
+    centerDistance * 14 -
+    verticalSpreadBias * 10 -
+    edgeDistance * 12
+
+  const sameRegionCount = existingLayouts.filter((layout) => getLayoutRegion(layout) === region).length
+  score += sameRegionCount * POLAROID_CONFIG.layout.sameRegionPenalty
 
   if (
     candidateBounds.left < safeBounds.left - candidate.width * 0.04 ||
@@ -274,11 +310,11 @@ function scoreLayoutCandidate(
     }
 
     if (areZonesInSameBand(zone.id, layout.anchorId)) {
-      score += 12
+      score += POLAROID_CONFIG.layout.sameBandPenalty
     }
   }
 
-  return score + randomBetween(0, 14, jitterSeed + 0.71)
+  return score + randomBetween(0, 24, jitterSeed + 0.71)
 }
 
 function buildGridCandidateZones() {
@@ -302,6 +338,32 @@ function buildGridCandidateZones() {
         row: `grid-${row}`,
       })
     }
+  }
+
+  return zones
+}
+
+function buildFreeformCandidateZones(randomSeed: number) {
+  const zones: Array<LayoutZoneLike & { normalizedX: number; normalizedY: number; seed: number }> = []
+
+  for (let index = 0; index < POLAROID_CONFIG.layout.freeformCandidateCount; index += 1) {
+    const seed = randomSeed + index * 0.417
+    const rawX = randomBetween(0.035, 0.965, seed + 0.13)
+    const rawY = randomBetween(0.035, 0.965, seed + 0.37)
+    const spreadX = clamp(rawX + randomBetween(-0.08, 0.08, seed + 0.59), 0.01, 0.99)
+    const spreadY = clamp(rawY + randomBetween(-0.08, 0.08, seed + 0.83), 0.01, 0.99)
+    const region = getRegionFromNormalized(spreadX, spreadY)
+    const edgeBias = Math.max(Math.abs(spreadX - 0.5), Math.abs(spreadY - 0.5)) * 2
+
+    zones.push({
+      id: `freeform-${region}-${index}`,
+      normalizedX: spreadX,
+      normalizedY: spreadY,
+      weight: 0.94 + edgeBias * 0.12,
+      column: region.split('-')[1] ?? 'mid',
+      row: region.split('-')[0] ?? 'center',
+      seed,
+    })
   }
 
   return zones
@@ -356,6 +418,51 @@ function areZonesInSameBand(leftAnchor: string, rightAnchor: string) {
 
   return leftZone.row === rightZone.row || leftZone.column === rightZone.column
 }
+
+function getLayoutRegion(layout: Pick<PolaroidLayout, 'normalizedX' | 'normalizedY'>) {
+  return getRegionFromNormalized(layout.normalizedX, layout.normalizedY)
+}
+
+function getRegionFromNormalized(normalizedX: number, normalizedY: number) {
+  const horizontal = normalizedX < 0.33 ? 'left' : normalizedX > 0.67 ? 'right' : 'center'
+  const vertical = normalizedY < 0.33 ? 'top' : normalizedY > 0.67 ? 'bottom' : 'middle'
+  return `${vertical}-${horizontal}`
+}
+
+function chooseCandidate(candidates: LayoutCandidate[], seed: number) {
+  if (!candidates.length) {
+    return null
+  }
+
+  const weighted = candidates.map((candidate, index) => ({
+    candidate,
+    weight: 1 / Math.pow(index + 1, 0.72),
+  }))
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0)
+  const target = randomBetween(0, totalWeight, seed)
+  let cursor = 0
+
+  for (const entry of weighted) {
+    cursor += entry.weight
+    if (target <= cursor) {
+      return entry.candidate
+    }
+  }
+
+  return weighted[weighted.length - 1]?.candidate ?? null
+}
+
+function shuffleBySeed<T>(items: readonly T[], seed: number) {
+  return [...items]
+    .map((item, index) => ({
+      item,
+      sortKey: randomBetween(0, 1, seed + index * 0.137),
+    }))
+    .sort((left, right) => left.sortKey - right.sortKey)
+    .map((entry) => entry.item)
+}
+
+const POLARAROID_LAYOUT_ZONES = POLAROID_CONFIG.layoutZones
 
 function getMaxOverlapRatio(candidate: PolaroidLayout, existingLayouts: PolaroidLayout[]) {
   const candidateBounds = getLayoutFootprint(candidate, 'coverage')

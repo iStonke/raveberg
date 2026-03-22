@@ -17,6 +17,8 @@ const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 const isSetupRoute = computed(() => route.path.startsWith('/setup'))
 const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
+const isAdminVideoManager = computed(() => route.name === 'admin-videos')
+const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminVideoManager.value)
 const isLogoutDialogOpen = ref(false)
 const isLoggingOut = ref(false)
 
@@ -91,7 +93,7 @@ function showUploadsBadge(hash: string) {
         <div class="utility-bar__title" aria-hidden="true">
           <span class="utility-title-text">Einstellungen</span>
         </div>
-        <div v-if="isAdminDashboard" class="utility-bar__user">
+        <div v-if="isAdminRoute" class="utility-bar__user">
           <v-btn
             variant="text"
             class="logout-btn"
@@ -105,26 +107,41 @@ function showUploadsBadge(hash: string) {
     </v-app-bar>
 
     <div
-      v-if="isAdminDashboard"
+      v-if="showAdminSubnav"
       class="admin-nav-strip"
       role="navigation"
-      aria-label="Admin Bereiche"
+      :aria-label="isAdminDashboard ? 'Admin Bereiche' : 'Admin Untermenü'"
     >
-      <div class="admin-nav-strip__inner">
+      <div
+        class="admin-nav-strip__inner"
+        :class="{ 'admin-nav-strip__inner--single': isAdminVideoManager }"
+      >
+        <template v-if="isAdminDashboard">
+          <router-link
+            v-for="item in adminWorkspaceItems"
+            :key="item.hash"
+            :to="{ name: 'admin-dashboard', hash: item.hash }"
+            class="admin-nav-link"
+            :class="{ 'admin-nav-link--active': activeAdminSection === item.hash.replace('#', '') }"
+          >
+            <span class="admin-nav-link__label">
+              <span>{{ item.label }}</span>
+              <span
+                v-if="showUploadsBadge(item.hash)"
+                class="admin-nav-link__badge"
+                aria-label="Neue Uploads"
+              />
+            </span>
+          </router-link>
+        </template>
         <router-link
-          v-for="item in adminWorkspaceItems"
-          :key="item.hash"
-          :to="{ name: 'admin-dashboard', hash: item.hash }"
-          class="admin-nav-link"
-          :class="{ 'admin-nav-link--active': activeAdminSection === item.hash.replace('#', '') }"
+          v-else
+          :to="{ name: 'admin-dashboard', hash: '#modus' }"
+          class="admin-nav-link admin-nav-link--back"
         >
-          <span class="admin-nav-link__label">
-            <span>{{ item.label }}</span>
-            <span
-              v-if="showUploadsBadge(item.hash)"
-              class="admin-nav-link__badge"
-              aria-label="Neue Uploads"
-            />
+          <span class="admin-nav-link__label admin-nav-link__label--back">
+            <v-icon icon="mdi-arrow-left" size="18" class="admin-nav-link__icon" />
+            <span>Zurück zu Modus</span>
           </span>
         </router-link>
       </div>
@@ -143,6 +160,7 @@ function showUploadsBadge(hash: string) {
         :class="{
           'admin-shell-container': isAdminRoute,
           'admin-workspace-container': isAdminDashboard,
+          'admin-video-manager-container': isAdminVideoManager,
           'admin-login-shell-container': isAdminLogin,
           'setup-shell-container': isSetupRoute,
         }"
@@ -332,6 +350,11 @@ function showUploadsBadge(hash: string) {
   min-width: 0;
 }
 
+.admin-nav-strip__inner--single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: none;
+}
+
 .admin-nav-link {
   display: flex;
   align-items: center;
@@ -359,11 +382,31 @@ function showUploadsBadge(hash: string) {
   transform: scale(0.985);
 }
 
+.admin-nav-link--back {
+  justify-content: flex-start;
+  width: 100%;
+  padding-inline: 0.85rem;
+}
+
+.admin-nav-link--back:hover {
+  color: rgba(217, 229, 240, 0.66);
+  background: transparent;
+}
+
 .admin-nav-link__label {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.admin-nav-link__label--back {
+  gap: 0.5rem;
+  justify-content: flex-start;
+}
+
+.admin-nav-link__icon {
+  color: rgba(221, 232, 243, 0.82);
 }
 
 .admin-nav-link__badge {
@@ -409,6 +452,10 @@ function showUploadsBadge(hash: string) {
 
 .admin-shell-container {
   padding-top: 3.6rem;
+}
+
+.admin-video-manager-container {
+  padding: 0 0 0.5rem;
 }
 
 .admin-login-shell-container {

@@ -11,15 +11,19 @@ defineProps<{
 
 <template>
   <div class="display-overlay" :class="position === 'absolute' ? 'display-overlay--absolute' : ''">
-    <RavebergLogo v-if="mode === 'logo'" mode="compact" class="overlay-logo" muted />
-    <div v-else class="overlay-qr-shell">
-      <div class="overlay-qr-card">
-        <div class="overlay-qr-frame">
-          <QrCodeMatrix class="overlay-qr-code" :text="guestUploadUrl || ''" :quiet-zone="4" />
-        </div>
-        <span class="overlay-qr-caption">Upload</span>
+    <Transition name="overlay-content-switch" mode="out-in" appear>
+      <div v-if="mode === 'logo'" key="logo" class="overlay-logo-shell">
+        <RavebergLogo mode="compact" class="overlay-logo" muted />
       </div>
-    </div>
+      <div v-else key="qr" class="overlay-qr-shell">
+        <div class="overlay-qr-card">
+          <div class="overlay-qr-frame">
+            <QrCodeMatrix class="overlay-qr-code" :text="guestUploadUrl || ''" :quiet-zone="4" />
+          </div>
+          <span class="overlay-qr-caption">Upload</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -33,12 +37,6 @@ defineProps<{
   max-width: max-content;
   align-items: center;
   justify-content: center;
-  padding: 0.76rem 1.04rem;
-  border-radius: 14px;
-  background: rgba(4, 7, 10, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   pointer-events: none;
   z-index: 10;
 }
@@ -49,6 +47,24 @@ defineProps<{
 
 .overlay-qr-shell {
   display: inline-flex;
+  padding: 0.68rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+}
+
+.overlay-logo-shell {
+  display: inline-flex;
+  padding: 0.68rem 0.88rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
 }
 
 .overlay-qr-card {
@@ -56,20 +72,14 @@ defineProps<{
   flex-direction: column;
   align-items: center;
   gap: 0.42rem;
-  width: 7.05rem;
-  padding: 0.55rem;
-  border-radius: 14px;
-  background: rgba(20, 30, 40, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  width: 8.1rem;
 }
 
 .overlay-qr-frame {
   width: 100%;
-  padding: 0.36rem;
-  border-radius: 10px;
-  background: rgba(248, 250, 252, 0.92);
+  padding: 0.48rem;
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .overlay-qr-code {
@@ -82,7 +92,7 @@ defineProps<{
 }
 
 .overlay-qr-caption {
-  font-size: 0.75rem;
+  font-size: 0.84rem;
   line-height: 1;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -95,5 +105,28 @@ defineProps<{
 
 :deep(.overlay-logo .brandmark-image) {
   filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
+}
+
+.overlay-content-switch-enter-active,
+.overlay-content-switch-leave-active {
+  transition:
+    opacity 280ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 320ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+
+.overlay-content-switch-enter-from,
+.overlay-content-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  filter: blur(8px);
+}
+
+.overlay-content-switch-enter-to,
+.overlay-content-switch-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 </style>

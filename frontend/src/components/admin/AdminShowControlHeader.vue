@@ -44,6 +44,7 @@ function actionIcon(actionId: string) {
   if (actionId === 'selfie:vintage') return 'mdi-image-filter-vintage'
   if (actionId === 'selfie:overlay-mode') return 'mdi-layers-triple-outline'
   if (actionId === 'video:upload') return 'mdi-video-plus-outline'
+  if (actionId === 'video:playlist') return 'mdi-playlist-play'
   if (actionId === 'video:vintage') return 'mdi-image-filter-vintage'
   if (actionId === 'video:transition') return 'mdi-transition'
   if (actionId === 'video:overlay-mode') return 'mdi-layers-triple-outline'
@@ -121,22 +122,12 @@ function modeIcon(mode: AppMode) {
 
 <style scoped>
 .show-control-header {
-  position: relative;
-  overflow: hidden;
   display: grid;
-  gap: 1.1rem;
-  margin-bottom: 0.7rem;
-  padding: 1.15rem;
-  border: 1px solid rgba(153, 191, 223, 0.12);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(74, 202, 255, 0.08), transparent 30%),
-    linear-gradient(180deg, rgba(14, 23, 35, 0.94), rgba(9, 17, 27, 0.92));
-  box-shadow:
-    0 18px 44px rgba(3, 9, 17, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 0 1px rgba(120, 165, 206, 0.03);
-  isolation: isolate;
+  gap: 1.45rem;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0.9rem;
+  padding: 0;
 }
 
 .mode-block {
@@ -159,7 +150,7 @@ function modeIcon(mode: AppMode) {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.68rem;
+  gap: 0.82rem;
 }
 
 .mode-grid__btn:first-child {
@@ -169,8 +160,8 @@ function modeIcon(mode: AppMode) {
 .mode-grid__btn {
   width: 100%;
   min-width: 0;
-  min-height: 3.45rem;
-  padding-inline: 1rem;
+  min-height: 3.95rem;
+  padding-inline: 1.15rem;
   border-radius: 16px !important;
   color: rgba(221, 232, 242, 0.64);
   font-weight: 700;
@@ -247,14 +238,17 @@ function modeIcon(mode: AppMode) {
 
 .context-actions-row {
   display: grid;
-  gap: 0.55rem;
-  margin-top: 0.2rem;
+  gap: 0.72rem;
 }
 
 .context-actions-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
+  min-width: 0;
+}
+
+.context-actions-list > * {
   min-width: 0;
 }
 
@@ -273,7 +267,12 @@ function modeIcon(mode: AppMode) {
   font-weight: 650;
   font-size: 0.76rem;
   letter-spacing: 0.01em;
-  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
   color: var(--action-text-inactive);
   background: var(--action-bg-inactive);
   transition:
@@ -409,20 +408,53 @@ function modeIcon(mode: AppMode) {
   border-color: rgba(244, 128, 128, 0.22);
 }
 
+.context-action-btn :deep(.v-btn__content) {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.24;
+  overflow-wrap: anywhere;
+}
+
+.context-action-btn :deep(.v-btn__prepend) {
+  flex: 0 0 auto;
+}
+
+.context-action-btn :deep(.v-icon) {
+  flex-shrink: 0;
+}
+
 @media (max-width: 720px) {
   .mode-grid {
-    gap: 0.65rem;
+    gap: 0.72rem;
   }
 
   .mode-grid__btn {
-    min-height: 3.3rem;
+    min-height: 3.7rem;
     border-radius: 15px !important;
     font-size: 0.92rem;
   }
 
   .show-control-header {
-    gap: 0.9rem;
-    padding: 0.95rem 0.9rem 0.9rem;
+    gap: 1.15rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .context-actions-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .context-action-btn {
+    min-height: 2.9rem;
+    padding-inline: 0.92rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .context-actions-list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

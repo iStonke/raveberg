@@ -202,9 +202,15 @@ export const POLAROID_CONFIG = {
   },
   layout: {
     candidateAttemptsPerZone: 36,
+    freeformCandidateCount: 96,
+    candidateSelectionPoolSize: 18,
+    candidateSelectionScoreWindow: 110,
     minCenterDistanceFactor: 0.98,
     preferredDistanceFactor: 1.42,
     overlapTolerance: 0.14,
+    anchorReusePenalty: 64,
+    sameBandPenalty: 6,
+    sameRegionPenalty: 22,
   },
   stageCapacity: {
     sampleColumns: 28,
