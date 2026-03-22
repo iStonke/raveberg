@@ -2957,24 +2957,25 @@ function overlayModeLabel(mode: OverlayMode) {
     <div class="admin-workspace-scroll">
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
-          <v-row class="admin-workspace">
-        <template v-if="activeWorkspaceSection === 'modus'">
-          <v-col cols="12" class="admin-mode-sticky-col">
-            <AdminShowControlHeader
-              :current-mode="activeMode"
-              :mode-options="modeButtons"
-              :context-actions="contextActions"
-              :is-booting="isBooting"
-              :is-switching-mode="isSwitchingMode"
-              @switch-mode="switchMode"
-              @run-action="runHeaderAction"
-            />
-          </v-col>
+          <div class="admin-tab-content-inner">
+            <v-row class="admin-workspace">
+              <template v-if="activeWorkspaceSection === 'modus'">
+                <v-col cols="12" class="admin-mode-sticky-col">
+                  <AdminShowControlHeader
+                    :current-mode="activeMode"
+                    :mode-options="modeButtons"
+                    :context-actions="contextActions"
+                    :is-booting="isBooting"
+                    :is-switching-mode="isSwitchingMode"
+                    @switch-mode="switchMode"
+                    @run-action="runHeaderAction"
+                  />
+                </v-col>
 
-          <v-col cols="12">
-            <div class="mode-panel-stage">
-              <Transition name="mode-panel-content" mode="out-in">
-                <section v-if="isBlackoutMode" key="blackout" class="settings-section">
+                <v-col cols="12">
+                  <div class="mode-panel-stage">
+                    <Transition name="mode-panel-content" mode="out-in">
+                      <section v-if="isBlackoutMode" key="blackout" class="settings-section">
               <div class="settings-group">
                 <div class="settings-explainer">
                   <div class="settings-explainer__icon-shell" aria-hidden="true">
@@ -3441,253 +3442,257 @@ function overlayModeLabel(mode: OverlayMode) {
                   </div>
                 </template>
               </div>
-                </section>
-              </Transition>
-            </div>
-          </v-col>
-        </template>
-
-        <template v-else-if="activeWorkspaceSection === 'system'">
-          <v-col
-            cols="12"
-            class="admin-global-settings-col"
-            :class="{ 'admin-global-settings-col--expanded': ambientColorPresetDraft === 'custom' }"
-          >
-            <v-card class="workspace-panel system-display-card" variant="flat">
-              <section class="settings-section system-display-card__section">
-                <div class="system-display-card__header">
-                  <div class="system-display-card__eyebrow">Darstellung</div>
-                </div>
-
-                <div class="settings-group">
-                  <div class="settings-control">
-                    <div class="display-color-presets" role="radiogroup" aria-label="Globale Farbwelt">
-                      <button
-                        v-for="preset in ambientColorPresets"
-                        :key="preset.id"
-                        type="button"
-                        class="display-color-preset"
-                        :class="{ 'display-color-preset--active': ambientColorPresetDraft === preset.id }"
-                        :disabled="isBooting || isSavingDisplayTheme"
-                        :aria-checked="ambientColorPresetDraft === preset.id"
-                        role="radio"
-                        @click="selectAmbientColorPreset(preset.id)"
-                      >
-                        <span
-                          class="display-color-preset__swatch"
-                          :style="{ background: preset.id === 'custom' ? getAmbientCustomSwatch() : preset.swatch }"
-                          aria-hidden="true"
-                        >
-                          <v-icon
-                            v-if="preset.id === 'custom'"
-                            :icon="preset.icon"
-                            size="12"
-                            class="display-color-preset__icon"
-                          />
-                        </span>
-                        <span class="display-color-preset__label">{{ preset.label }}</span>
-                      </button>
-                    </div>
-
-                    <v-expand-transition>
-                      <div v-if="ambientColorPresetDraft === 'custom'" class="display-color-custom-slider">
-                        <div class="display-color-custom-slider__header">
-                          <div class="display-color-custom-slider__label">Farbton</div>
-                        </div>
-                        <v-slider
-                          :model-value="ambientColorCustomHueDraft"
-                          min="-180"
-                          max="180"
-                          step="1"
-                          hide-details
-                          :disabled="isBooting || isSavingDisplayTheme"
-                          @update:model-value="handleAmbientCustomHueInput"
-                        />
-                      </div>
-                    </v-expand-transition>
+                      </section>
+                    </Transition>
                   </div>
-                </div>
-              </section>
-            </v-card>
-          </v-col>
+                </v-col>
+              </template>
 
-          <v-col cols="12">
-            <SystemSettingsPanel
-              :username="authStore.username || 'admin'"
-              :hostname="systemHostname"
-              :ip-address="systemIpAddress"
-              :network-name="systemNetworkName"
-              :network-state-label="systemNetworkStateLabel"
-              :session-timeout-hours="guestUploadSessionTimeoutHours"
-              :session-timeout-label="uploadControlSessionTimeoutLabel"
-              :session-expires-at-label="systemSessionExpiresAtLabel"
-              :session-is-expired="guestUploadSessionExpired"
-              :setup-mode-enabled="systemStatusStore.setupModeStatus.enabled"
-              :storage-free-label="formatOptionalBytes(systemStatusStore.appliance.storage.free_bytes)"
-              :cpu-load-label="cpuLoadLabel"
-              :memory-percent-label="memoryPercentLabel"
-              :temperature-label="cpuTemperatureLabel"
-              :access-reset-counter="accessResetCounter"
-              :access-saving="isSavingAccess"
-              :security-saving="isSavingSecurity"
-              :is-restarting-system="isRestartingSystem"
-              :is-shutting-down="isShuttingDown"
-              :is-toggling-setup-mode="isTogglingSetupMode"
-              @save-access="saveSystemAccess"
-              @save-session-timeout="({ sessionTimeoutHours }) => updateUploadSettings({ sessionTimeoutHours })"
-              @restart="restartSystem"
-              @shutdown="shutdownSystem"
-              @toggle-setup-mode="toggleSetupMode"
-            />
-          </v-col>
-        </template>
-
-        <template v-else>
-      <v-col cols="6" xl="3">
-        <v-card
-          class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
-          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'all' }"
-          variant="flat"
-          @click="setUploadGalleryFilter('all')"
-        >
-          <div class="workspace-overview-label">Uploads</div>
-          <div class="workspace-overview-value workspace-overview-value--counter">{{ uploadSummary.total }}</div>
-        </v-card>
-      </v-col>
-      <v-col cols="6" xl="3">
-        <v-card
-          class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
-          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'pending' }"
-          variant="flat"
-          @click="setUploadGalleryFilter('pending')"
-        >
-          <div class="workspace-overview-label">Ausstehend</div>
-          <div class="workspace-overview-value workspace-overview-value--counter">{{ pendingCount }}</div>
-        </v-card>
-      </v-col>
-      <v-col cols="6" xl="3">
-        <v-card
-          class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
-          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'rejected' }"
-          variant="flat"
-          @click="setUploadGalleryFilter('rejected')"
-        >
-          <div class="workspace-overview-label">Abgelehnt</div>
-          <div class="workspace-overview-value workspace-overview-value--counter">{{ rejectedCount }}</div>
-        </v-card>
-      </v-col>
-      <v-col cols="6" xl="3">
-        <v-card
-          class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
-          :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'new' }"
-          variant="flat"
-          @click="setUploadGalleryFilter('new')"
-        >
-          <div class="workspace-overview-label">Neue Uploads</div>
-          <div class="workspace-overview-value workspace-overview-value--counter">{{ newUploadCount }}</div>
-        </v-card>
-      </v-col>
-
-      <v-col cols="12">
-        <Transition name="upload-filter-content" mode="out-in">
-          <section v-if="uploadGalleryFilter === 'all'" key="upload-controls" class="upload-control-panel">
-            <div class="upload-control-list">
-              <button
-                type="button"
-                class="upload-control-row"
-                :class="{
-                  'upload-control-row--active': guestUploadEnabled,
-                  'upload-control-row--warning': !guestUploadEnabled,
-                }"
-                :disabled="isSavingSecurity"
-                @click="updateUploadSettings({ guestUploadsEnabled: !guestUploadEnabled })"
-              >
-                <span class="upload-control-row__label">Gäste-Upload aktiv</span>
-                <span
-                  class="upload-control-row__value"
-                  :class="{
-                    'upload-control-row__value--active': guestUploadEnabled,
-                    'upload-control-row__value--warning': !guestUploadEnabled,
-                  }"
+              <template v-else-if="activeWorkspaceSection === 'system'">
+                <v-col
+                  cols="12"
+                  class="admin-global-settings-col"
+                  :class="{ 'admin-global-settings-col--expanded': ambientColorPresetDraft === 'custom' }"
                 >
-                  {{ guestUploadEnabled ? 'Aktiv' : 'Pausiert' }}
-                </span>
-              </button>
+                  <v-card class="workspace-panel system-display-card" variant="flat">
+                    <section class="settings-section system-display-card__section">
+                      <div class="system-display-card__header">
+                        <div class="system-display-card__eyebrow">Darstellung</div>
+                      </div>
 
-              <button
-                type="button"
-                class="upload-control-row"
-                :class="{ 'upload-control-row--active': guestUploadRequiresApproval }"
-                :disabled="isSavingSecurity"
-                @click="updateUploadSettings({ approvalRequired: !guestUploadRequiresApproval })"
-              >
-                <span class="upload-control-row__label">Freigabe erforderlich</span>
-                <span class="upload-control-row__value" :class="{ 'upload-control-row__value--active': guestUploadRequiresApproval }">
-                  {{ guestUploadRequiresApproval ? 'An' : 'Aus' }}
-                </span>
-              </button>
-            </div>
+                      <div class="settings-group">
+                        <div class="settings-control">
+                          <div class="display-color-presets" role="radiogroup" aria-label="Globale Farbwelt">
+                            <button
+                              v-for="preset in ambientColorPresets"
+                              :key="preset.id"
+                              type="button"
+                              class="display-color-preset"
+                              :class="{ 'display-color-preset--active': ambientColorPresetDraft === preset.id }"
+                              :disabled="isBooting || isSavingDisplayTheme"
+                              :aria-checked="ambientColorPresetDraft === preset.id"
+                              role="radio"
+                              @click="selectAmbientColorPreset(preset.id)"
+                            >
+                              <span
+                                class="display-color-preset__swatch"
+                                :style="{ background: preset.id === 'custom' ? getAmbientCustomSwatch() : preset.swatch }"
+                                aria-hidden="true"
+                              >
+                                <v-icon
+                                  v-if="preset.id === 'custom'"
+                                  :icon="preset.icon"
+                                  size="12"
+                                  class="display-color-preset__icon"
+                                />
+                              </span>
+                              <span class="display-color-preset__label">{{ preset.label }}</span>
+                            </button>
+                          </div>
 
-            <v-alert v-if="securityError" type="error" variant="tonal" class="upload-control-alert">
-              {{ securityError }}
-            </v-alert>
-          </section>
-          <div v-else key="upload-controls-spacer" class="upload-control-panel upload-control-panel--hidden" aria-hidden="true" />
-        </Transition>
-      </v-col>
+                          <v-expand-transition>
+                            <div v-if="ambientColorPresetDraft === 'custom'" class="display-color-custom-slider">
+                              <div class="display-color-custom-slider__header">
+                                <div class="display-color-custom-slider__label">Farbton</div>
+                              </div>
+                              <v-slider
+                                :model-value="ambientColorCustomHueDraft"
+                                min="-180"
+                                max="180"
+                                step="1"
+                                hide-details
+                                :disabled="isBooting || isSavingDisplayTheme"
+                                @update:model-value="handleAmbientCustomHueInput"
+                              />
+                            </div>
+                          </v-expand-transition>
+                        </div>
+                      </div>
+                    </section>
+                  </v-card>
+                </v-col>
 
-      <v-col cols="12" class="upload-gallery-col">
-        <section class="upload-gallery-panel">
-          <Transition name="upload-filter-content" mode="out-in">
-            <div :key="uploadGalleryFilter" class="upload-gallery-content">
-              <div v-if="uploads.length" class="upload-gallery-header">
-                <div class="upload-gallery-header__title">{{ uploadGalleryTitle }}</div>
-                <v-menu
-                  v-model="isUploadBulkMenuOpen"
-                  location="bottom end"
-                  offset="8"
-                >
-                  <template #activator="{ props }">
-                    <v-btn
-                      icon="mdi-menu"
-                      size="small"
-                      variant="text"
-                      color="primary"
-                      class="upload-gallery-header__action upload-gallery-header__action--menu"
-                      :loading="isDownloadingUploadArchive || isDeletingAllUploads"
-                      :disabled="!canManageAllUploads"
-                      v-bind="props"
-                    />
-                  </template>
+                <v-col cols="12">
+                  <SystemSettingsPanel
+                    :username="authStore.username || 'admin'"
+                    :hostname="systemHostname"
+                    :ip-address="systemIpAddress"
+                    :network-name="systemNetworkName"
+                    :network-state-label="systemNetworkStateLabel"
+                    :session-timeout-hours="guestUploadSessionTimeoutHours"
+                    :session-timeout-label="uploadControlSessionTimeoutLabel"
+                    :session-expires-at-label="systemSessionExpiresAtLabel"
+                    :session-is-expired="guestUploadSessionExpired"
+                    :setup-mode-enabled="systemStatusStore.setupModeStatus.enabled"
+                    :storage-free-label="formatOptionalBytes(systemStatusStore.appliance.storage.free_bytes)"
+                    :cpu-load-label="cpuLoadLabel"
+                    :memory-percent-label="memoryPercentLabel"
+                    :temperature-label="cpuTemperatureLabel"
+                    :access-reset-counter="accessResetCounter"
+                    :access-saving="isSavingAccess"
+                    :security-saving="isSavingSecurity"
+                    :is-restarting-system="isRestartingSystem"
+                    :is-shutting-down="isShuttingDown"
+                    :is-toggling-setup-mode="isTogglingSetupMode"
+                    @save-access="saveSystemAccess"
+                    @save-session-timeout="({ sessionTimeoutHours }) => updateUploadSettings({ sessionTimeoutHours })"
+                    @restart="restartSystem"
+                    @shutdown="shutdownSystem"
+                    @toggle-setup-mode="toggleSetupMode"
+                  />
+                </v-col>
+              </template>
 
-                  <v-list class="upload-bulk-menu" bg-color="surface">
-                    <v-list-item
-                      prepend-icon="mdi-download-box-outline"
-                      title="Alle Bilder herunterladen"
-                      :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
-                      @click="downloadAllUploadArchive"
-                    />
-                    <v-list-item
-                      prepend-icon="mdi-delete-sweep-outline"
-                      title="Alle Bilder löschen"
-                      class="upload-bulk-menu__delete"
-                      :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
-                      @click="openDeleteAllUploadsDialog"
-                    />
-                  </v-list>
-                </v-menu>
-              </div>
-          <div
-            v-if="filteredUploadGallery.length"
-            class="v-row upload-gallery-grid"
-          >
-            <v-col v-for="upload in filteredUploadGallery" :key="upload.id" cols="12" sm="6" md="4" xl="3">
-              <div
-                :ref="(element) => setUploadCardObserverRef(upload.id, element)"
-                :data-upload-id="upload.id"
-                class="upload-card-observer"
-              >
-                <v-card class="upload-card" variant="flat">
+              <template v-else>
+                <v-col cols="6" xl="3">
+                  <v-card
+                    class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
+                    :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'all' }"
+                    variant="flat"
+                    @click="setUploadGalleryFilter('all')"
+                  >
+                    <div class="workspace-overview-label">Uploads</div>
+                    <div class="workspace-overview-value workspace-overview-value--counter">{{ uploadSummary.total }}</div>
+                  </v-card>
+                </v-col>
+                <v-col cols="6" xl="3">
+                  <v-card
+                    class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
+                    :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'pending' }"
+                    variant="flat"
+                    @click="setUploadGalleryFilter('pending')"
+                  >
+                    <div class="workspace-overview-label">Ausstehend</div>
+                    <div class="workspace-overview-value workspace-overview-value--counter">{{ pendingCount }}</div>
+                  </v-card>
+                </v-col>
+                <v-col cols="6" xl="3">
+                  <v-card
+                    class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
+                    :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'rejected' }"
+                    variant="flat"
+                    @click="setUploadGalleryFilter('rejected')"
+                  >
+                    <div class="workspace-overview-label">Abgelehnt</div>
+                    <div class="workspace-overview-value workspace-overview-value--counter">{{ rejectedCount }}</div>
+                  </v-card>
+                </v-col>
+                <v-col cols="6" xl="3">
+                  <v-card
+                    class="workspace-overview-card workspace-overview-card--kpi upload-filter-card pa-4"
+                    :class="{ 'workspace-overview-card--active upload-filter-card--active': uploadGalleryFilter === 'new' }"
+                    variant="flat"
+                    @click="setUploadGalleryFilter('new')"
+                  >
+                    <div class="workspace-overview-label">Neue Uploads</div>
+                    <div class="workspace-overview-value workspace-overview-value--counter">{{ newUploadCount }}</div>
+                  </v-card>
+                </v-col>
+
+                <v-col cols="12">
+                  <Transition name="upload-filter-content" mode="out-in">
+                    <section v-if="uploadGalleryFilter === 'all'" key="upload-controls" class="upload-control-panel">
+                      <div class="upload-control-list">
+                        <button
+                          type="button"
+                          class="upload-control-row"
+                          :class="{
+                            'upload-control-row--active': guestUploadEnabled,
+                            'upload-control-row--warning': !guestUploadEnabled,
+                          }"
+                          :disabled="isSavingSecurity"
+                          @click="updateUploadSettings({ guestUploadsEnabled: !guestUploadEnabled })"
+                        >
+                          <span class="upload-control-row__label">Gäste-Upload aktiv</span>
+                          <span
+                            class="upload-control-row__value"
+                            :class="{
+                              'upload-control-row__value--active': guestUploadEnabled,
+                              'upload-control-row__value--warning': !guestUploadEnabled,
+                            }"
+                          >
+                            {{ guestUploadEnabled ? 'Aktiv' : 'Pausiert' }}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="upload-control-row"
+                          :class="{ 'upload-control-row--active': guestUploadRequiresApproval }"
+                          :disabled="isSavingSecurity"
+                          @click="updateUploadSettings({ approvalRequired: !guestUploadRequiresApproval })"
+                        >
+                          <span class="upload-control-row__label">Freigabe erforderlich</span>
+                          <span class="upload-control-row__value" :class="{ 'upload-control-row__value--active': guestUploadRequiresApproval }">
+                            {{ guestUploadRequiresApproval ? 'An' : 'Aus' }}
+                          </span>
+                        </button>
+                      </div>
+
+                      <v-alert v-if="securityError" type="error" variant="tonal" class="upload-control-alert">
+                        {{ securityError }}
+                      </v-alert>
+                    </section>
+                    <div v-else key="upload-controls-spacer" class="upload-control-panel upload-control-panel--hidden" aria-hidden="true" />
+                  </Transition>
+                </v-col>
+
+                <v-col cols="12" class="upload-gallery-col">
+                  <section class="upload-gallery-panel">
+                    <Transition name="upload-filter-content" mode="out-in">
+                      <div :key="uploadGalleryFilter" class="upload-gallery-content">
+                        <div v-if="uploads.length" class="v-row upload-gallery-header-row">
+                          <div class="v-col cols-12 upload-gallery-header-col">
+                            <div class="upload-gallery-header">
+                              <div class="upload-gallery-header__title">{{ uploadGalleryTitle }}</div>
+                              <v-menu
+                                v-model="isUploadBulkMenuOpen"
+                                location="bottom end"
+                                offset="8"
+                              >
+                                <template #activator="{ props }">
+                                  <v-btn
+                                    icon="mdi-menu"
+                                    size="small"
+                                    variant="text"
+                                    color="primary"
+                                    class="upload-gallery-header__action upload-gallery-header__action--menu"
+                                    :loading="isDownloadingUploadArchive || isDeletingAllUploads"
+                                    :disabled="!canManageAllUploads"
+                                    v-bind="props"
+                                  />
+                                </template>
+
+                                <v-list class="upload-bulk-menu" bg-color="surface">
+                                  <v-list-item
+                                    prepend-icon="mdi-download-box-outline"
+                                    title="Alle Bilder herunterladen"
+                                    :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                                    @click="downloadAllUploadArchive"
+                                  />
+                                  <v-list-item
+                                    prepend-icon="mdi-delete-sweep-outline"
+                                    title="Alle Bilder löschen"
+                                    class="upload-bulk-menu__delete"
+                                    :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                                    @click="openDeleteAllUploadsDialog"
+                                  />
+                                </v-list>
+                              </v-menu>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          v-if="filteredUploadGallery.length"
+                          class="v-row upload-gallery-grid"
+                        >
+                          <v-col v-for="upload in filteredUploadGallery" :key="upload.id" cols="12" sm="6" md="4" xl="3">
+                            <div
+                              :ref="(element) => setUploadCardObserverRef(upload.id, element)"
+                              :data-upload-id="upload.id"
+                              class="upload-card-observer"
+                            >
+                              <v-card class="upload-card" variant="flat">
                   <div class="upload-card__media">
                     <div v-if="isNewUpload(upload)" class="upload-card__new-badge">
                       Neu
@@ -3829,6 +3834,7 @@ function overlayModeLabel(mode: OverlayMode) {
         </template>
           </v-row>
         </div>
+      </div>
       </Transition>
     </div>
 
@@ -3944,6 +3950,13 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .admin-workspace-tab {
   min-width: 0;
+}
+
+.admin-tab-content-inner {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding-inline: 0.375rem;
 }
 
 .admin-workspace > :first-child {
@@ -4365,13 +4378,24 @@ function overlayModeLabel(mode: OverlayMode) {
   gap: 0.7rem;
 }
 
+.upload-gallery-header-row,
+.upload-gallery-grid {
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+.upload-gallery-header-col {
+  min-width: 0;
+  padding: 0 6px !important;
+}
+
 .upload-gallery-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
   flex-wrap: wrap;
-  padding-inline: 6px;
 }
 
 .upload-gallery-header__title {
@@ -4432,16 +4456,20 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .upload-gallery-content {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.45rem;
   width: 100%;
   min-width: 0;
   min-height: inherit;
 }
 
 .upload-gallery-grid {
-  width: 100%;
+  row-gap: 0;
+}
+
+.upload-gallery-grid > .v-col,
+.upload-gallery-grid > [class*='v-col-'] {
   min-width: 0;
-  margin: 0 !important;
+  padding: 0 6px 1.2rem !important;
 }
 
 .upload-empty-state {
@@ -5568,7 +5596,6 @@ function overlayModeLabel(mode: OverlayMode) {
   justify-items: center;
   gap: 0.5rem;
   padding-top: 0.45rem;
-  padding-inline: 6px;
 }
 
 .upload-gallery-sentinel {
@@ -6391,6 +6418,10 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 @media (max-width: 959px) {
+  .admin-tab-content-inner {
+    padding-inline: 0.25rem;
+  }
+
   .admin-workspace-scroll {
     padding-left: 0.5rem;
     padding-right: 0.5rem;
