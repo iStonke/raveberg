@@ -311,10 +311,6 @@ const visualizerIntensityOptions = computed(() =>
   buildNumericSelectOptions(0, 100, 25, clampVisualizerPercentStep(visualizerDraft.intensity), (value) => `${value}%`),
 )
 
-const visualizerAutoCycleIntervalOptions = computed(() =>
-  buildNumericSelectOptions(5, 30, 1, visualizerDraft.auto_cycle_interval_minutes, (value) => `${value} min`),
-)
-
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '')
   const expanded = normalized.length === 3
@@ -2961,25 +2957,6 @@ function formatModeLabel(mode: AppMode) {
 	                    density="comfortable"
 	                  />
 	                </div>
-	                <v-expand-transition>
-                  <div
-                    v-if="visualizerDraft.auto_cycle_enabled"
-                    class="settings-control"
-                  >
-                    <div class="settings-control__label">Stilwechsel</div>
-                    <v-select
-                      v-model="visualizerDraft.auto_cycle_interval_minutes"
-                      class="admin-select"
-                      :items="visualizerAutoCycleIntervalOptions"
-                      :disabled="isBooting"
-                      item-title="title"
-                      item-value="value"
-                      hide-details
-                      variant="solo"
-                      density="comfortable"
-                    />
-                  </div>
-                </v-expand-transition>
               </div>
 
 		              <div class="settings-group settings-group--menu-stack">

@@ -139,6 +139,21 @@ export function useAdminVisualizerPresetSequence() {
     }
   }
 
+  async function setAutoCycleIntervalMinutes(minutes: number) {
+    const normalizedMinutes = Math.max(5, Math.min(30, Math.round(minutes)))
+
+    try {
+      await visualizerStore.save({
+        ...buildVisualizerStatePayload(visualizerStore, visualizerStore.activePreset),
+        auto_cycle_interval_seconds: normalizedMinutes * 60,
+      })
+    } catch (error) {
+      adminAlert.error(
+        error instanceof Error ? error.message : 'Visualizer-Intervall konnte nicht gespeichert werden',
+      )
+    }
+  }
+
   return {
     busyActions,
     orderedPresets,
@@ -147,5 +162,6 @@ export function useAdminVisualizerPresetSequence() {
     movePreset,
     setActivePreset,
     toggleSkippedPreset,
+    setAutoCycleIntervalMinutes,
   }
 }

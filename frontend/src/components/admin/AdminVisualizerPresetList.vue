@@ -13,6 +13,10 @@ const props = defineProps({
     type: String as PropType<VisualizerPreset>,
     required: true,
   },
+  activeBadgeLabel: {
+    type: String,
+    default: 'Aktiv',
+  },
   skippedPresets: {
     type: Array as PropType<VisualizerPreset[]>,
     default: () => [],
@@ -61,7 +65,7 @@ function isSkipped(preset: VisualizerPreset) {
         <div class="video-library-item__content">
           <div class="video-library-item__title-row">
             <div class="video-library-item__title">{{ visualizerPresetLabels[preset] ?? preset }}</div>
-            <div v-if="activePreset === preset" class="video-library-item__badge">Aktiv</div>
+            <div v-if="activePreset === preset" class="video-library-item__badge">{{ activeBadgeLabel }}</div>
             <div v-else-if="isSkipped(preset)" class="video-library-item__badge video-library-item__badge--skipped">
               Überspringen
             </div>

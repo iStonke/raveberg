@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import AdminVisualizerPresetList from '../../components/admin/AdminVisualizerPresetList.vue'
 import { visualizerPresetLabels } from '../../constants/visualizerPresets'
@@ -9,6 +9,8 @@ import { useVisualizerStore } from '../../stores/visualizer'
 
 const adminAlert = useAdminAlert()
 const visualizerStore = useVisualizerStore()
+const now = ref(Date.now())
+let countdownTimer: number | undefined
 
 const {
   busyActions,
@@ -18,7 +20,25 @@ const {
   movePreset,
   setActivePreset,
   toggleSkippedPreset,
+  setAutoCycleIntervalMinutes,
 } = useAdminVisualizerPresetSequence()
+
+const autoCycleIntervalOptions = computed(() =>
+  Array.from({ length: 26 }, (_, index) => {
+    const value = index + 5
+    return {
+      title: `${value} min`,
+      value,
+    }
+  }),
+)
+
+const autoCycleIntervalMinutes = computed({
+  get: () => Math.max(5, Math.min(30, Math.round(visualizerStore.autoCycleIntervalSeconds / 60))),
+  set: (value: number) => {
+    void setAutoCycleIntervalMinutes(value)
+  },
+})
 
 const presetCountLabel = computed(() => {
   const count = orderedPresets.value.length
@@ -34,7 +54,26 @@ const activePresetLabel = computed(
 
 const libraryMetaLabel = computed(() => `${presetCountLabel.value} · Aktiv: ${activePresetLabel.value}`)
 
+const activeBadgeLabel = computed(() => {
+  if (!visualizerStore.autoCycleEnabled) {
+    return 'Aktiv'
+  }
+
+  const updatedAt = visualizerStore.updatedAt ? Date.parse(visualizerStore.updatedAt) : Number.NaN
+  if (!Number.isFinite(updatedAt)) {
+    return `Aktiv · ${formatRemainingTime(visualizerStore.autoCycleIntervalSeconds)}`
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now.value - updatedAt) / 1000))
+  const remainingSeconds = Math.max(0, visualizerStore.autoCycleIntervalSeconds - elapsedSeconds)
+  return `Aktiv · ${formatRemainingTime(remainingSeconds)}`
+})
+
 onMounted(async () => {
+  countdownTimer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+
   try {
     await initializeVisualizerSequence()
   } catch (error) {
@@ -43,6 +82,25 @@ onMounted(async () => {
     )
   }
 })
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    window.clearInterval(countdownTimer)
+  }
+})
+
+function formatRemainingTime(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
 </script>
 
 <template>
@@ -55,16 +113,19 @@ onMounted(async () => {
             <div class="video-manager-heading__meta">{{ libraryMetaLabel }}</div>
           </div>
           <div class="video-manager-heading__actions">
-            <v-btn
-              color="primary"
-              variant="outlined"
-              class="video-manager-heading__upload video-manager-heading__upload--ghost"
-              prepend-icon="mdi-upload"
-              tabindex="-1"
-              aria-hidden="true"
-            >
-              Video hochladen
-            </v-btn>
+            <div class="video-manager-heading__interval">
+              <div class="video-manager-heading__interval-label">Stilwechsel</div>
+              <v-select
+                v-model="autoCycleIntervalMinutes"
+                class="video-manager-heading__interval-select"
+                :items="autoCycleIntervalOptions"
+                item-title="title"
+                item-value="value"
+                hide-details
+                variant="solo"
+                density="comfortable"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -74,6 +135,7 @@ onMounted(async () => {
           v-if="orderedPresets.length"
           :presets="orderedPresets"
           :active-preset="visualizerStore.activePreset"
+          :active-badge-label="activeBadgeLabel"
           :skipped-presets="skippedPresets"
           :busy-actions="busyActions"
           @select="setActivePreset"
@@ -147,33 +209,43 @@ onMounted(async () => {
   align-self: center;
 }
 
-.video-manager-heading__upload {
-  min-height: 2.05rem;
-  padding-inline: 0.82rem;
-  border-radius: 12px;
-  border-color: rgba(101, 215, 255, 0.28);
-  color: rgba(228, 246, 255, 0.96) !important;
-  background: rgba(42, 74, 104, 0.42);
-  text-transform: none;
+.video-manager-heading__interval {
+  display: grid;
+  gap: 0.35rem;
+  width: 10.25rem;
+}
+
+.video-manager-heading__interval-label {
+  color: rgba(208, 220, 232, 0.6);
+  font-size: 0.74rem;
   font-weight: 650;
-  box-shadow: none;
-  letter-spacing: 0.01em;
-  transition:
-    filter 140ms ease,
-    background-color 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
+  line-height: 1.2;
 }
 
-.video-manager-heading__upload:hover {
-  filter: brightness(1.03);
-  background: rgba(49, 87, 121, 0.5);
-  border-color: rgba(101, 215, 255, 0.36);
+.video-manager-heading__interval-select {
+  min-width: 0;
 }
 
-.video-manager-heading__upload--ghost {
-  visibility: hidden;
-  pointer-events: none;
+.video-manager-heading__interval-select :deep(.v-field) {
+  min-height: 2.92rem;
+  border-radius: 14px;
+  background: rgba(13, 22, 33, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(126, 189, 226, 0.12);
+}
+
+.video-manager-heading__interval-select :deep(.v-field__outline) {
+  display: none;
+}
+
+.video-manager-heading__interval-select :deep(.v-field__input) {
+  padding-top: 0;
+  padding-bottom: 0;
+  color: rgba(240, 246, 252, 0.96);
+  font-weight: 620;
+}
+
+.video-manager-heading__interval-select :deep(.v-select__selection-text) {
+  color: rgba(240, 246, 252, 0.96);
 }
 
 @media (max-width: 959px) {
@@ -193,11 +265,12 @@ onMounted(async () => {
   }
 
   .video-manager-heading__actions {
+    width: 100%;
     flex-shrink: 1;
   }
 
-  .video-manager-heading__upload {
-    width: auto;
+  .video-manager-heading__interval {
+    width: 10.25rem;
   }
 }
 </style>
