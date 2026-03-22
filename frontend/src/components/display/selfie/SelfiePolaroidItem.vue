@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { formatImageFilter, getPolaroidTone } from './polaroidAging'
 import { POLAROID_CONFIG } from './polaroidConfig'
-import { getPolaroidEntryMotion } from './polaroidMotion'
-import type { ActivePolaroid } from './polaroidTypes'
+import { formatImageFilter, getRenderablePolaroidTone } from './polaroidAging'
+import type { RenderablePolaroid } from './polaroidTypes'
 
 const props = defineProps<{
-  item: ActivePolaroid
+  item: RenderablePolaroid
   vintageLookEnabled: boolean
 }>()
 
@@ -17,9 +16,8 @@ const emit = defineEmits<{
 
 const isPreEnter = computed(() => props.item.lifecycleStatus === 'pre_enter')
 const isEntering = computed(() => props.item.lifecycleStatus === 'entering')
-const isExiting = computed(() => props.item.lifecycleStatus === 'exiting')
-const entryMotion = computed(() => getPolaroidEntryMotion(POLAROID_CONFIG.debug.simplifiedEntry))
-const tone = computed(() => getPolaroidTone(props.item.toneStage))
+const isExiting = computed(() => props.item.lifecycleStatus === 'fading_out')
+const visualTone = computed(() => getRenderablePolaroidTone(props.item))
 
 function seededValue(seed: number, multiplier: number, offset: number) {
   const value = (seed * multiplier + offset) % 1
@@ -74,72 +72,78 @@ const vintageStyleVars = computed(() => {
 })
 
 const wrapperStyle = computed(() => {
-  const entry = entryMotion.value
+  const entry = props.item.entryMotion
   const baseRotation = props.item.layout.rotation
-  const baseScale = props.item.layout.scale
+  const throwEase = 'cubic-bezier(0.16, 1, 0.3, 1)'
+  const restEase = 'cubic-bezier(0.2, 0.76, 0.24, 1)'
+  const footerHeightPx = Math.round(props.item.layout.height * POLAROID_CONFIG.item.footerHeightRatio)
   const baseTranslate = `translate3d(${props.item.layout.x.toFixed(2)}px, ${props.item.layout.y.toFixed(2)}px, 0) translate(-50%, -50%)`
-  const finalTransform = `${baseTranslate} rotate(${baseRotation.toFixed(2)}deg) scale(${baseScale.toFixed(4)})`
-  const startTransform = `${baseTranslate} rotate(${(baseRotation + entry.rotationOffsetDeg).toFixed(2)}deg) scale(${(baseScale * entry.scaleMultiplier).toFixed(4)}) translate3d(${entry.offsetX.toFixed(2)}px, ${entry.offsetY.toFixed(2)}px, 0)`
+  const finalTransform = `${baseTranslate} rotate(${baseRotation.toFixed(2)}deg) scale(1)`
+  const startTransform = `translate3d(${entry.spawnX.toFixed(2)}px, ${entry.spawnY.toFixed(2)}px, 0) translate(-50%, -50%) rotate(${entry.spawnRotationDeg.toFixed(2)}deg) scale(1)`
+  const isFlightState = isPreEnter.value || isEntering.value
 
   return {
     width: `${props.item.layout.width}px`,
     height: `${props.item.layout.height}px`,
     '--polaroid-pad-top': 'clamp(0.46rem, 0.98vw, 0.66rem)',
     '--polaroid-pad-side': 'clamp(0.46rem, 1vw, 0.68rem)',
-    '--polaroid-caption-height': '72px',
-    zIndex: String(2 + props.item.order),
-    opacity: isPreEnter.value ? '0' : isExiting.value ? '0' : '1',
+    '--polaroid-caption-height': `${footerHeightPx}px`,
+    zIndex: String(isFlightState ? 3000 + props.item.order : 2 + props.item.order),
+    opacity: isPreEnter.value ? entry.spawnOpacity.toFixed(3) : isExiting.value ? '0' : '1',
     transform: isPreEnter.value ? startTransform : finalTransform,
-    boxShadow: isEntering.value
-      ? '0 10px 22px rgba(12, 14, 18, 0.12)'
-      : `0 14px 28px rgba(12, 14, 18, ${(0.1 + tone.value.shadowStrength * 0.05).toFixed(3)})`,
-    transitionDuration: `${props.item.timings.entryDurationMs}ms, ${
-      isExiting.value ? props.item.timings.exitDurationMs : 460
-    }ms`,
-    willChange: isPreEnter.value || isEntering.value ? 'transform, opacity' : isExiting.value ? 'opacity' : 'auto',
+    boxShadow: isFlightState
+      ? '0 22px 42px rgba(8, 12, 18, 0.24)'
+      : `0 14px 28px rgba(12, 14, 18, ${(0.1 + visualTone.value.shadowStrength * 0.05).toFixed(3)})`,
+    transitionDuration: `${props.item.entryMotion.durationMs}ms, ${
+      isExiting.value ? props.item.timings.exitDurationMs : POLAROID_CONFIG.aging.freshnessTransitionMs
+    }ms, ${isFlightState ? props.item.entryMotion.durationMs : POLAROID_CONFIG.aging.freshnessTransitionMs}ms`,
+    transitionTimingFunction: isFlightState
+      ? `${throwEase}, ${throwEase}, ${throwEase}`
+      : `${restEase}, ease-out, ${restEase}`,
+    willChange: isFlightState ? 'transform, opacity, box-shadow' : isExiting.value ? 'opacity' : 'auto',
     contain: 'layout paint style',
     ...vintageStyleVars.value,
   }
 })
 
 const imageStyle = computed(() => {
+  const baseImageScale = props.vintageLookEnabled ? 'scale(1.024)' : 'scale(1.018)'
+
   if (isPreEnter.value || isEntering.value) {
     return {
       filter: 'brightness(1.1) saturate(0.92)',
-      opacity: isPreEnter.value ? '0.78' : '0.92',
-      transform: isPreEnter.value ? 'scale(1.042)' : 'scale(1.028)',
+      opacity: isPreEnter.value ? entryOpacityStart() : '0.96',
+      transform: baseImageScale,
       transitionDuration: `${props.item.timings.developmentDurationMs}ms`,
       willChange: 'opacity',
     }
   }
 
   return {
-    filter: props.vintageLookEnabled
-      ? `${formatImageFilter(tone.value)} grayscale(0.14) saturate(0.62) contrast(0.87) brightness(0.94) sepia(0.16)`
-      : formatImageFilter(tone.value),
+    filter: formatImageFilter(visualTone.value),
     opacity: '1',
-    transform: props.vintageLookEnabled ? 'scale(1.024)' : 'scale(1.018)',
-    transitionDuration: `${props.item.timings.developmentDurationMs}ms`,
+    transform: baseImageScale,
+    transitionDuration: `${POLAROID_CONFIG.aging.freshnessTransitionMs}ms`,
     willChange: 'auto',
   }
 })
 
 const developVeilOpacity = computed(() => {
   if (isPreEnter.value) {
-    return 0.88
+    return 0.76
   }
   if (isEntering.value) {
-    return 0.3
+    return 0.22
   }
   return 0
 })
 
 const developBloomOpacity = computed(() => {
   if (isPreEnter.value) {
-    return 0.68
+    return 0.56
   }
   if (isEntering.value) {
-    return 0.18
+    return 0.14
   }
   return 0
 })
@@ -150,6 +154,10 @@ const frameClass = computed(() => ({
   'polaroid-item--exiting': isExiting.value,
   'polaroid-item--vintage': props.vintageLookEnabled,
 }))
+
+function entryOpacityStart() {
+  return Math.max(props.item.entryMotion.spawnOpacity - 0.06, 0.74).toFixed(3)
+}
 </script>
 
 <template>
@@ -195,8 +203,7 @@ const frameClass = computed(() => ({
   left: 0;
   top: 0;
   pointer-events: none;
-  transition-property: transform, opacity;
-  transition-timing-function: cubic-bezier(0.2, 0.76, 0.24, 1), ease-out;
+  transition-property: transform, opacity, box-shadow;
 }
 
 .polaroid-frame {
@@ -204,8 +211,8 @@ const frameClass = computed(() => ({
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: calc(100% - var(--polaroid-caption-height)) var(--polaroid-caption-height);
   padding: var(--polaroid-pad-top) var(--polaroid-pad-side) 0;
   border-radius: 0;
   background:
@@ -251,9 +258,9 @@ const frameClass = computed(() => ({
 
 .polaroid-frame__photo-wrap {
   width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
+  height: 100%;
   display: block;
+  min-height: 0;
 }
 
 .polaroid-frame__photo {

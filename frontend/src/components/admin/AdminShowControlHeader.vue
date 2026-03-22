@@ -65,7 +65,6 @@ function modeIcon(mode: AppMode) {
 <template>
   <section class="show-control-header">
     <div class="mode-block">
-      <div class="mode-block__title">Modus</div>
       <div class="mode-grid" role="group" aria-label="Modusauswahl">
         <v-btn
           v-for="mode in modeOptions"
@@ -122,18 +121,21 @@ function modeIcon(mode: AppMode) {
 
 <style scoped>
 .show-control-header {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 1.1rem;
   margin-bottom: 0.7rem;
-  padding: 1rem 1rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 18px;
+  padding: 1.15rem;
+  border: 1px solid rgba(153, 191, 223, 0.12);
+  border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(17, 27, 39, 0.96), rgba(11, 19, 30, 0.94)),
-    rgba(10, 18, 28, 0.95);
+    radial-gradient(circle at top right, rgba(74, 202, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(14, 23, 35, 0.94), rgba(9, 17, 27, 0.92));
   box-shadow:
-    0 12px 26px rgba(4, 10, 18, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.018);
+    0 18px 44px rgba(3, 9, 17, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(120, 165, 206, 0.03);
   isolation: isolate;
 }
 
@@ -142,10 +144,9 @@ function modeIcon(mode: AppMode) {
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
-  gap: 0.7rem;
+  gap: 0;
 }
 
-.mode-block__title,
 .context-actions-title {
   color: rgba(255, 255, 255, 0.55);
   letter-spacing: 0.18em;

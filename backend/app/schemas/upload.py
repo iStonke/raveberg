@@ -34,3 +34,18 @@ class UploadEvent(BaseModel):
 
 class UploadDeletedEvent(BaseModel):
     id: int
+
+
+class AdminUploadListSummary(BaseModel):
+    total: int
+    pending: int
+    rejected: int
+
+
+class AdminUploadListResponse(BaseModel):
+    items: list[UploadRead]
+    total: int
+    has_more: bool
+    offset: int
+    limit: int
+    summary: AdminUploadListSummary

@@ -5,3 +5,11 @@ declare module '*.vue' {
   const component: DefineComponent<Record<string, never>, Record<string, never>, unknown>
   export default component
 }
+
+declare global {
+  interface Window {
+    __RAVEBERG_DEBUG_SLIDESHOW__?: boolean
+  }
+}
+
+export {}

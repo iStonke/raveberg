@@ -48,7 +48,7 @@ const props = defineProps<{
           <div class="summary-value">{{ props.selfieStatusLabel }}</div>
           <dl class="summary-list">
             <div>
-              <dt>Sichtbare Bilder</dt>
+              <dt>Bühnenfüllung</dt>
               <dd>{{ props.selfieVisibleCount }}</dd>
             </div>
             <div>

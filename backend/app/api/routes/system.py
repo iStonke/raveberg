@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.auth.dependencies import require_admin_or_local_setup_access, require_admin_user
 from app.schemas.auth import SessionUser
+from app.schemas.guest_upload import GuestUploadConfigRead, GuestUploadConfigUpdate
 from app.schemas.runtime import RemoteVisualizerConfigRead, RemoteVisualizerConfigUpdate
 from app.schemas.system import (
     NetworkStatusRead,
@@ -15,6 +16,7 @@ from app.schemas.system import (
     WifiScanResult,
 )
 from app.services.event_service import event_service
+from app.services.guest_upload_config_service import GuestUploadConfigService
 from app.services.network_setup_service import NetworkSetupService
 from app.services.network_status_service import NetworkStatusService
 from app.services.runtime_config_service import RuntimeConfigService
@@ -45,6 +47,25 @@ def read_runtime_config(
     _: SessionUser = Depends(require_admin_user),
 ) -> RemoteVisualizerConfigRead:
     return RuntimeConfigService(db).get_remote_visualizer_config()
+
+
+@router.get("/system/guest-upload-config", response_model=GuestUploadConfigRead)
+def read_guest_upload_config(
+    db: Session = Depends(get_db),
+    _: SessionUser = Depends(require_admin_user),
+) -> GuestUploadConfigRead:
+    return GuestUploadConfigService(db).get_config()
+
+
+@router.put("/system/guest-upload-config", response_model=GuestUploadConfigRead)
+async def update_guest_upload_config(
+    payload: GuestUploadConfigUpdate,
+    db: Session = Depends(get_db),
+    _: SessionUser = Depends(require_admin_user),
+) -> GuestUploadConfigRead:
+    result = GuestUploadConfigService(db).update_config(payload)
+    await event_service.publish_public_runtime_info(SystemService(db).get_public_info())
+    return result
 
 
 @router.put("/system/runtime-config", response_model=RemoteVisualizerConfigRead)

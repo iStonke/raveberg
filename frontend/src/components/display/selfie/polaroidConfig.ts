@@ -14,8 +14,8 @@ export const POLAROID_CONFIG = {
     max: 8,
   },
   scale: {
-    min: 0.95,
-    max: 1.05,
+    min: 1,
+    max: 1,
   },
   timing: {
     spawnDelayAfterExitStartMs: 132,
@@ -36,12 +36,23 @@ export const POLAROID_CONFIG = {
     minPreExitLeadTimeMs: 180,
     maxPreExitLeadTimeMs: 1_400,
     minRotationWindowMs: 1_500,
+    minExitAgingLeadMs: 1_800,
+    freezeTimeoutMs: 6_500,
+    freezeCheckIntervalMs: 2_000,
   },
   aging: {
     startDelayShare: 0.34,
     deepPhaseStartShare: 0.52,
     finalPhaseStartShare: 0.84,
+    freshnessTransitionMs: 920,
+    topColorCount: 3,
     endDesaturation: 0.06,
+    grayscaleByStage: {
+      fresh: 0,
+      soft: 0.04,
+      deep: 0.09,
+      final: 0.14,
+    },
     saturateByStage: {
       fresh: 1.04,
       soft: 0.72,
@@ -71,6 +82,40 @@ export const POLAROID_CONFIG = {
       soft: 0.86,
       deep: 0.72,
       final: 0.58,
+    },
+    freshnessProfiles: {
+      'fresh-top': {
+        saturate: 1,
+        contrast: 1.015,
+        brightness: 1.01,
+        grayscale: 0,
+        sepia: 0,
+        shadowStrength: 1.05,
+      },
+      'aged-soft': {
+        saturate: 0.75,
+        contrast: 0.96,
+        brightness: 0.98,
+        grayscale: 0.1,
+        sepia: 0.008,
+        shadowStrength: 0.9,
+      },
+      'aged-medium': {
+        saturate: 0.45,
+        contrast: 0.93,
+        brightness: 0.96,
+        grayscale: 0.28,
+        sepia: 0.014,
+        shadowStrength: 0.82,
+      },
+      'aged-deep': {
+        saturate: 0.12,
+        contrast: 0.9,
+        brightness: 0.94,
+        grayscale: 0.62,
+        sepia: 0.02,
+        shadowStrength: 0.74,
+      },
     },
   },
   flash: {
@@ -132,44 +177,98 @@ export const POLAROID_CONFIG = {
   },
   debug: {
     logInsertTimings: false,
+    logCapacityDecisions: false,
+    logAgingDecisions: false,
+    logSchedulerDecisions: true,
+    showCloudLayerBounds: false,
     disableFlash: false,
     disableAgingDuringInsert: false,
     simplifiedEntry: true,
   },
   zonePadding: {
-    top: 0.035,
-    right: 0.03,
-    bottom: 0.085,
-    left: 0.03,
+    top: 0.018,
+    right: 0.022,
+    bottom: 0.04,
+    left: 0.022,
   },
   item: {
-    aspectRatio: 1.23,
-    defaultWidthFactor: 0.315,
-    compactWidthFactor: 0.355,
-    minWidthPx: 205,
-    maxWidthPx: 405,
+    minWidthPx: 220,
+    maxWidthPx: 362,
+    widthFactor: 0.224,
+    compactWidthFactor: 0.282,
+    heightLimitFactor: 0.395,
+    footerHeightRatio: 72 / 296,
+    aspectRatio: 296 / 240,
   },
   layout: {
-    candidateAttemptsPerZone: 6,
+    candidateAttemptsPerZone: 36,
     minCenterDistanceFactor: 0.98,
     preferredDistanceFactor: 1.42,
     overlapTolerance: 0.14,
   },
+  stageCapacity: {
+    sampleColumns: 28,
+    sampleRows: 18,
+    exitRetryDelayMs: 420,
+    minBuildCount: 4,
+    minStableVisibleCount: 6,
+    rotationStartCoverage: 0.9,
+    loose: {
+      buildCoverageTarget: 0.9,
+      targetCoverage: 0.9,
+      sustainCoverageFloor: 0.82,
+      hardCoverage: 0.96,
+      softPlacementScore: 820,
+      hardPlacementScore: 1_180,
+      minVisibleHoldMs: 38_000,
+      safetyMaxItems: 14,
+    },
+    balanced: {
+      buildCoverageTarget: 0.9,
+      targetCoverage: 0.9,
+      sustainCoverageFloor: 0.84,
+      hardCoverage: 0.97,
+      softPlacementScore: 980,
+      hardPlacementScore: 1_360,
+      minVisibleHoldMs: 32_000,
+      safetyMaxItems: 18,
+    },
+    dense: {
+      buildCoverageTarget: 0.9,
+      targetCoverage: 0.9,
+      sustainCoverageFloor: 0.86,
+      hardCoverage: 0.98,
+      softPlacementScore: 1_160,
+      hardPlacementScore: 1_560,
+      minVisibleHoldMs: 26_000,
+      safetyMaxItems: 22,
+    },
+  },
   layoutZones: [
-    { id: 'top-left', x: 0.1, y: 0.13, weight: 1.08, column: 'left', row: 'top' },
-    { id: 'top-mid-left', x: 0.28, y: 0.14, weight: 0.98, column: 'mid-left', row: 'top' },
-    { id: 'top-mid-right', x: 0.56, y: 0.13, weight: 0.95, column: 'mid-right', row: 'top' },
-    { id: 'top-right', x: 0.88, y: 0.15, weight: 1.08, column: 'right', row: 'top' },
-    { id: 'upper-center-left', x: 0.18, y: 0.32, weight: 0.97, column: 'left', row: 'upper-center' },
-    { id: 'upper-center-right', x: 0.82, y: 0.34, weight: 0.97, column: 'right', row: 'upper-center' },
-    { id: 'center-left', x: 0.08, y: 0.52, weight: 1.02, column: 'left', row: 'center' },
-    { id: 'center-mid-left', x: 0.34, y: 0.5, weight: 0.92, column: 'mid-left', row: 'center' },
-    { id: 'center-mid-right', x: 0.62, y: 0.51, weight: 0.92, column: 'mid-right', row: 'center' },
-    { id: 'center-right', x: 0.9, y: 0.54, weight: 1.02, column: 'right', row: 'center' },
-    { id: 'bottom-left', x: 0.18, y: 0.8, weight: 1.04, column: 'mid-left', row: 'bottom' },
-    { id: 'bottom-mid', x: 0.46, y: 0.82, weight: 0.94, column: 'mid', row: 'bottom' },
-    { id: 'bottom-mid-right', x: 0.72, y: 0.78, weight: 0.98, column: 'mid-right', row: 'bottom' },
-    { id: 'bottom-right', x: 0.9, y: 0.76, weight: 1.04, column: 'right', row: 'bottom' },
+    { id: 'top-left-edge', x: 0.08, y: 0.06, weight: 1.12, column: 'left', row: 'top-edge' },
+    { id: 'top-left', x: 0.14, y: 0.12, weight: 1.08, column: 'left', row: 'top' },
+    { id: 'top-mid-left', x: 0.32, y: 0.1, weight: 1, column: 'mid-left', row: 'top' },
+    { id: 'top-mid-right', x: 0.56, y: 0.1, weight: 0.98, column: 'mid-right', row: 'top' },
+    { id: 'top-right', x: 0.84, y: 0.12, weight: 1.08, column: 'right', row: 'top' },
+    { id: 'top-right-edge', x: 0.92, y: 0.08, weight: 1.12, column: 'right', row: 'top-edge' },
+    { id: 'upper-left', x: 0.1, y: 0.28, weight: 1.01, column: 'left', row: 'upper' },
+    { id: 'upper-center-left', x: 0.26, y: 0.28, weight: 0.98, column: 'mid-left', row: 'upper' },
+    { id: 'upper-center', x: 0.5, y: 0.26, weight: 0.95, column: 'mid', row: 'upper' },
+    { id: 'upper-center-right', x: 0.74, y: 0.28, weight: 0.98, column: 'mid-right', row: 'upper' },
+    { id: 'upper-right', x: 0.9, y: 0.28, weight: 1.01, column: 'right', row: 'upper' },
+    { id: 'center-left', x: 0.08, y: 0.5, weight: 1.02, column: 'left', row: 'center' },
+    { id: 'center-mid-left', x: 0.3, y: 0.48, weight: 0.94, column: 'mid-left', row: 'center' },
+    { id: 'center-mid', x: 0.5, y: 0.5, weight: 0.9, column: 'mid', row: 'center' },
+    { id: 'center-mid-right', x: 0.7, y: 0.5, weight: 0.94, column: 'mid-right', row: 'center' },
+    { id: 'center-right', x: 0.92, y: 0.5, weight: 1.02, column: 'right', row: 'center' },
+    { id: 'lower-left', x: 0.12, y: 0.72, weight: 1.02, column: 'left', row: 'lower' },
+    { id: 'lower-center-left', x: 0.32, y: 0.72, weight: 0.96, column: 'mid-left', row: 'lower' },
+    { id: 'lower-center-right', x: 0.68, y: 0.72, weight: 0.96, column: 'mid-right', row: 'lower' },
+    { id: 'lower-right', x: 0.88, y: 0.72, weight: 1.02, column: 'right', row: 'lower' },
+    { id: 'bottom-left', x: 0.18, y: 0.9, weight: 1.06, column: 'mid-left', row: 'bottom' },
+    { id: 'bottom-mid-left', x: 0.38, y: 0.9, weight: 0.98, column: 'mid-left', row: 'bottom' },
+    { id: 'bottom-mid-right', x: 0.66, y: 0.88, weight: 0.98, column: 'mid-right', row: 'bottom' },
+    { id: 'bottom-right', x: 0.88, y: 0.88, weight: 1.06, column: 'right', row: 'bottom' },
   ],
   drift: {
     amplitudeX: 0,
@@ -212,6 +311,21 @@ export interface PolaroidAgingThresholds {
   softStartMs: number
   deepStartMs: number
   finalStartMs: number
+}
+
+export interface PolaroidStageCapacity {
+  densityMode: 'loose' | 'balanced' | 'dense'
+  buildCoverageTarget: number
+  targetCoverage: number
+  sustainCoverageFloor: number
+  hardCoverage: number
+  softPlacementScore: number
+  hardPlacementScore: number
+  minVisibleHoldMs: number
+  safetyMaxItems: number
+  minBuildCount: number
+  minStableVisibleCount: number
+  rotationStartCoverage: number
 }
 
 export function getSpawnIntervalSeconds(value: number) {
@@ -311,6 +425,38 @@ export function getPolaroidAgingThresholds(rotationWindowMs: number): PolaroidAg
     deepStartMs: softStartMs + remainingAgingWindowMs * POLAROID_CONFIG.aging.deepPhaseStartShare,
     finalStartMs: softStartMs + remainingAgingWindowMs * POLAROID_CONFIG.aging.finalPhaseStartShare,
   }
+}
+
+export function getPolaroidStageCapacity(maxVisiblePhotos: number): PolaroidStageCapacity {
+  const densityHint = getVisiblePhotoCount(maxVisiblePhotos)
+
+  if (densityHint <= 3) {
+    return {
+      densityMode: 'loose',
+      minBuildCount: POLAROID_CONFIG.stageCapacity.minBuildCount,
+      minStableVisibleCount: POLAROID_CONFIG.stageCapacity.minStableVisibleCount,
+      rotationStartCoverage: POLAROID_CONFIG.stageCapacity.rotationStartCoverage,
+      ...POLAROID_CONFIG.stageCapacity.loose,
+    }
+  }
+
+  if (densityHint <= 6) {
+    return {
+      densityMode: 'balanced',
+      minBuildCount: POLAROID_CONFIG.stageCapacity.minBuildCount,
+      minStableVisibleCount: POLAROID_CONFIG.stageCapacity.minStableVisibleCount,
+      rotationStartCoverage: POLAROID_CONFIG.stageCapacity.rotationStartCoverage,
+      ...POLAROID_CONFIG.stageCapacity.balanced,
+    }
+  }
+
+    return {
+      densityMode: 'dense',
+      minBuildCount: POLAROID_CONFIG.stageCapacity.minBuildCount,
+      minStableVisibleCount: POLAROID_CONFIG.stageCapacity.minStableVisibleCount,
+      rotationStartCoverage: POLAROID_CONFIG.stageCapacity.rotationStartCoverage,
+      ...POLAROID_CONFIG.stageCapacity.dense,
+    }
 }
 
 export function getPolaroidLayoutDensity(maxVisiblePhotos: number): PolaroidLayoutDensity {

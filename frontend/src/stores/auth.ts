@@ -6,12 +6,14 @@ import { fetchSession, loginAdmin, logoutAdmin } from '../services/api'
 
 const AUTH_TOKEN_KEY = 'raveberg-admin-token'
 type SessionStatus = 'loading' | 'authenticated' | 'anonymous'
+export type SessionIssueReason = 'session_expired' | 'session_invalid' | 'session_missing'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(null)
   const user = ref<SessionUser | null>(null)
   const sessionStatus = ref<SessionStatus>('loading')
   const isInitialized = ref(false)
+  const lastSessionIssueReason = ref<SessionIssueReason | null>(null)
 
   const isAuthenticated = computed(() => Boolean(token.value))
   const username = computed(() => user.value?.username ?? null)
@@ -22,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = session.access_token
     user.value = session.user
     sessionStatus.value = 'authenticated'
+    lastSessionIssueReason.value = null
     localStorage.setItem(AUTH_TOKEN_KEY, session.access_token)
   }
 
@@ -39,11 +42,20 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = session.access_token
       user.value = session.user
       sessionStatus.value = 'authenticated'
-    } catch {
-      await logout()
+      lastSessionIssueReason.value = null
+    } catch (error) {
+      clearSessionState()
+      lastSessionIssueReason.value = resolveSessionIssueReason(error)
     } finally {
       isInitialized.value = true
     }
+  }
+
+  function clearSessionState() {
+    token.value = null
+    user.value = null
+    sessionStatus.value = 'anonymous'
+    localStorage.removeItem(AUTH_TOKEN_KEY)
   }
 
   async function logout() {
@@ -56,10 +68,33 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
 
-    token.value = null
-    user.value = null
-    sessionStatus.value = 'anonymous'
-    localStorage.removeItem(AUTH_TOKEN_KEY)
+    clearSessionState()
+    lastSessionIssueReason.value = null
+  }
+
+  function consumeSessionIssueReason() {
+    const nextReason = lastSessionIssueReason.value
+    lastSessionIssueReason.value = null
+    return nextReason
+  }
+
+  function applySessionUser(nextUser: SessionUser) {
+    user.value = nextUser
+  }
+
+  function resolveSessionIssueReason(error: unknown): SessionIssueReason {
+    const message = error instanceof Error ? error.message : ''
+    const normalized = message.toLowerCase()
+
+    if (normalized.includes('session expired')) {
+      return 'session_expired'
+    }
+
+    if (normalized.includes('session not found')) {
+      return 'session_missing'
+    }
+
+    return 'session_invalid'
   }
 
   return {
@@ -69,9 +104,12 @@ export const useAuthStore = defineStore('auth', () => {
     role,
     sessionStatus,
     isInitialized,
+    lastSessionIssueReason,
     isAuthenticated,
     login,
     restoreSession,
     logout,
+    consumeSessionIssueReason,
+    applySessionUser,
   }
 })

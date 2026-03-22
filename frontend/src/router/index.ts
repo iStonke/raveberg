@@ -69,12 +69,32 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'admin-login', query: { redirect: to.fullPath } }
+    const reason = authStore.consumeSessionIssueReason()
+    return {
+      name: 'admin-login',
+      query: {
+        redirect: to.fullPath,
+        ...(reason ? { reason } : {}),
+      },
+    }
   }
 
   if (to.meta.requiredRole && authStore.role !== to.meta.requiredRole) {
     await authStore.logout()
     return { name: 'admin-login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.name === 'admin-login' && !authStore.isAuthenticated && typeof to.query.reason !== 'string') {
+    const reason = authStore.consumeSessionIssueReason()
+    if (reason) {
+      return {
+        name: 'admin-login',
+        query: {
+          ...to.query,
+          reason,
+        },
+      }
+    }
   }
 
   if (to.name === 'admin-login' && authStore.isAuthenticated) {

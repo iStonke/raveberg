@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.selfie_state import SelfieState
 from app.schemas.selfie import SelfieStateRead, SelfieStateUpdate
+from app.services.guest_upload_config_service import GuestUploadConfigService
 from app.services.mode_service import ModeService
 
 
@@ -27,8 +28,13 @@ class SelfieService:
                 logo_overlay_enabled=True,
                 overlay_mode="logo",
                 vintage_look_enabled=settings.default_vintage_look_enabled,
-                moderation_mode=settings.default_moderation_mode,
+                moderation_mode=GuestUploadConfigService(self.db).get_moderation_mode(),
             )
+            self.db.add(state)
+            self.db.commit()
+            self.db.refresh(state)
+        elif state.moderation_mode != GuestUploadConfigService(self.db).get_moderation_mode():
+            state.moderation_mode = GuestUploadConfigService(self.db).get_moderation_mode()
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)
@@ -53,7 +59,7 @@ class SelfieService:
         state.overlay_mode = payload.overlay_mode
         state.logo_overlay_enabled = payload.overlay_mode == "logo"
         state.vintage_look_enabled = payload.vintage_look_enabled
-        state.moderation_mode = payload.moderation_mode
+        state.moderation_mode = GuestUploadConfigService(self.db).get_moderation_mode()
         state.slideshow_updated_at = datetime.now(timezone.utc)
         self.db.add(state)
         self.db.commit()

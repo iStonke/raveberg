@@ -36,6 +36,11 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
   const remoteRendererReconnectMs = ref(3000)
   const remoteRendererFallback = ref<RemoteRendererFallback>('local')
   const moderationMode = ref<'auto_approve' | 'manual_approve'>('auto_approve')
+  const guestUploadEnabled = ref(true)
+  const guestUploadRequiresApproval = ref(false)
+  const guestUploadSessionTimeoutHours = ref(24)
+  const guestUploadSessionExpiresAt = ref<string | null>(null)
+  const guestUploadSessionExpired = ref(false)
   const uploadMaxBytes = ref(15 * 1024 * 1024)
   const urls = ref({
     base_url: '',
@@ -90,6 +95,11 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
     remoteRendererReconnectMs.value = response.remote_renderer_reconnect_ms
     remoteRendererFallback.value = response.remote_renderer_fallback
     moderationMode.value = response.moderation_mode
+    guestUploadEnabled.value = response.guest_upload_enabled
+    guestUploadRequiresApproval.value = response.guest_upload_requires_approval
+    guestUploadSessionTimeoutHours.value = response.guest_upload_session_timeout_hours
+    guestUploadSessionExpiresAt.value = response.session_expires_at
+    guestUploadSessionExpired.value = response.session_is_expired
     uploadMaxBytes.value = response.upload_max_bytes
     urls.value = response.urls
     network.value = response.network
@@ -129,6 +139,11 @@ export const usePublicRuntimeStore = defineStore('publicRuntime', () => {
     remoteRendererReconnectMs,
     remoteRendererFallback,
     moderationMode,
+    guestUploadEnabled,
+    guestUploadRequiresApproval,
+    guestUploadSessionTimeoutHours,
+    guestUploadSessionExpiresAt,
+    guestUploadSessionExpired,
     uploadMaxBytes,
     uploadMaxMegabytes,
     urls,

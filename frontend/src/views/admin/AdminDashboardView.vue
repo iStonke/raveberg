@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 
 import type {
+  AdminUploadListResponse,
   AmbientColorPreset,
   AppMode,
   ColorScheme,
@@ -26,16 +28,21 @@ import {
   deleteUpload,
   downloadAdminUploadArchive,
   fetchAdminUploads,
+  fetchGuestUploadConfig,
   rejectUpload,
   reorderVideoAssets,
   startSetupMode,
   stopSetupMode,
   triggerSystemRestart,
   triggerSystemShutdown,
+  updateAdminAccess,
+  updateGuestUploadConfig,
   uploadAdminVideo,
 } from '../../services/api'
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
 import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
+import SystemSettingsPanel from '../../components/admin/SystemSettingsPanel.vue'
+import { useAdminAlert } from '../../stores/adminAlert'
 import { useAdminUploadsBadgeStore } from '../../stores/adminUploadsBadge'
 import { useAppModeStore } from '../../stores/appMode'
 import { useAuthStore } from '../../stores/auth'
@@ -48,6 +55,7 @@ import { useVisualizerStore } from '../../stores/visualizer'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const adminAlert = useAdminAlert()
 const adminUploadsBadgeStore = useAdminUploadsBadgeStore()
 const appModeStore = useAppModeStore()
 const publicRuntimeStore = usePublicRuntimeStore()
@@ -57,29 +65,18 @@ const systemStatusStore = useSystemStatusStore()
 const videoStore = useVideoStore()
 const visualizerStore = useVisualizerStore()
 
-type AdminWorkspaceSection = 'modus' | 'status' | 'uploads'
+type AdminWorkspaceSection = 'modus' | 'system' | 'uploads'
 type UploadGalleryFilter = 'all' | 'pending' | 'rejected' | 'new'
 type RecentEventEntry = {
   name: string
   at: string
 }
-type SystemActionNotice = {
-  title: string
-  text: string
-  icon: string
+type SlideshowSettingOption = {
+  value: number
+  label: string
+  description?: string
 }
 
-const errorMessage = ref('')
-const displayThemeError = ref('')
-const visualizerError = ref('')
-const selfieError = ref('')
-const standbyError = ref('')
-const videoError = ref('')
-const remoteVisualizerError = ref('')
-const remoteRendererError = ref('')
-const uploadError = ref('')
-const systemActionError = ref('')
-const systemActionNotice = ref<SystemActionNotice | null>(null)
 const isBooting = ref(true)
 const isSwitchingMode = ref(false)
 const optimisticMode = ref<AppMode | null>(null)
@@ -91,6 +88,9 @@ const isSavingVideo = ref(false)
 const isSavingRemoteVisualizer = ref(false)
 const isSavingRemoteRenderer = ref(false)
 const isUploadingVideos = ref(false)
+const isSavingAccess = ref(false)
+const isSavingSecurity = ref(false)
+const securityError = ref('')
 const isShuttingDown = ref(false)
 const isRestartingSystem = ref(false)
 const isTogglingSetupMode = ref(false)
@@ -98,6 +98,11 @@ const isDownloadingUploadArchive = ref(false)
 const isDeletingAllUploads = ref(false)
 const dashboardLiveActive = ref(false)
 const uploads = ref<UploadItem[]>([])
+const uploadSummary = ref({
+  total: 0,
+  pending: 0,
+  rejected: 0,
+})
 const thumbnailUrls = ref<Record<number, string>>({})
 const busyActions = ref<Record<string, boolean>>({})
 const eventSource = ref<EventSource | null>(null)
@@ -111,21 +116,34 @@ const isHydratingRemoteVisualizerDraft = ref(true)
 const isHydratingRemoteRendererDraft = ref(true)
 const isRefreshingOperationalState = ref(false)
 const pendingOperationalRefresh = ref(false)
+const isRefreshingUploadWorkspace = ref(false)
+const pendingUploadWorkspaceRefresh = ref(false)
 const recentEvents = ref<RecentEventEntry[]>([])
 const videoFileInput = ref<HTMLInputElement | null>(null)
 const videoDurations = ref<Record<number, string>>({})
 const videoMetadataLoading = ref<Record<number, boolean>>({})
 const videoUploadLabel = ref('')
 const uploadGalleryFilter = ref<UploadGalleryFilter>('all')
+const uploadListSentinel = ref<HTMLElement | null>(null)
+const uploadListHasMore = ref(false)
+const isLoadingMoreUploads = ref(false)
+const uploadListError = ref('')
+const uploadListInitialized = ref(false)
 const isUploadBulkMenuOpen = ref(false)
 const isDeleteAllUploadsDialogOpen = ref(false)
 const isGuestQrDialogOpen = ref(false)
 const sessionNewUploadIds = ref<number[]>([])
-const isWorkspaceSectionTransitionActive = ref(false)
 const activeStandbyTextField = ref<'headline' | 'subheadline' | null>(null)
-const adminUploadFetchLimit = 100
+const accessResetCounter = ref(0)
+const uploadPageSize = 12
+const adminUploadBulkFetchLimit = 100
 const ambientColorPresetDraft = ref<AmbientColorPreset>('blue')
 const ambientColorCustomHueDraft = ref(0)
+const guestUploadEnabled = ref(true)
+const guestUploadRequiresApproval = ref(false)
+const guestUploadSessionTimeoutHours = ref(24)
+const guestUploadSessionExpiresAt = ref<string | null>(null)
+const guestUploadSessionExpired = ref(false)
 
 const visualizerDraft = reactive<{
   active_preset: VisualizerPreset
@@ -229,6 +247,83 @@ const standbyScreenOptions = [
     disabled: true,
   },
 ] as const
+
+const slideshowDensityOptions: SlideshowSettingOption[] = [
+  { value: 3, label: 'Locker', description: 'Weniger Bilder gleichzeitig' },
+  { value: 5, label: 'Ausgewogen', description: 'Ruhige Standard-Dichte' },
+  { value: 7, label: 'Dicht', description: 'Mehr Bilder parallel' },
+]
+
+const slideshowIntervalOptions: SlideshowSettingOption[] = Array.from({ length: 19 }, (_, index) => {
+  const value = index + 2
+  return {
+    value,
+    label: `${value} Sekunden`,
+  }
+})
+
+const slideshowStartAfterOptions: SlideshowSettingOption[] = Array.from({ length: 10 }, (_, index) => {
+  const value = index + 1
+  return {
+    value,
+    label: value === 1 ? '1 Upload' : `${value} Uploads`,
+  }
+})
+
+function buildNumericSelectOptions(
+  min: number,
+  max: number,
+  step: number,
+  current: number,
+  formatLabel: (value: number) => string,
+) {
+  const values = new Set<number>()
+
+  for (let value = min; value <= max; value += step) {
+    values.add(value)
+  }
+
+  values.add(Math.max(min, Math.min(max, Math.round(current))))
+
+  return Array.from(values)
+    .sort((left, right) => left - right)
+    .map((value) => ({
+      title: formatLabel(value),
+      value,
+    }))
+}
+
+const visualizerSpeedOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.speed, (value) => `${value}`),
+)
+
+const visualizerIntensityOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.intensity, (value) => `${value}`),
+)
+
+const visualizerBrightnessOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.brightness, (value) => `${value}`),
+)
+
+const visualizerHydraColorfulnessOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_colorfulness, (value) => `${value}`),
+)
+
+const visualizerHydraSceneChangeRateOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_scene_change_rate, (value) => `${value}`),
+)
+
+const visualizerHydraSymmetryAmountOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_symmetry_amount, (value) => `${value}`),
+)
+
+const visualizerHydraFeedbackAmountOptions = computed(() =>
+  buildNumericSelectOptions(0, 100, 5, visualizerDraft.hydra_feedback_amount, (value) => `${value}`),
+)
+
+const visualizerAutoCycleIntervalOptions = computed(() =>
+  buildNumericSelectOptions(5, 30, 1, visualizerDraft.auto_cycle_interval_minutes, (value) => `${value} min`),
+)
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '')
@@ -354,6 +449,15 @@ const remoteRendererFallbackItems = [
   { title: 'Hinweis anzeigen', value: 'notice' },
 ] as const
 
+const uploadSessionTimeoutItems = [
+  { title: '1 Stunde', value: 1 },
+  { title: '6 Stunden', value: 6 },
+  { title: '12 Stunden', value: 12 },
+  { title: '24 Stunden', value: 24 },
+  { title: '48 Stunden', value: 48 },
+  { title: '72 Stunden', value: 72 },
+] as const
+
 const visualizerPresetLabels: Record<VisualizerPreset, string> = {
   particles: 'Particles',
   kaleidoscope: 'Kaleidoscope',
@@ -390,46 +494,25 @@ let videoPersistTimer: number | undefined
 let remoteVisualizerPersistTimer: number | undefined
 let remoteRendererPersistTimer: number | undefined
 let ambientColorPersistTimer: number | undefined
-let systemActionNoticeTimer: number | undefined
-let workspaceSectionTransitionTimer: number | undefined
+let uploadListObserver: IntersectionObserver | null = null
+let uploadThumbnailObserver: IntersectionObserver | null = null
+let uploadListRequestVersion = 0
+const observedUploadCards = new Map<number, Element>()
+const loadingThumbnailIds = new Set<number>()
 
 const slideshowRunningLabel = computed(() =>
   selfieStore.slideshowEnabled ? 'läuft' : 'pausiert',
 )
 
-const displayUploads = computed(() =>
-  [...uploads.value].sort(
-    (left, right) =>
-      new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
-  ),
-)
+const displayUploads = computed(() => uploads.value)
 
-const pendingCount = computed(
-  () => uploads.value.filter((upload) => upload.moderation_status === 'pending').length,
-)
+const pendingCount = computed(() => uploadSummary.value.pending)
 
-const rejectedCount = computed(
-  () => uploads.value.filter((upload) => upload.moderation_status === 'rejected').length,
-)
+const rejectedCount = computed(() => uploadSummary.value.rejected)
 
-const newUploads = computed(() =>
-  displayUploads.value.filter((upload) => sessionNewUploadIds.value.includes(upload.id)),
-)
+const newUploadCount = computed(() => sessionNewUploadIds.value.length)
 
-const newUploadCount = computed(() => newUploads.value.length)
-
-const filteredUploadGallery = computed(() => {
-  if (uploadGalleryFilter.value === 'pending') {
-    return displayUploads.value.filter((upload) => upload.moderation_status === 'pending')
-  }
-  if (uploadGalleryFilter.value === 'rejected') {
-    return displayUploads.value.filter((upload) => upload.moderation_status === 'rejected')
-  }
-  if (uploadGalleryFilter.value === 'new') {
-    return newUploads.value
-  }
-  return displayUploads.value
-})
+const filteredUploadGallery = computed(() => displayUploads.value)
 
 const uploadGalleryTitle = computed(() => {
   if (uploadGalleryFilter.value === 'pending') {
@@ -445,7 +528,7 @@ const uploadGalleryTitle = computed(() => {
 })
 
 const canManageAllUploads = computed(() =>
-  uploads.value.length > 0 && Boolean(authStore.token),
+  uploadSummary.value.total > 0 && Boolean(authStore.token),
 )
 
 const uploadEmptyState = computed(() => {
@@ -477,142 +560,22 @@ const uploadEmptyState = computed(() => {
   }
 })
 
-const displayHealthLabel = computed(() => {
-  if (systemStatusStore.displayLiveConnected) {
-    return 'Display live'
-  }
-  if (systemStatusStore.displayStateStale) {
-    return 'Display stale'
-  }
-  return 'Display offline'
-})
-
-const displayRuntimeStatus = computed(() => {
-  if (systemStatusStore.displayLiveConnected) {
-    return {
-      label: 'LIVE',
-      tone: 'success',
-      detail: 'Kontakt aktiv',
-    }
-  }
-  if (systemStatusStore.displayStateStale) {
-    return {
-      label: 'STALE',
-      tone: 'warning',
-      detail: 'Zuletzt aktiv',
-    }
-  }
-  return {
-    label: 'OFFLINE',
-    tone: 'error',
-    detail: 'Keine Verbindung',
-  }
-})
-
-function compactRendererLabel(target: string) {
-  const normalized = target.trim()
-  if (!normalized) {
-    return 'Unbekannt'
-  }
-
-  const compact = normalized.replace(/\s+Renderer$/i, '').trim()
-  return compact || normalized
-}
-
-const criticalStatusCards = computed(() => {
-  const rendererLabel = compactRendererLabel(systemStatusStore.displayTarget)
-
-  return [
-    {
-      title: 'Display',
-      value: displayRuntimeStatus.value.label,
-      detail: displayRuntimeStatus.value.detail,
-      tone: displayRuntimeStatus.value.tone,
-      compact: false,
-    },
-    {
-      title: 'Backend',
-      value: systemStatusStore.backendReachable ? 'OK' : 'OFFLINE',
-      detail: systemStatusStore.backendReachable ? 'Health ok' : 'Nicht erreichbar',
-      tone: systemStatusStore.backendReachable ? 'success' : 'error',
-      compact: false,
-    },
-    {
-      title: 'Datenbank',
-      value: systemStatusStore.dbReachable ? 'OK' : 'FEHLER',
-      detail: systemStatusStore.dbReachable ? 'Antwortet' : 'Nicht erreichbar',
-      tone: systemStatusStore.dbReachable ? 'success' : 'error',
-      compact: false,
-    },
-    {
-      title: 'Renderer',
-      value: rendererLabel,
-      detail: `Modus ${formatModeLabel(appModeStore.mode)}`,
-      tone: systemStatusStore.displayLiveConnected ? 'success' : systemStatusStore.displayStateStale ? 'warning' : 'error',
-      compact: rendererLabel.length > 8,
-    },
-  ]
-})
-
 const activeWorkspaceSection = computed<AdminWorkspaceSection>(() => {
   const hash = route.hash.replace('#', '')
-  if (hash === 'status' || hash === 'uploads') {
-    return hash
+  if (hash === 'uploads') {
+    return 'uploads'
+  }
+  if (hash === 'status' || hash === 'system') {
+    return 'system'
   }
   return 'modus'
 })
 
 const activeMode = computed(() => optimisticMode.value ?? appModeStore.mode)
 
-const dashboardStatusChip = computed(() => {
-  if (dashboardLiveActive.value) {
-    return {
-      label: 'Dashboard live',
-      color: 'success' as const,
-    }
-  }
-  if (reconnectAttempt.value > 0) {
-    return {
-      label: `Dashboard reconnect ${reconnectAttempt.value}`,
-      color: 'warning' as const,
-    }
-  }
-  return {
-    label: 'Dashboard connecting',
-    color: 'info' as const,
-  }
-})
-
-const displayStatusChip = computed(() => {
-  if (systemStatusStore.displayLiveConnected) {
-    return {
-      label: 'Display live',
-      color: 'success' as const,
-    }
-  }
-  if (systemStatusStore.displayStateStale) {
-    return {
-      label: 'Display stale',
-      color: 'warning' as const,
-    }
-  }
-  return {
-    label: 'Display offline',
-    color: 'error' as const,
-  }
-})
-
 const contextActions = computed(() => {
   if (activeMode.value === 'selfie') {
     return [
-      {
-        id: 'selfie:moderation',
-        label: selfieDraft.moderation_mode === 'auto_approve' ? 'Freigabe auto' : 'Freigabe manuell',
-        color: 'primary' as const,
-        loading: isBusy('selfie:moderation'),
-        disabled: isBooting.value,
-        active: selfieDraft.moderation_mode === 'manual_approve',
-      },
       {
         id: 'selfie:shuffle',
         label: selfieDraft.slideshow_shuffle ? 'Shuffle an' : 'Shuffle aus',
@@ -715,12 +678,8 @@ const contextActions = computed(() => {
   return []
 })
 
-const moderationSummaryLabel = computed(() =>
-  selfieStore.moderationMode === 'auto_approve' ? 'Auto' : 'Manuell',
-)
-
 const showUploadModerationActions = computed(() =>
-  selfieDraft.moderation_mode === 'manual_approve',
+  guestUploadRequiresApproval.value,
 )
 
 const visualizerAutoCycleSummaryLabel = computed(() =>
@@ -793,13 +752,6 @@ const videoSizeLimitLabel = computed(() =>
 
 const cpuLoadLabel = computed(() => formatPercent(systemStatusStore.cpuLoadPercent))
 
-const memoryUsageLabel = computed(() => {
-  if (systemStatusStore.memoryUsedBytes == null || systemStatusStore.memoryTotalBytes == null) {
-    return 'unbekannt'
-  }
-  return `${formatBytes(systemStatusStore.memoryUsedBytes)} / ${formatBytes(systemStatusStore.memoryTotalBytes)}`
-})
-
 const memoryPercentLabel = computed(() => formatPercent(systemStatusStore.memoryPercent))
 
 const cpuTemperatureLabel = computed(() => {
@@ -813,32 +765,7 @@ const cpuLoadBarValue = computed(() => Math.max(0, Math.min(systemStatusStore.cp
 
 const memoryBarValue = computed(() => Math.max(0, Math.min(systemStatusStore.memoryPercent ?? 0, 100)))
 
-const temperatureHint = computed(() =>
-  systemStatusStore.cpuTemperatureCelsius == null
-    ? 'Kein Temperatursensor erkannt'
-    : systemStatusStore.fanActive === true
-      ? systemStatusStore.fanRpm != null && systemStatusStore.fanRpm > 0
-        ? `Lüfter läuft · ${systemStatusStore.fanRpm} RPM`
-        : 'Lüfter läuft'
-      : systemStatusStore.fanActive === false
-        ? 'Lüfter aktuell aus'
-        : 'Temperaturdaten vom Gerät · Lüfterstatus unbekannt',
-)
-
-const temperatureHintClass = computed(() => {
-  if (systemStatusStore.cpuTemperatureCelsius == null) {
-    return 'device-metric-card__meta--fan-unknown'
-  }
-  if (systemStatusStore.fanActive === true) {
-    return 'device-metric-card__meta--fan-running'
-  }
-  if (systemStatusStore.fanActive === false) {
-    return 'device-metric-card__meta--fan-off'
-  }
-  return 'device-metric-card__meta--fan-unknown'
-})
-
-const internetStatusLabel = computed(() =>
+const systemNetworkStateLabel = computed(() =>
   systemStatusStore.setupModeStatus.enabled
     ? 'Setup-Modus aktiv'
     : systemStatusStore.networkStatus.online
@@ -846,7 +773,7 @@ const internetStatusLabel = computed(() =>
       : 'Offline',
 )
 
-const internetStatusHint = computed(() =>
+const systemNetworkStateDetail = computed(() =>
   systemStatusStore.setupModeStatus.enabled
     ? 'Mit dem Setup-WLAN verbinden, um das Event-Netzwerk auszuwählen.'
     : systemStatusStore.networkStatus.online
@@ -854,38 +781,278 @@ const internetStatusHint = computed(() =>
       : 'Keine externe Verbindung erkannt',
 )
 
-const internetStatusClass = computed(() =>
-  systemStatusStore.setupModeStatus.enabled
-    ? 'device-metric-card__value--warning'
-    : systemStatusStore.networkStatus.online
-      ? 'device-metric-card__value--online'
-      : 'device-metric-card__value--offline',
-)
-
-const internetSsidLabel = computed(() =>
+const systemNetworkName = computed(() =>
   systemStatusStore.setupModeStatus.enabled
     ? systemStatusStore.setupModeStatus.ssid
     : systemStatusStore.networkStatus.ssid || 'Nicht verbunden',
 )
 
-const internetIpLabel = computed(() =>
+const systemIpAddress = computed(() =>
   systemStatusStore.setupModeStatus.enabled
     ? systemStatusStore.setupModeStatus.ip
     : systemStatusStore.networkStatus.ip || 'Nicht verfügbar',
 )
 
-const internetSignalLabel = computed(() => {
-  if (systemStatusStore.setupModeStatus.enabled || systemStatusStore.networkStatus.signal_percent == null) {
-    return 'Nicht verfügbar'
-  }
-  return `${renderSignalGlyph(systemStatusStore.networkStatus.signal_bars)} ${systemStatusStore.networkStatus.signal_percent}%`
-})
-
-const setupModeActionLabel = computed(() =>
-  systemStatusStore.setupModeStatus.enabled ? 'Setup-Modus beenden' : 'Setup-Modus starten',
+const systemHostname = computed(() =>
+  systemStatusStore.appliance.network.local_hostname
+  || publicRuntimeStore.network.local_hostname
+  || 'Nicht verfügbar',
 )
 
 const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
+const uploadControlSessionTimeoutLabel = computed(() => {
+  const matched = uploadSessionTimeoutItems.find((item) => item.value === guestUploadSessionTimeoutHours.value)
+  return matched?.title ?? `${guestUploadSessionTimeoutHours.value} Stunden`
+})
+const systemSessionExpiresAtLabel = computed(() => formatSessionExpiryLabel(guestUploadSessionExpiresAt.value))
+
+function buildUploadQueryOptions(limit: number, offset = 0) {
+  const options: {
+    limit: number
+    offset: number
+    moderationStatus?: 'pending' | 'rejected'
+    ids?: number[]
+  } = {
+    limit,
+    offset,
+  }
+
+  if (uploadGalleryFilter.value === 'pending') {
+    options.moderationStatus = 'pending'
+  } else if (uploadGalleryFilter.value === 'rejected') {
+    options.moderationStatus = 'rejected'
+  } else if (uploadGalleryFilter.value === 'new') {
+    options.ids = [...sessionNewUploadIds.value]
+  }
+
+  return options
+}
+
+function applyUploadSummary(response: AdminUploadListResponse) {
+  uploadSummary.value = {
+    total: response.summary.total,
+    pending: response.summary.pending,
+    rejected: response.summary.rejected,
+  }
+}
+
+function mergeUploads(existing: UploadItem[], incoming: UploadItem[]) {
+  const byId = new Map<number, UploadItem>()
+  for (const upload of existing) {
+    byId.set(upload.id, upload)
+  }
+  for (const upload of incoming) {
+    byId.set(upload.id, upload)
+  }
+
+  return [...byId.values()].sort(
+    (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+  )
+}
+
+function syncThumbnailCache(items: UploadItem[]) {
+  const activeIds = new Set(items.map((upload) => upload.id))
+  for (const [id, url] of Object.entries(thumbnailUrls.value)) {
+    if (!activeIds.has(Number(id))) {
+      URL.revokeObjectURL(url)
+      delete thumbnailUrls.value[Number(id)]
+    }
+  }
+}
+
+async function ensureUploadThumbnail(uploadId: number) {
+  const upload = uploads.value.find((entry) => entry.id === uploadId)
+  if (!upload || !authStore.token || !upload.admin_display_url || upload.status !== 'processed') {
+    return
+  }
+  if (thumbnailUrls.value[upload.id] || loadingThumbnailIds.has(upload.id)) {
+    return
+  }
+
+  loadingThumbnailIds.add(upload.id)
+
+  try {
+    const response = await fetch(upload.admin_display_url, {
+      headers: {
+        Authorization: `Bearer ${authStore.token}`,
+      },
+    })
+    if (!response.ok) {
+      return
+    }
+
+    const blob = await response.blob()
+    thumbnailUrls.value[upload.id] = URL.createObjectURL(blob)
+  } finally {
+    loadingThumbnailIds.delete(upload.id)
+  }
+}
+
+function ensureUploadListObserver() {
+  if (uploadListObserver || typeof IntersectionObserver === 'undefined') {
+    return
+  }
+
+  uploadListObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) {
+      return
+    }
+    void loadMoreUploads()
+  }, {
+    rootMargin: '280px 0px',
+  })
+}
+
+function ensureUploadThumbnailObserver() {
+  if (uploadThumbnailObserver || typeof IntersectionObserver === 'undefined') {
+    return
+  }
+
+  uploadThumbnailObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        continue
+      }
+
+      const uploadId = Number((entry.target as HTMLElement).dataset.uploadId)
+      if (Number.isFinite(uploadId)) {
+        void ensureUploadThumbnail(uploadId)
+      }
+      uploadThumbnailObserver?.unobserve(entry.target)
+    }
+  }, {
+    rootMargin: '240px 0px',
+  })
+}
+
+function resolveObservedElement(
+  target: Element | ComponentPublicInstance | null,
+): Element | null {
+  if (!target) {
+    return null
+  }
+
+  if (target instanceof Element) {
+    return target
+  }
+
+  return target.$el instanceof Element ? target.$el : null
+}
+
+function setUploadListSentinel(target: Element | ComponentPublicInstance | null) {
+  const element = resolveObservedElement(target)
+  if (uploadListSentinel.value && uploadListObserver) {
+    uploadListObserver.unobserve(uploadListSentinel.value)
+  }
+
+  uploadListSentinel.value = element as HTMLElement | null
+  if (uploadListSentinel.value) {
+    ensureUploadListObserver()
+    uploadListObserver?.observe(uploadListSentinel.value)
+  }
+}
+
+function setUploadCardObserverRef(
+  uploadId: number,
+  target: Element | ComponentPublicInstance | null,
+) {
+  const element = resolveObservedElement(target)
+  const previousElement = observedUploadCards.get(uploadId)
+  if (previousElement && uploadThumbnailObserver) {
+    uploadThumbnailObserver.unobserve(previousElement)
+  }
+
+  if (!element) {
+    observedUploadCards.delete(uploadId)
+    return
+  }
+
+  observedUploadCards.set(uploadId, element)
+  ensureUploadThumbnailObserver()
+  uploadThumbnailObserver?.observe(element)
+}
+
+async function fetchUploadPage(limit: number, offset: number) {
+  if (!authStore.token) {
+    return null
+  }
+
+  if (uploadGalleryFilter.value === 'new' && sessionNewUploadIds.value.length === 0) {
+    const emptyResponse: AdminUploadListResponse = {
+      items: [],
+      total: 0,
+      has_more: false,
+      offset: 0,
+      limit,
+      summary: {
+        total: uploadSummary.value.total,
+        pending: uploadSummary.value.pending,
+        rejected: uploadSummary.value.rejected,
+      },
+    }
+    return emptyResponse
+  }
+
+  return fetchAdminUploads(authStore.token, buildUploadQueryOptions(limit, offset))
+}
+
+async function refreshUploads(options: { preserveVisible?: boolean } = {}) {
+  const preserveVisible = options.preserveVisible ?? true
+  const limit = preserveVisible
+    ? Math.max(uploadPageSize, uploads.value.length || uploadPageSize)
+    : uploadPageSize
+
+  if (!preserveVisible) {
+    uploads.value = []
+    uploadListHasMore.value = false
+    syncThumbnailCache([])
+  }
+
+  uploadListError.value = ''
+  const requestVersion = ++uploadListRequestVersion
+  const response = await fetchUploadPage(limit, 0)
+  if (!response || requestVersion !== uploadListRequestVersion) {
+    return
+  }
+
+  applyUploadSummary(response)
+  uploads.value = response.items
+  uploadListHasMore.value = response.has_more
+  uploadListInitialized.value = true
+  syncThumbnailCache(response.items)
+}
+
+async function loadMoreUploads() {
+  if (!authStore.token || isLoadingMoreUploads.value || !uploadListHasMore.value) {
+    return
+  }
+
+  isLoadingMoreUploads.value = true
+  uploadListError.value = ''
+  const requestVersion = ++uploadListRequestVersion
+
+  try {
+    const response = await fetchUploadPage(uploadPageSize, uploads.value.length)
+    if (!response || requestVersion !== uploadListRequestVersion) {
+      return
+    }
+
+    applyUploadSummary(response)
+    uploads.value = mergeUploads(uploads.value, response.items)
+    uploadListHasMore.value = response.has_more
+    syncThumbnailCache(uploads.value)
+  } catch (error) {
+    if (requestVersion === uploadListRequestVersion) {
+      uploadListError.value = error instanceof Error
+        ? error.message
+        : 'Weitere Uploads konnten nicht geladen werden.'
+    }
+  } finally {
+    if (requestVersion === uploadListRequestVersion) {
+      isLoadingMoreUploads.value = false
+    }
+  }
+}
 
 onMounted(async () => {
   if (!authStore.token) {
@@ -895,8 +1062,9 @@ onMounted(async () => {
 
   try {
     const adminToken = authStore.token
-    const [latestUploads] = await Promise.all([
-      fetchAdminUploads(adminToken, adminUploadFetchLimit),
+    const [initialUploadPage, guestUploadConfig] = await Promise.all([
+      fetchAdminUploads(adminToken, buildUploadQueryOptions(uploadPageSize, 0)),
+      fetchGuestUploadConfig(adminToken),
       appModeStore.refresh(),
       publicRuntimeStore.refresh(),
       selfieStore.refresh(),
@@ -908,7 +1076,10 @@ onMounted(async () => {
       visualizerStore.refreshOptions(),
     ])
 
-    uploads.value = latestUploads
+    applyUploadSummary(initialUploadPage)
+    uploads.value = initialUploadPage.items
+    uploadListHasMore.value = initialUploadPage.has_more
+    uploadListInitialized.value = true
     await Promise.all([
       syncVisualizerDraftFromStore(),
       syncSelfieDraftFromStore(),
@@ -917,12 +1088,14 @@ onMounted(async () => {
       syncRemoteVisualizerDraftFromStore(),
       syncRemoteRendererDraftFromStore(),
     ])
-    await loadAdminThumbnails(latestUploads)
+    applyGuestUploadConfig(guestUploadConfig)
+    syncThumbnailCache(initialUploadPage.items)
     await loadVideoMetadata(videoStore.assets)
     connectLiveEvents()
   } catch (error) {
-    errorMessage.value =
-      error instanceof Error ? error.message : 'Dashboard konnte nicht geladen werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Dashboard konnte nicht geladen werden',
+    )
   } finally {
     isBooting.value = false
   }
@@ -950,17 +1123,27 @@ onBeforeUnmount(() => {
   if (ambientColorPersistTimer) {
     window.clearTimeout(ambientColorPersistTimer)
   }
-  if (systemActionNoticeTimer) {
-    window.clearTimeout(systemActionNoticeTimer)
-  }
-  if (workspaceSectionTransitionTimer) {
-    window.clearTimeout(workspaceSectionTransitionTimer)
-  }
   if (reconnectTimer.value) {
     window.clearTimeout(reconnectTimer.value)
   }
   eventSource.value?.close()
+  uploadListObserver?.disconnect()
+  uploadListObserver = null
+  uploadThumbnailObserver?.disconnect()
+  uploadThumbnailObserver = null
+  observedUploadCards.clear()
+  loadingThumbnailIds.clear()
   revokeAllThumbnails()
+})
+
+watch(uploadGalleryFilter, async () => {
+  await refreshUploads({ preserveVisible: false })
+})
+
+watch(sessionNewUploadIds, async () => {
+  if (uploadGalleryFilter.value === 'new' && uploadListInitialized.value) {
+    await refreshUploads({ preserveVisible: false })
+  }
 })
 
 watch(
@@ -1007,18 +1190,6 @@ watch(
 watch(
   activeWorkspaceSection,
   (section) => {
-    isWorkspaceSectionTransitionActive.value = false
-    if (workspaceSectionTransitionTimer) {
-      window.clearTimeout(workspaceSectionTransitionTimer)
-    }
-    requestAnimationFrame(() => {
-      isWorkspaceSectionTransitionActive.value = true
-      workspaceSectionTransitionTimer = window.setTimeout(() => {
-        isWorkspaceSectionTransitionActive.value = false
-        workspaceSectionTransitionTimer = undefined
-      }, 220)
-    })
-
     if (section === 'uploads') {
       const unseenIds = adminUploadsBadgeStore.consumeUnseenUploadIds()
       if (unseenIds.length) {
@@ -1115,7 +1286,6 @@ async function switchMode(mode: AppMode) {
     return
   }
 
-  errorMessage.value = ''
   optimisticMode.value = mode
   isSwitchingMode.value = true
   try {
@@ -1123,7 +1293,7 @@ async function switchMode(mode: AppMode) {
     await refreshSystemOnly()
   } catch (error) {
     optimisticMode.value = null
-    errorMessage.value = error instanceof Error ? error.message : 'Moduswechsel fehlgeschlagen'
+    adminAlert.error(error instanceof Error ? error.message : 'Moduswechsel fehlgeschlagen')
   } finally {
     optimisticMode.value = null
     isSwitchingMode.value = false
@@ -1326,7 +1496,6 @@ function scheduleRemoteRendererPersist() {
 }
 
 async function saveVisualizerDraft() {
-  visualizerError.value = ''
   isSavingVisualizer.value = true
   try {
     await visualizerStore.save({
@@ -1348,15 +1517,13 @@ async function saveVisualizerDraft() {
     })
     await refreshSystemOnly()
   } catch (error) {
-    visualizerError.value =
-      error instanceof Error ? error.message : 'Visualizer-Update fehlgeschlagen'
+    adminAlert.error(error instanceof Error ? error.message : 'Visualizer-Update fehlgeschlagen')
   } finally {
     isSavingVisualizer.value = false
   }
 }
 
 async function saveSelfieDraft() {
-  selfieError.value = ''
   isSavingSelfie.value = true
   try {
     await selfieStore.save({
@@ -1373,15 +1540,15 @@ async function saveSelfieDraft() {
     })
     await refreshSystemOnly()
   } catch (error) {
-    selfieError.value =
-      error instanceof Error ? error.message : 'Selfie-Settings konnten nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Selfie-Settings konnten nicht gespeichert werden',
+    )
   } finally {
     isSavingSelfie.value = false
   }
 }
 
 async function saveStandbyDraft() {
-  standbyError.value = ''
   isSavingStandby.value = true
   try {
     await standbyStore.save({
@@ -1392,15 +1559,15 @@ async function saveStandbyDraft() {
     })
     await refreshSystemOnly()
   } catch (error) {
-    standbyError.value =
-      error instanceof Error ? error.message : 'Standby-Texte konnten nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Standby-Texte konnten nicht gespeichert werden',
+    )
   } finally {
     isSavingStandby.value = false
   }
 }
 
 async function saveVideoDraft() {
-  videoError.value = ''
   isSavingVideo.value = true
   try {
     await videoStore.save({
@@ -1415,28 +1582,27 @@ async function saveVideoDraft() {
     })
     await refreshSystemOnly()
   } catch (error) {
-    videoError.value = error instanceof Error ? error.message : 'Video-Settings konnten nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Video-Settings konnten nicht gespeichert werden',
+    )
   } finally {
     isSavingVideo.value = false
   }
 }
 
 async function saveAmbientColorPreset() {
-  displayThemeError.value = ''
   isSavingDisplayTheme.value = true
   try {
     await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
     await refreshSystemOnly()
   } catch (error) {
-    displayThemeError.value =
-      error instanceof Error ? error.message : 'Farbwelt konnte nicht gespeichert werden'
+    adminAlert.error(error instanceof Error ? error.message : 'Farbwelt konnte nicht gespeichert werden')
   } finally {
     isSavingDisplayTheme.value = false
   }
 }
 
 async function saveRemoteVisualizerDraft() {
-  remoteVisualizerError.value = ''
   isSavingRemoteVisualizer.value = true
   try {
     const reconnectMs = Number.isFinite(remoteVisualizerDraft.remote_visualizer_reconnect_ms)
@@ -1447,15 +1613,15 @@ async function saveRemoteVisualizerDraft() {
     await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
     await refreshSystemOnly()
   } catch (error) {
-    remoteVisualizerError.value =
-      error instanceof Error ? error.message : 'Remote-Visualizer konnte nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Remote-Visualizer konnte nicht gespeichert werden',
+    )
   } finally {
     isSavingRemoteVisualizer.value = false
   }
 }
 
 async function saveRemoteRendererDraft() {
-  remoteRendererError.value = ''
   isSavingRemoteRenderer.value = true
   try {
     const reconnectMs = Number.isFinite(remoteRendererDraft.remote_renderer_reconnect_ms)
@@ -1471,8 +1637,9 @@ async function saveRemoteRendererDraft() {
     await publicRuntimeStore.saveRuntimeConfig(buildRuntimeConfigPayload())
     await refreshSystemOnly()
   } catch (error) {
-    remoteRendererError.value =
-      error instanceof Error ? error.message : 'Remote-Renderer konnte nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Remote-Renderer konnte nicht gespeichert werden',
+    )
   } finally {
     isSavingRemoteRenderer.value = false
   }
@@ -1504,11 +1671,6 @@ function normalizeRuntimePath(value: string, fallback: string) {
   return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
-function renderSignalGlyph(bars: number) {
-  const normalized = Math.max(0, Math.min(bars, 5))
-  return `${'█'.repeat(normalized)}${'░'.repeat(5 - normalized)}`
-}
-
 async function refreshSystemOnly() {
   if (!authStore.token) {
     return
@@ -1516,12 +1678,18 @@ async function refreshSystemOnly() {
   await systemStatusStore.refresh(authStore.token)
 }
 
-async function refreshUploads() {
-  if (!authStore.token) {
-    return
-  }
-  uploads.value = await fetchAdminUploads(authStore.token, adminUploadFetchLimit)
-  await loadAdminThumbnails(uploads.value)
+function applyGuestUploadConfig(payload: {
+  guest_upload_enabled: boolean
+  guest_upload_requires_approval: boolean
+  guest_upload_session_timeout_hours: number
+  session_expires_at: string
+  session_is_expired: boolean
+}) {
+  guestUploadEnabled.value = payload.guest_upload_enabled
+  guestUploadRequiresApproval.value = payload.guest_upload_requires_approval
+  guestUploadSessionTimeoutHours.value = payload.guest_upload_session_timeout_hours
+  guestUploadSessionExpiresAt.value = payload.session_expires_at
+  guestUploadSessionExpired.value = payload.session_is_expired
 }
 
 async function refreshVideos() {
@@ -1553,25 +1721,42 @@ async function refreshOperationalState() {
   }
 }
 
+async function refreshUploadWorkspaceState(options: { preserveVisible?: boolean } = {}) {
+  if (!authStore.token) {
+    return
+  }
+  if (isRefreshingUploadWorkspace.value) {
+    pendingUploadWorkspaceRefresh.value = true
+    return
+  }
+
+  isRefreshingUploadWorkspace.value = true
+  try {
+    await refreshUploads(options)
+  } finally {
+    isRefreshingUploadWorkspace.value = false
+    if (pendingUploadWorkspaceRefresh.value) {
+      pendingUploadWorkspaceRefresh.value = false
+      await refreshUploadWorkspaceState(options)
+    }
+  }
+}
+
 async function shutdownSystem() {
   if (!authStore.token || isShuttingDown.value) {
     return
   }
 
-  systemActionError.value = ''
-  clearSystemActionNotice()
   isShuttingDown.value = true
 
   try {
     await triggerSystemShutdown(authStore.token)
-    showSystemActionNotice(
-      'Ausschalten läuft',
-      'Der Raspberry Pi fährt jetzt herunter.',
-      'mdi-power',
-    )
+    adminAlert.warning('Der Raspberry Pi fährt jetzt herunter.', {
+      title: 'Ausschalten läuft',
+      duration: 5200,
+    })
   } catch (error) {
-    systemActionError.value =
-      error instanceof Error ? error.message : 'Ausschalten konnte nicht ausgelöst werden'
+    showSystemActionError(error instanceof Error ? error.message : 'Ausschalten konnte nicht ausgelöst werden')
   } finally {
     isShuttingDown.value = false
   }
@@ -1582,23 +1767,125 @@ async function restartSystem() {
     return
   }
 
-  systemActionError.value = ''
-  clearSystemActionNotice()
   isRestartingSystem.value = true
 
   try {
     await triggerSystemRestart(authStore.token)
-    showSystemActionNotice(
-      'Neustart läuft',
-      'Der Raspberry Pi startet jetzt neu.',
-      'mdi-restart',
-    )
+    adminAlert.info('Der Raspberry Pi startet jetzt neu.', {
+      title: 'Neustart läuft',
+      duration: 5200,
+    })
   } catch (error) {
-    systemActionError.value =
-      error instanceof Error ? error.message : 'Neustart konnte nicht ausgelöst werden'
+    showSystemActionError(error instanceof Error ? error.message : 'Neustart konnte nicht ausgelöst werden')
   } finally {
     isRestartingSystem.value = false
   }
+}
+
+async function saveSystemAccess(payload: {
+  username: string
+  current_password: string
+  new_password: string
+}) {
+  if (!authStore.token || isSavingAccess.value) {
+    return
+  }
+
+  isSavingAccess.value = true
+
+  try {
+    const response = await updateAdminAccess(payload, authStore.token)
+    authStore.applySessionUser(response.user)
+    accessResetCounter.value += 1
+    adminAlert.success(response.message, {
+      title: 'Zugang aktualisiert',
+    })
+  } catch (error) {
+    adminAlert.error(error instanceof Error ? error.message : 'Zugang konnte nicht gespeichert werden')
+  } finally {
+    isSavingAccess.value = false
+  }
+}
+
+async function saveSystemSecurity(payload: {
+  approvalRequired: boolean
+  guestUploadsEnabled: boolean
+  sessionTimeoutHours: number
+}, options?: {
+  silentSuccess?: boolean
+}) {
+  if (!authStore.token || isSavingSecurity.value) {
+    return
+  }
+
+  securityError.value = ''
+  isSavingSecurity.value = true
+
+  try {
+    const response = await updateGuestUploadConfig(
+      {
+        guest_upload_enabled: payload.guestUploadsEnabled,
+        guest_upload_requires_approval: payload.approvalRequired,
+        guest_upload_session_timeout_hours: payload.sessionTimeoutHours,
+      },
+      authStore.token,
+    )
+
+    applyGuestUploadConfig(response)
+    await Promise.all([
+      refreshSystemOnly(),
+      publicRuntimeStore.refresh(),
+      selfieStore.refresh(),
+    ])
+    await syncSelfieDraftFromStore()
+
+    if (!options?.silentSuccess) {
+      adminAlert.success(
+        response.session_is_expired
+          ? 'Konfiguration gespeichert. Die Upload-Session ist weiterhin abgelaufen.'
+          : `Konfiguration gespeichert. Aktuelle Upload-Session läuft bis ${formatSessionExpiryLabel(response.session_expires_at)}.`,
+        {
+          title: 'Sicherheit aktualisiert',
+        },
+      )
+    }
+  } catch (error) {
+    securityError.value = error instanceof Error
+      ? error.message
+      : 'Upload-Einstellungen konnten nicht gespeichert werden'
+    adminAlert.error(
+      securityError.value,
+    )
+  } finally {
+    isSavingSecurity.value = false
+  }
+}
+
+function updateUploadSettings(payload: Partial<{
+  approvalRequired: boolean
+  guestUploadsEnabled: boolean
+  sessionTimeoutHours: number
+}>) {
+  const isSessionOnlyUpdate =
+    payload.sessionTimeoutHours != null
+    && payload.approvalRequired == null
+    && payload.guestUploadsEnabled == null
+  const isGuestUploadToggleOnly =
+    payload.guestUploadsEnabled != null
+    && payload.approvalRequired == null
+    && payload.sessionTimeoutHours == null
+  const isApprovalToggleOnly =
+    payload.approvalRequired != null
+    && payload.guestUploadsEnabled == null
+    && payload.sessionTimeoutHours == null
+
+  void saveSystemSecurity({
+    approvalRequired: payload.approvalRequired ?? guestUploadRequiresApproval.value,
+    guestUploadsEnabled: payload.guestUploadsEnabled ?? guestUploadEnabled.value,
+    sessionTimeoutHours: payload.sessionTimeoutHours ?? guestUploadSessionTimeoutHours.value,
+  }, {
+    silentSuccess: isSessionOnlyUpdate || isGuestUploadToggleOnly || isApprovalToggleOnly,
+  })
 }
 
 async function toggleSetupMode() {
@@ -1606,8 +1893,6 @@ async function toggleSetupMode() {
     return
   }
 
-  systemActionError.value = ''
-  clearSystemActionNotice()
   isTogglingSetupMode.value = true
 
   try {
@@ -1615,15 +1900,15 @@ async function toggleSetupMode() {
     const response = systemStatusStore.setupModeStatus.enabled
       ? await stopSetupMode(authStore.token)
       : await startSetupMode(authStore.token)
-    showSystemActionNotice(
-      enablingSetupMode ? 'Setup-Modus aktiv' : 'Setup-Modus beendet',
-      response.message,
-      enablingSetupMode ? 'mdi-wifi-cog' : 'mdi-wifi-off',
-    )
+    adminAlert.info(response.message, {
+      title: enablingSetupMode ? 'Setup-Modus aktiv' : 'Setup-Modus beendet',
+      duration: 5000,
+    })
     await refreshSystemOnly()
   } catch (error) {
-    systemActionError.value =
-      error instanceof Error ? error.message : 'Setup-Modus konnte nicht umgeschaltet werden'
+    showSystemActionError(
+      error instanceof Error ? error.message : 'Setup-Modus konnte nicht umgeschaltet werden',
+    )
   } finally {
     isTogglingSetupMode.value = false
   }
@@ -1633,21 +1918,40 @@ function openGuestQrDialog() {
   isGuestQrDialogOpen.value = true
 }
 
-function clearSystemActionNotice() {
-  if (systemActionNoticeTimer) {
-    window.clearTimeout(systemActionNoticeTimer)
-    systemActionNoticeTimer = undefined
-  }
-  systemActionNotice.value = null
+function showSystemActionError(message: string) {
+  const alert = buildSystemActionErrorAlert(message)
+  adminAlert.error(alert.message, {
+    title: alert.title,
+    duration: 6200,
+  })
 }
 
-function showSystemActionNotice(title: string, text: string, icon: string) {
-  clearSystemActionNotice()
-  systemActionNotice.value = { title, text, icon }
-  systemActionNoticeTimer = window.setTimeout(() => {
-    systemActionNotice.value = null
-    systemActionNoticeTimer = undefined
-  }, 4200)
+function buildSystemActionErrorAlert(message: string) {
+  if (/Neustart .*nicht verfügbar/i.test(message)) {
+    return {
+      title: 'Neustart nicht verfügbar',
+      message: 'Auf diesem Gerät aktuell deaktiviert',
+    }
+  }
+
+  if (/Ausschalten .*nicht verfügbar/i.test(message)) {
+    return {
+      title: 'Ausschalten nicht verfügbar',
+      message: 'Auf diesem Gerät aktuell deaktiviert',
+    }
+  }
+
+  if (/Setup-Modus .*nicht/i.test(message) || /Netzwerk/i.test(message)) {
+    return {
+      title: 'Netzwerkwechsel nicht verfügbar',
+      message: 'Auf diesem Gerät aktuell deaktiviert',
+    }
+  }
+
+  return {
+    title: 'Systemaktion nicht verfügbar',
+    message,
+  }
 }
 
 async function copyGuestUploadUrl() {
@@ -1669,7 +1973,6 @@ async function runUploadAction(upload: UploadItem, action: 'approve' | 'reject' 
 
   const key = `${action}:${upload.id}`
   setBusy(key, true)
-  uploadError.value = ''
 
   try {
     if (action === 'approve') {
@@ -1680,9 +1983,9 @@ async function runUploadAction(upload: UploadItem, action: 'approve' | 'reject' 
       await deleteUpload(upload.id, authStore.token)
     }
 
-    await refreshOperationalState()
+    await refreshUploadWorkspaceState()
   } catch (error) {
-    uploadError.value = error instanceof Error ? error.message : 'Upload-Aktion fehlgeschlagen'
+    adminAlert.error(error instanceof Error ? error.message : 'Upload-Aktion fehlgeschlagen')
   } finally {
     setBusy(key, false)
   }
@@ -1693,10 +1996,21 @@ async function fetchAllUploadsForBulkAction() {
     return []
   }
 
-  const latestUploads = await fetchAdminUploads(authStore.token, adminUploadFetchLimit)
-  uploads.value = latestUploads
-  await loadAdminThumbnails(latestUploads)
-  return latestUploads
+  let offset = 0
+  let hasMore = true
+  const allUploads: UploadItem[] = []
+
+  while (hasMore) {
+    const response = await fetchAdminUploads(authStore.token, {
+      limit: adminUploadBulkFetchLimit,
+      offset,
+    })
+    allUploads.push(...response.items)
+    hasMore = response.has_more
+    offset += response.items.length
+  }
+
+  return allUploads
 }
 
 async function downloadAllUploadArchive() {
@@ -1704,7 +2018,6 @@ async function downloadAllUploadArchive() {
     return
   }
 
-  uploadError.value = ''
   isUploadBulkMenuOpen.value = false
   isDownloadingUploadArchive.value = true
 
@@ -1719,8 +2032,11 @@ async function downloadAllUploadArchive() {
       authStore.token,
     )
     triggerBlobDownload(archive, buildUploadArchiveFilename('all'))
+    adminAlert.success('Das Archiv wird jetzt heruntergeladen.', {
+      title: 'Uploads exportiert',
+    })
   } catch (error) {
-    uploadError.value = error instanceof Error ? error.message : 'Download fehlgeschlagen'
+    adminAlert.error(error instanceof Error ? error.message : 'Download fehlgeschlagen')
   } finally {
     isDownloadingUploadArchive.value = false
   }
@@ -1740,7 +2056,6 @@ async function deleteAllUploads() {
     return
   }
 
-  uploadError.value = ''
   isDeletingAllUploads.value = true
 
   try {
@@ -1749,9 +2064,12 @@ async function deleteAllUploads() {
       await deleteUpload(upload.id, authStore.token)
     }
     isDeleteAllUploadsDialogOpen.value = false
-    await refreshOperationalState()
+    await refreshUploadWorkspaceState({ preserveVisible: false })
+    adminAlert.success('Alle Uploads wurden entfernt.', {
+      title: 'Uploads gelöscht',
+    })
   } catch (error) {
-    uploadError.value = error instanceof Error ? error.message : 'Löschen fehlgeschlagen'
+    adminAlert.error(error instanceof Error ? error.message : 'Löschen fehlgeschlagen')
   } finally {
     isDeletingAllUploads.value = false
   }
@@ -1866,17 +2184,6 @@ async function cycleVideoOverlayModeQuick() {
 }
 
 async function runHeaderAction(actionId: string) {
-  if (actionId === 'selfie:moderation') {
-    const key = 'selfie:moderation'
-    setBusy(key, true)
-    try {
-      toggleSelfieModerationMode()
-      await saveSelfieDraft()
-    } finally {
-      setBusy(key, false)
-    }
-    return
-  }
   if (actionId === 'selfie:shuffle') {
     await toggleSelfieSettingQuick('slideshow_shuffle')
     return
@@ -1943,7 +2250,6 @@ async function uploadSelectedVideos(files: File[]) {
 
   isUploadingVideos.value = true
   videoUploadLabel.value = ''
-  videoError.value = ''
   const errors: string[] = []
 
   try {
@@ -1974,8 +2280,19 @@ async function uploadSelectedVideos(files: File[]) {
   }
 
   if (errors.length) {
-    videoError.value = errors.join(' | ')
+    adminAlert.error(errors.join(' | '), {
+      title: 'Video-Upload unvollständig',
+      duration: 7000,
+    })
+    return
   }
+
+  adminAlert.success(
+    files.length === 1 ? 'Video wurde hinzugefügt.' : `${files.length} Videos wurden hinzugefügt.`,
+    {
+      title: 'Video-Bibliothek aktualisiert',
+    },
+  )
 }
 
 function validateVideoFile(file: File) {
@@ -2003,7 +2320,6 @@ async function moveVideo(asset: VideoAsset, direction: -1 | 1) {
 
   const key = `video:move:${asset.id}`
   setBusy(key, true)
-  videoError.value = ''
 
   try {
     const nextAssets = [...assets]
@@ -2015,7 +2331,9 @@ async function moveVideo(asset: VideoAsset, direction: -1 | 1) {
     videoStore.applyLibrary(response)
     await loadVideoMetadata(videoStore.assets)
   } catch (error) {
-    videoError.value = error instanceof Error ? error.message : 'Video-Reihenfolge konnte nicht gespeichert werden'
+    adminAlert.error(
+      error instanceof Error ? error.message : 'Video-Reihenfolge konnte nicht gespeichert werden',
+    )
   } finally {
     setBusy(key, false)
   }
@@ -2028,15 +2346,17 @@ async function removeVideo(asset: VideoAsset) {
 
   const key = `video:delete:${asset.id}`
   setBusy(key, true)
-  videoError.value = ''
 
   try {
     await deleteVideoAsset(asset.id, authStore.token)
     await refreshVideos()
     await syncVideoDraftFromStore()
     await refreshSystemOnly()
+    adminAlert.info('Das Video wurde aus der Bibliothek entfernt.', {
+      title: 'Video gelöscht',
+    })
   } catch (error) {
-    videoError.value = error instanceof Error ? error.message : 'Video konnte nicht gelöscht werden'
+    adminAlert.error(error instanceof Error ? error.message : 'Video konnte nicht gelöscht werden')
   } finally {
     setBusy(key, false)
   }
@@ -2266,7 +2586,7 @@ function connectLiveEvents() {
         sessionNewUploadIds.value = [uploadId, ...sessionNewUploadIds.value]
       }
     }
-    void refreshOperationalState()
+    void refreshUploadWorkspaceState()
   })
 
   source.addEventListener('upload_deleted', (event) => {
@@ -2277,21 +2597,29 @@ function connectLiveEvents() {
       adminUploadsBadgeStore.removeUpload(uploadId)
       sessionNewUploadIds.value = sessionNewUploadIds.value.filter((id) => id !== uploadId)
     }
-    void refreshOperationalState()
+    void refreshUploadWorkspaceState()
   })
 
   for (const eventName of [
     'upload_approved',
     'upload_rejected',
     'cleanup_completed',
-    'rate_limit_triggered',
-    'heartbeat_updated',
   ]) {
     source.addEventListener(eventName, () => {
       pushRecentEvent(eventName)
-      void refreshOperationalState()
+      void refreshUploadWorkspaceState()
     })
   }
+
+  source.addEventListener('rate_limit_triggered', () => {
+    pushRecentEvent('rate_limit_triggered')
+    void refreshSystemOnly()
+  })
+
+  source.addEventListener('heartbeat_updated', () => {
+    pushRecentEvent('heartbeat_updated')
+    void refreshSystemOnly()
+  })
 }
 
 function scheduleReconnect() {
@@ -2325,39 +2653,6 @@ function parseEventPayload(event: Event) {
   } catch {
     return null
   }
-}
-
-async function loadAdminThumbnails(items: UploadItem[]) {
-  const activeIds = new Set(items.map((upload) => upload.id))
-  for (const [id, url] of Object.entries(thumbnailUrls.value)) {
-    if (!activeIds.has(Number(id))) {
-      URL.revokeObjectURL(url)
-      delete thumbnailUrls.value[Number(id)]
-    }
-  }
-
-  await Promise.all(
-    items.map(async (upload) => {
-      if (!authStore.token || !upload.admin_display_url || upload.status !== 'processed') {
-        return
-      }
-      if (thumbnailUrls.value[upload.id]) {
-        return
-      }
-
-      const response = await fetch(upload.admin_display_url, {
-        headers: {
-          Authorization: `Bearer ${authStore.token}`,
-        },
-      })
-      if (!response.ok) {
-        return
-      }
-
-      const blob = await response.blob()
-      thumbnailUrls.value[upload.id] = URL.createObjectURL(blob)
-    }),
-  )
 }
 
 async function loadVideoMetadata(items: VideoAsset[]) {
@@ -2485,11 +2780,6 @@ function moderationActionCount(upload: UploadItem) {
   return count
 }
 
-function toggleSelfieModerationMode() {
-  selfieDraft.moderation_mode =
-    selfieDraft.moderation_mode === 'auto_approve' ? 'manual_approve' : 'auto_approve'
-}
-
 function toggleVideoVintageFilter() {
   videoDraft.vintage_filter_enabled = !videoDraft.vintage_filter_enabled
 }
@@ -2509,6 +2799,32 @@ function formatDate(value: string | null) {
     return 'noch kein Update'
   }
   return new Date(value).toLocaleString('de-DE')
+}
+
+function formatSessionExpiryLabel(value: string | null) {
+  if (!value) {
+    return 'unbekannt'
+  }
+
+  const date = new Date(value)
+  const now = new Date()
+  const sameYear = date.getFullYear() === now.getFullYear()
+  const sameDay = date.toDateString() === now.toDateString()
+
+  if (sameDay) {
+    return `heute ${date.toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })} Uhr`
+  }
+
+  return date.toLocaleString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    ...(sameYear ? {} : { year: 'numeric' }),
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function formatCompactDate(value: string) {
@@ -2540,6 +2856,14 @@ function formatBytes(value: number) {
 
 function clampSlideshowUploadThreshold(value: number) {
   return Math.min(10, Math.max(1, Math.round(value)))
+}
+
+function getSlideshowDensityOption(value: number) {
+  return slideshowDensityOptions.reduce((closest, candidate) => (
+    Math.abs(candidate.value - value) < Math.abs(closest.value - value)
+      ? candidate
+      : closest
+  ))
 }
 
 function formatUploadThreshold(value: number) {
@@ -2593,12 +2917,6 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   }, 1000)
 }
 
-function moderationLabel(mode: ModerationMode) {
-  return mode === 'auto_approve'
-    ? 'Neue Uploads werden sofort sichtbar.'
-    : 'Neue Uploads warten auf Freigabe.'
-}
-
 function formatOptionalBytes(value: number | null) {
   if (value == null) {
     return 'unbekannt'
@@ -2636,98 +2954,11 @@ function overlayModeLabel(mode: OverlayMode) {
 
 <template>
   <section class="admin-workspace-shell">
-    <Transition name="admin-system-banner">
-      <div
-        v-if="systemActionNotice"
-        class="admin-system-banner-wrap"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <div class="admin-system-banner" role="status">
-          <div class="admin-system-banner__icon">
-            <v-icon :icon="systemActionNotice.icon" size="20" />
-          </div>
-          <div class="admin-system-banner__copy">
-            <div class="admin-system-banner__title">{{ systemActionNotice.title }}</div>
-            <div class="admin-system-banner__text">{{ systemActionNotice.text }}</div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
     <div class="admin-workspace-scroll">
-      <v-row
-        class="admin-workspace"
-        :class="{ 'admin-workspace--tab-enter': isWorkspaceSectionTransitionActive }"
-      >
-        <v-col v-if="errorMessage" cols="12">
-          <v-alert type="error" variant="tonal" class="mb-4">
-            {{ errorMessage }}
-          </v-alert>
-        </v-col>
-
+      <Transition name="workspace-tab-content" mode="out-in">
+        <div :key="activeWorkspaceSection" class="admin-workspace-tab">
+          <v-row class="admin-workspace">
         <template v-if="activeWorkspaceSection === 'modus'">
-          <v-col
-            cols="12"
-            class="admin-global-display-col"
-            :class="{ 'admin-global-display-col--expanded': ambientColorPresetDraft === 'custom' }"
-          >
-            <section class="settings-section">
-              <div class="settings-group">
-                <div class="settings-control">
-                  <div class="settings-control__label">Farbwelt</div>
-                  <div class="display-color-presets" role="radiogroup" aria-label="Globale Farbwelt">
-                    <button
-                      v-for="preset in ambientColorPresets"
-                      :key="preset.id"
-                      type="button"
-                      class="display-color-preset"
-                      :class="{ 'display-color-preset--active': ambientColorPresetDraft === preset.id }"
-                      :disabled="isBooting || isSavingDisplayTheme"
-                      :aria-checked="ambientColorPresetDraft === preset.id"
-                      role="radio"
-                      @click="selectAmbientColorPreset(preset.id)"
-                    >
-                      <span
-                        class="display-color-preset__swatch"
-                        :style="{ background: preset.id === 'custom' ? getAmbientCustomSwatch() : preset.swatch }"
-                        aria-hidden="true"
-                      >
-                        <v-icon
-                          v-if="preset.id === 'custom'"
-                          :icon="preset.icon"
-                          size="14"
-                          class="display-color-preset__icon"
-                        />
-                      </span>
-                      <span class="display-color-preset__label">{{ preset.label }}</span>
-                    </button>
-                  </div>
-
-                  <v-expand-transition>
-                    <div v-if="ambientColorPresetDraft === 'custom'" class="display-color-custom-slider">
-                      <div class="display-color-custom-slider__header">
-                        <div class="display-color-custom-slider__label">Farbton</div>
-                      </div>
-                      <v-slider
-                        :model-value="ambientColorCustomHueDraft"
-                        min="-180"
-                        max="180"
-                        step="1"
-                        hide-details
-                        :disabled="isBooting || isSavingDisplayTheme"
-                        @update:model-value="handleAmbientCustomHueInput"
-                      />
-                    </div>
-                  </v-expand-transition>
-                </div>
-              </div>
-              <v-alert v-if="displayThemeError" type="error" variant="tonal" class="mt-4">
-                {{ displayThemeError }}
-              </v-alert>
-            </section>
-          </v-col>
-
           <v-col cols="12" class="admin-mode-sticky-col">
             <AdminShowControlHeader
               :current-mode="activeMode"
@@ -2742,8 +2973,8 @@ function overlayModeLabel(mode: OverlayMode) {
 
           <v-col cols="12">
             <div class="mode-panel-stage">
-              <v-expand-transition>
-                <section v-show="isBlackoutMode" class="settings-section">
+              <Transition name="mode-panel-content" mode="out-in">
+                <section v-if="isBlackoutMode" key="blackout" class="settings-section">
               <div class="settings-group">
                 <div class="settings-explainer">
                   <div class="settings-explainer__icon-shell" aria-hidden="true">
@@ -2760,10 +2991,8 @@ function overlayModeLabel(mode: OverlayMode) {
                 </div>
               </div>
                 </section>
-              </v-expand-transition>
 
-              <v-expand-transition>
-                <section v-show="isStandbyMode" class="settings-section">
+                <section v-else-if="isStandbyMode" key="idle" class="settings-section">
               <div class="settings-group settings-group--sectioned">
                 <div class="settings-control">
                   <div class="settings-control__label">Bildschirm</div>
@@ -2836,14 +3065,9 @@ function overlayModeLabel(mode: OverlayMode) {
                   </div>
                 </div>
               </div>
-              <v-alert v-if="standbyError" type="error" variant="tonal" class="mt-4">
-                {{ standbyError }}
-              </v-alert>
                 </section>
-              </v-expand-transition>
 
-              <v-expand-transition>
-                <section v-show="isVideoMode" class="settings-section">
+                <section v-else-if="isVideoMode" key="video" class="settings-section">
               <input
                 ref="videoFileInput"
                 type="file"
@@ -2922,9 +3146,7 @@ function overlayModeLabel(mode: OverlayMode) {
                 <div v-else class="inline-note">Noch keine Videos vorhanden.</div>
               </div>
 
-              <div class="settings-divider" />
-
-              <div class="settings-group">
+              <div class="settings-group settings-group--video-section">
                 <div class="settings-group__label">Wiedergabe</div>
                 <div class="settings-control">
                   <div class="settings-control__label">Reihenfolge</div>
@@ -2958,9 +3180,7 @@ function overlayModeLabel(mode: OverlayMode) {
                 </div>
               </div>
 
-              <div class="settings-divider" />
-
-              <div class="settings-group">
+              <div class="settings-group settings-group--video-section">
                 <div class="settings-group__label">Darstellung</div>
                 <div class="settings-control">
                   <div class="settings-control__label">Bildfüllung</div>
@@ -2977,70 +3197,59 @@ function overlayModeLabel(mode: OverlayMode) {
                 </div>
               </div>
 
-              <v-alert v-if="videoError" type="error" variant="tonal" class="mt-4">
-                {{ videoError }}
-              </v-alert>
                 </section>
-              </v-expand-transition>
 
-              <v-expand-transition>
-                <section v-show="isSlideshowMode" class="settings-section">
-              <div class="settings-group">
-                <div class="settings-group__label">Animation</div>
-                <div class="settings-slider-row">
-                  <div class="settings-slider-row__header">
-                    <div class="settings-slider-row__label">Einblend-Intervall</div>
-                    <div class="settings-slider-row__value">{{ selfieDraft.slideshow_interval_seconds }}s</div>
-                  </div>
-                  <v-slider
+                <section v-else-if="isSlideshowMode" key="selfie" class="settings-section">
+              <div class="settings-group settings-group--menu-stack">
+                <div class="settings-control">
+                  <div class="settings-control__label">Einblend-Intervall</div>
+                  <v-select
                     v-model="selfieDraft.slideshow_interval_seconds"
-                    min="2"
-                    max="20"
-                    step="1"
+                    class="admin-select"
+                    :items="slideshowIntervalOptions"
+                    :disabled="isBooting || isSavingSelfie"
+                    item-title="label"
+                    item-value="value"
                     hide-details
+                    variant="solo"
+                    density="comfortable"
                   />
                 </div>
-                <div class="settings-slider-row">
-                  <div class="settings-slider-row__header">
-                    <div class="settings-slider-row__label">Sichtbare Bilder</div>
-                    <div class="settings-slider-row__value">{{ selfieDraft.slideshow_max_visible_photos }}</div>
-                  </div>
-                  <v-slider
-                    v-model="selfieDraft.slideshow_max_visible_photos"
-                    min="1"
-                    max="10"
-                    step="1"
-                    hide-details
-                  />
-                </div>
-                <div class="settings-slider-row settings-slider-row--wide">
-                  <div class="settings-slider-row__header">
-                    <div class="settings-slider-row__label">Slideshow startet nach</div>
-                    <div class="settings-slider-row__value">
-                      {{ formatUploadThreshold(selfieDraft.slideshow_min_uploads_to_start) }}
-                    </div>
-                  </div>
-                  <v-slider
-                    v-model="selfieDraft.slideshow_min_uploads_to_start"
-                    min="1"
-                    max="10"
-                    step="1"
-                    hide-details
-                  />
-                </div>
-              </div>
-              <v-alert v-if="selfieError" type="error" variant="tonal" class="mt-4">
-                {{ selfieError }}
-              </v-alert>
-                </section>
-              </v-expand-transition>
 
-              <v-expand-transition>
-                <section v-show="isVisualizerMode" class="settings-section">
-              <div class="settings-section__header">
-                <div class="settings-section__label">Visualizer</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Bühnenfüllung</div>
+                  <v-select
+                    v-model="selfieDraft.slideshow_max_visible_photos"
+                    class="admin-select"
+                    :items="slideshowDensityOptions"
+                    :disabled="isBooting || isSavingSelfie"
+                    item-title="label"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
+
+                <div class="settings-control">
+                  <div class="settings-control__label">Start nach</div>
+                  <v-select
+                    v-model="selfieDraft.slideshow_min_uploads_to_start"
+                    class="admin-select"
+                    :items="slideshowStartAfterOptions"
+                    :disabled="isBooting || isSavingSelfie"
+                    item-title="label"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
+                </div>
               </div>
-              <div class="settings-group settings-group--spaced">
+                </section>
+
+                <section v-else-if="isVisualizerMode" key="visualizer" class="settings-section settings-section--field-stack">
+              <div class="settings-group">
                 <div class="settings-control">
                   <div class="settings-control__label">Stil</div>
                   <v-select
@@ -3111,294 +3320,226 @@ function overlayModeLabel(mode: OverlayMode) {
                 </template>
               </div>
 
-              <div class="settings-divider" />
-
-              <div class="settings-group settings-group--sliders">
+              <div class="settings-group settings-group--menu-stack">
                 <v-expand-transition>
                   <div
                     v-if="visualizerDraft.auto_cycle_enabled"
-                    class="settings-slider-row settings-slider-row--wide"
+                    class="settings-control"
                   >
-                    <div class="settings-slider-row__header">
-                      <div class="settings-slider-row__label">Presetwechsel alle</div>
-                      <div class="settings-slider-row__value">{{ visualizerDraft.auto_cycle_interval_minutes }} min</div>
-                    </div>
-                    <v-slider
+                    <div class="settings-control__label">Presetwechsel alle</div>
+                    <v-select
                       v-model="visualizerDraft.auto_cycle_interval_minutes"
-                      min="5"
-                      max="30"
-                      step="1"
+                      class="admin-select"
+                      :items="visualizerAutoCycleIntervalOptions"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
                       hide-details
+                      variant="solo"
+                      density="comfortable"
                     />
                   </div>
                 </v-expand-transition>
-            <div class="settings-slider-row">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Tempo</div>
-                <div class="settings-slider-row__value">{{ visualizerDraft.speed }}</div>
-              </div>
-              <v-slider
-                v-model="visualizerDraft.speed"
-                min="0"
-                max="100"
-                step="1"
-                hide-details
-              />
-            </div>
-            <div class="settings-slider-row">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Intensität</div>
-                <div class="settings-slider-row__value">{{ visualizerDraft.intensity }}</div>
-              </div>
-              <v-slider
-                v-model="visualizerDraft.intensity"
-                min="0"
-                max="100"
-                step="1"
-                hide-details
-              />
-            </div>
-            <div class="settings-slider-row">
-              <div class="settings-slider-row__header">
-                <div class="settings-slider-row__label">Helligkeit</div>
-                <div class="settings-slider-row__value">{{ visualizerDraft.brightness }}</div>
-              </div>
-              <v-slider
-                v-model="visualizerDraft.brightness"
-                min="0"
-                max="100"
-                step="1"
-                hide-details
-              />
-            </div>
-            <template v-if="isHydraChromaflowPreset">
-              <div class="settings-slider-row">
-                <div class="settings-slider-row__header">
-                  <div class="settings-slider-row__label">Colorfulness</div>
-                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_colorfulness }}</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Tempo</div>
+                  <v-select
+                    v-model="visualizerDraft.speed"
+                    class="admin-select"
+                    :items="visualizerSpeedOptions"
+                    :disabled="isBooting"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
                 </div>
-                <v-slider
-                  v-model="visualizerDraft.hydra_colorfulness"
-                  min="0"
-                  max="100"
-                  step="1"
-                  hide-details
-                />
-              </div>
-              <div class="settings-slider-row">
-                <div class="settings-slider-row__header">
-                  <div class="settings-slider-row__label">Scene Change Rate</div>
-                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_scene_change_rate }}</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Intensität</div>
+                  <v-select
+                    v-model="visualizerDraft.intensity"
+                    class="admin-select"
+                    :items="visualizerIntensityOptions"
+                    :disabled="isBooting"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
                 </div>
-                <v-slider
-                  v-model="visualizerDraft.hydra_scene_change_rate"
-                  min="0"
-                  max="100"
-                  step="1"
-                  hide-details
-                />
-              </div>
-              <div class="settings-slider-row">
-                <div class="settings-slider-row__header">
-                  <div class="settings-slider-row__label">Symmetry Amount</div>
-                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_symmetry_amount }}</div>
+                <div class="settings-control">
+                  <div class="settings-control__label">Helligkeit</div>
+                  <v-select
+                    v-model="visualizerDraft.brightness"
+                    class="admin-select"
+                    :items="visualizerBrightnessOptions"
+                    :disabled="isBooting"
+                    item-title="title"
+                    item-value="value"
+                    hide-details
+                    variant="solo"
+                    density="comfortable"
+                  />
                 </div>
-                <v-slider
-                  v-model="visualizerDraft.hydra_symmetry_amount"
-                  min="0"
-                  max="100"
-                  step="1"
-                  hide-details
-                />
+                <template v-if="isHydraChromaflowPreset">
+                  <div class="settings-control">
+                    <div class="settings-control__label">Colorfulness</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_colorfulness"
+                      class="admin-select"
+                      :items="visualizerHydraColorfulnessOptions"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Scene Change Rate</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_scene_change_rate"
+                      class="admin-select"
+                      :items="visualizerHydraSceneChangeRateOptions"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Symmetry Amount</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_symmetry_amount"
+                      class="admin-select"
+                      :items="visualizerHydraSymmetryAmountOptions"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                  <div class="settings-control">
+                    <div class="settings-control__label">Feedback Amount</div>
+                    <v-select
+                      v-model="visualizerDraft.hydra_feedback_amount"
+                      class="admin-select"
+                      :items="visualizerHydraFeedbackAmountOptions"
+                      :disabled="isBooting"
+                      item-title="title"
+                      item-value="value"
+                      hide-details
+                      variant="solo"
+                      density="comfortable"
+                    />
+                  </div>
+                </template>
               </div>
-              <div class="settings-slider-row">
-                <div class="settings-slider-row__header">
-                  <div class="settings-slider-row__label">Feedback Amount</div>
-                  <div class="settings-slider-row__value">{{ visualizerDraft.hydra_feedback_amount }}</div>
-                </div>
-                <v-slider
-                  v-model="visualizerDraft.hydra_feedback_amount"
-                  min="0"
-                  max="100"
-                  step="1"
-                  hide-details
-                />
-              </div>
-            </template>
-              </div>
-              <v-alert v-if="visualizerError" type="error" variant="tonal" class="mt-4">
-                {{ visualizerError }}
-              </v-alert>
                 </section>
-              </v-expand-transition>
+              </Transition>
             </div>
           </v-col>
         </template>
 
-        <template v-else-if="activeWorkspaceSection === 'status'">
-      <v-col cols="12">
-        <section class="status-dashboard">
-          <div class="status-dashboard__header">
-            <div class="section-title">Systemstatus</div>
-          </div>
-        </section>
-      </v-col>
-
-      <v-col
-        v-for="card in criticalStatusCards"
-        :key="card.title"
-        cols="6"
-        xl="3"
-        class="status-overview-col"
-      >
-        <v-card
-          class="workspace-overview-card status-overview-card"
-          :class="`status-overview-card--${card.tone}`"
-          variant="flat"
-        >
-          <div class="status-overview-card__header">
-            <span class="status-overview-card__dot" />
-            <div class="status-overview-card__title">{{ card.title }}</div>
-          </div>
-          <div
-            class="status-overview-card__value"
-            :class="{ 'status-overview-card__value--compact': card.compact }"
+        <template v-else-if="activeWorkspaceSection === 'system'">
+          <v-col
+            cols="12"
+            class="admin-global-settings-col"
+            :class="{ 'admin-global-settings-col--expanded': ambientColorPresetDraft === 'custom' }"
           >
-            {{ card.value }}
-          </div>
-          <div class="status-overview-card__detail">{{ card.detail }}</div>
-        </v-card>
-      </v-col>
+            <v-card class="workspace-panel system-display-card" variant="flat">
+              <section class="settings-section system-display-card__section">
+                <div class="system-display-card__header">
+                  <div class="system-display-card__eyebrow">Darstellung</div>
+                </div>
 
-      <v-col cols="12">
-        <section class="device-panel">
-          <div class="device-panel__header">
-            <div class="section-title">Gerät</div>
-          </div>
+                <div class="settings-group">
+                  <div class="settings-control">
+                    <div class="display-color-presets" role="radiogroup" aria-label="Globale Farbwelt">
+                      <button
+                        v-for="preset in ambientColorPresets"
+                        :key="preset.id"
+                        type="button"
+                        class="display-color-preset"
+                        :class="{ 'display-color-preset--active': ambientColorPresetDraft === preset.id }"
+                        :disabled="isBooting || isSavingDisplayTheme"
+                        :aria-checked="ambientColorPresetDraft === preset.id"
+                        role="radio"
+                        @click="selectAmbientColorPreset(preset.id)"
+                      >
+                        <span
+                          class="display-color-preset__swatch"
+                          :style="{ background: preset.id === 'custom' ? getAmbientCustomSwatch() : preset.swatch }"
+                          aria-hidden="true"
+                        >
+                          <v-icon
+                            v-if="preset.id === 'custom'"
+                            :icon="preset.icon"
+                            size="12"
+                            class="display-color-preset__icon"
+                          />
+                        </span>
+                        <span class="display-color-preset__label">{{ preset.label }}</span>
+                      </button>
+                    </div>
 
-          <div class="device-panel__metrics">
-            <article class="device-metric-card">
-              <div class="device-metric-card__label">Prozessor</div>
-              <div class="device-metric-card__value">{{ cpuLoadLabel }}</div>
-              <div class="device-meter" aria-hidden="true">
-                <span class="device-meter__fill" :style="{ width: `${cpuLoadBarValue}%` }" />
-              </div>
-            </article>
+                    <v-expand-transition>
+                      <div v-if="ambientColorPresetDraft === 'custom'" class="display-color-custom-slider">
+                        <div class="display-color-custom-slider__header">
+                          <div class="display-color-custom-slider__label">Farbton</div>
+                        </div>
+                        <v-slider
+                          :model-value="ambientColorCustomHueDraft"
+                          min="-180"
+                          max="180"
+                          step="1"
+                          hide-details
+                          :disabled="isBooting || isSavingDisplayTheme"
+                          @update:model-value="handleAmbientCustomHueInput"
+                        />
+                      </div>
+                    </v-expand-transition>
+                  </div>
+                </div>
+              </section>
+            </v-card>
+          </v-col>
 
-            <article class="device-metric-card">
-              <div class="device-metric-card__label">Arbeitsspeicher</div>
-              <div class="device-metric-card__value">{{ memoryUsageLabel }}</div>
-              <div class="device-metric-card__meta">{{ memoryPercentLabel }}</div>
-              <div class="device-meter" aria-hidden="true">
-                <span class="device-meter__fill device-meter__fill--memory" :style="{ width: `${memoryBarValue}%` }" />
-              </div>
-            </article>
-
-            <article class="device-metric-card">
-              <div class="device-metric-card__label">Temperatur</div>
-              <div class="device-metric-card__value">{{ cpuTemperatureLabel }}</div>
-              <div class="device-metric-card__meta" :class="temperatureHintClass">{{ temperatureHint }}</div>
-            </article>
-
-            <article class="device-metric-card">
-              <div class="device-metric-card__label">Freier Speicher</div>
-              <div class="device-metric-card__value">
-                {{ formatOptionalBytes(systemStatusStore.appliance.storage.free_bytes) }}
-              </div>
-              <div class="device-metric-card__meta">Verfügbar auf dem Gerät</div>
-            </article>
-
-            <article class="device-metric-card">
-              <div class="device-metric-card__label">Internet</div>
-              <div class="device-metric-card__value" :class="internetStatusClass">{{ internetStatusLabel }}</div>
-              <div class="device-metric-card__meta">{{ internetStatusHint }}</div>
-              <div class="device-metric-card__network-detail">
-                <span class="device-metric-card__network-key">SSID</span>
-                <span class="device-metric-card__network-value">{{ internetSsidLabel }}</span>
-              </div>
-              <div class="device-metric-card__network-detail">
-                <span class="device-metric-card__network-key">IP-Adresse</span>
-                <span class="device-metric-card__network-value">{{ internetIpLabel }}</span>
-              </div>
-              <div class="device-metric-card__network-detail">
-                <span class="device-metric-card__network-key">Signal</span>
-                <span class="device-metric-card__network-value">{{ internetSignalLabel }}</span>
-              </div>
-              <div class="device-metric-card__actions">
-                <v-btn
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  class="device-metric-card__action"
-                  prepend-icon="mdi-wifi-cog"
-                  :loading="isTogglingSetupMode"
-                  @click="toggleSetupMode"
-                >
-                  {{ setupModeActionLabel }}
-                </v-btn>
-                <v-btn
-                  v-if="systemStatusStore.setupModeStatus.enabled"
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  class="device-metric-card__action"
-                  prepend-icon="mdi-open-in-new"
-                  to="/setup"
-                >
-                  Setup-Seite
-                </v-btn>
-              </div>
-            </article>
-          </div>
-
-          <div class="section-title">Aktionen</div>
-
-          <article class="device-danger-zone device-danger-zone--restart">
-            <div class="device-danger-zone__copy">
-              <div class="device-danger-zone__label">Wartungsaktion</div>
-              <div class="device-danger-zone__title">Raspberry Pi neu starten</div>
-              <div class="device-danger-zone__meta">
-                Startet das Gerät neu und stellt den lokalen Event-Betrieb danach erneut her.
-              </div>
-            </div>
-            <v-btn
-              color="warning"
-              variant="tonal"
-              class="device-danger-zone__button device-danger-zone__button--restart"
-              prepend-icon="mdi-restart"
-              :loading="isRestartingSystem"
-              @click="restartSystem"
-            >
-              Neustarten
-            </v-btn>
-          </article>
-
-          <article class="device-danger-zone">
-            <div class="device-danger-zone__copy">
-              <div class="device-danger-zone__label">Kritische Aktion</div>
-              <div class="device-danger-zone__title">Raspberry Pi ausschalten</div>
-              <div class="device-danger-zone__meta">
-                Stoppt den lokalen Stack und beendet die Wiedergabe auf dem Display.
-              </div>
-            </div>
-            <v-btn
-              color="error"
-              variant="tonal"
-              class="device-danger-zone__button"
-              prepend-icon="mdi-power"
-              :loading="isShuttingDown"
-              @click="shutdownSystem"
-            >
-              Ausschalten
-            </v-btn>
-          </article>
-
-          <v-alert v-if="systemActionError" type="error" variant="tonal" class="mt-4">
-            {{ systemActionError }}
-          </v-alert>
-        </section>
-      </v-col>
-
+          <v-col cols="12">
+            <SystemSettingsPanel
+              :username="authStore.username || 'admin'"
+              :hostname="systemHostname"
+              :ip-address="systemIpAddress"
+              :network-name="systemNetworkName"
+              :network-state-label="systemNetworkStateLabel"
+              :session-timeout-hours="guestUploadSessionTimeoutHours"
+              :session-timeout-label="uploadControlSessionTimeoutLabel"
+              :session-expires-at-label="systemSessionExpiresAtLabel"
+              :session-is-expired="guestUploadSessionExpired"
+              :setup-mode-enabled="systemStatusStore.setupModeStatus.enabled"
+              :storage-free-label="formatOptionalBytes(systemStatusStore.appliance.storage.free_bytes)"
+              :cpu-load-label="cpuLoadLabel"
+              :memory-percent-label="memoryPercentLabel"
+              :temperature-label="cpuTemperatureLabel"
+              :access-reset-counter="accessResetCounter"
+              :access-saving="isSavingAccess"
+              :security-saving="isSavingSecurity"
+              :is-restarting-system="isRestartingSystem"
+              :is-shutting-down="isShuttingDown"
+              :is-toggling-setup-mode="isTogglingSetupMode"
+              @save-access="saveSystemAccess"
+              @save-session-timeout="({ sessionTimeoutHours }) => updateUploadSettings({ sessionTimeoutHours })"
+              @restart="restartSystem"
+              @shutdown="shutdownSystem"
+              @toggle-setup-mode="toggleSetupMode"
+            />
+          </v-col>
         </template>
 
         <template v-else>
@@ -3410,7 +3551,7 @@ function overlayModeLabel(mode: OverlayMode) {
           @click="setUploadGalleryFilter('all')"
         >
           <div class="workspace-overview-label">Uploads</div>
-          <div class="workspace-overview-value">{{ uploads.length }}</div>
+          <div class="workspace-overview-value workspace-overview-value--counter">{{ uploadSummary.total }}</div>
         </v-card>
       </v-col>
       <v-col cols="6" xl="3">
@@ -3421,7 +3562,7 @@ function overlayModeLabel(mode: OverlayMode) {
           @click="setUploadGalleryFilter('pending')"
         >
           <div class="workspace-overview-label">Ausstehend</div>
-          <div class="workspace-overview-value">{{ pendingCount }}</div>
+          <div class="workspace-overview-value workspace-overview-value--counter">{{ pendingCount }}</div>
         </v-card>
       </v-col>
       <v-col cols="6" xl="3">
@@ -3432,7 +3573,7 @@ function overlayModeLabel(mode: OverlayMode) {
           @click="setUploadGalleryFilter('rejected')"
         >
           <div class="workspace-overview-label">Abgelehnt</div>
-          <div class="workspace-overview-value">{{ rejectedCount }}</div>
+          <div class="workspace-overview-value workspace-overview-value--counter">{{ rejectedCount }}</div>
         </v-card>
       </v-col>
       <v-col cols="6" xl="3">
@@ -3443,190 +3584,252 @@ function overlayModeLabel(mode: OverlayMode) {
           @click="setUploadGalleryFilter('new')"
         >
           <div class="workspace-overview-label">Neue Uploads</div>
-          <div class="workspace-overview-value">
-            {{ newUploadCount }}
-          </div>
+          <div class="workspace-overview-value workspace-overview-value--counter">{{ newUploadCount }}</div>
         </v-card>
+      </v-col>
+
+      <v-col cols="12">
+        <Transition name="upload-filter-content" mode="out-in">
+          <section v-if="uploadGalleryFilter === 'all'" key="upload-controls" class="upload-control-panel">
+            <div class="upload-control-list">
+              <button
+                type="button"
+                class="upload-control-row"
+                :class="{
+                  'upload-control-row--active': guestUploadEnabled,
+                  'upload-control-row--warning': !guestUploadEnabled,
+                }"
+                :disabled="isSavingSecurity"
+                @click="updateUploadSettings({ guestUploadsEnabled: !guestUploadEnabled })"
+              >
+                <span class="upload-control-row__label">Gäste-Upload aktiv</span>
+                <span
+                  class="upload-control-row__value"
+                  :class="{
+                    'upload-control-row__value--active': guestUploadEnabled,
+                    'upload-control-row__value--warning': !guestUploadEnabled,
+                  }"
+                >
+                  {{ guestUploadEnabled ? 'Aktiv' : 'Pausiert' }}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                class="upload-control-row"
+                :class="{ 'upload-control-row--active': guestUploadRequiresApproval }"
+                :disabled="isSavingSecurity"
+                @click="updateUploadSettings({ approvalRequired: !guestUploadRequiresApproval })"
+              >
+                <span class="upload-control-row__label">Freigabe erforderlich</span>
+                <span class="upload-control-row__value" :class="{ 'upload-control-row__value--active': guestUploadRequiresApproval }">
+                  {{ guestUploadRequiresApproval ? 'An' : 'Aus' }}
+                </span>
+              </button>
+            </div>
+
+            <v-alert v-if="securityError" type="error" variant="tonal" class="upload-control-alert">
+              {{ securityError }}
+            </v-alert>
+          </section>
+          <div v-else key="upload-controls-spacer" class="upload-control-panel upload-control-panel--hidden" aria-hidden="true" />
+        </Transition>
       </v-col>
 
       <v-col cols="12" class="upload-gallery-col">
         <section class="upload-gallery-panel">
-          <div v-if="uploads.length" class="upload-gallery-header">
-            <div class="section-title upload-gallery-header__title">{{ uploadGalleryTitle }}</div>
-            <v-menu
-              v-model="isUploadBulkMenuOpen"
-              location="bottom end"
-              offset="8"
-            >
-              <template #activator="{ props }">
-                <v-btn
-                  icon="mdi-menu"
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  class="upload-gallery-header__action upload-gallery-header__action--menu"
-                  :loading="isDownloadingUploadArchive || isDeletingAllUploads"
-                  :disabled="!canManageAllUploads"
-                  v-bind="props"
-                />
-              </template>
+          <Transition name="upload-filter-content" mode="out-in">
+            <div :key="uploadGalleryFilter" class="upload-gallery-content">
+              <div v-if="uploads.length" class="upload-gallery-header">
+                <div class="upload-gallery-header__title">{{ uploadGalleryTitle }}</div>
+                <v-menu
+                  v-model="isUploadBulkMenuOpen"
+                  location="bottom end"
+                  offset="8"
+                >
+                  <template #activator="{ props }">
+                    <v-btn
+                      icon="mdi-menu"
+                      size="small"
+                      variant="text"
+                      color="primary"
+                      class="upload-gallery-header__action upload-gallery-header__action--menu"
+                      :loading="isDownloadingUploadArchive || isDeletingAllUploads"
+                      :disabled="!canManageAllUploads"
+                      v-bind="props"
+                    />
+                  </template>
 
-              <v-list class="upload-bulk-menu" bg-color="surface">
-                <v-list-item
-                  prepend-icon="mdi-download-box-outline"
-                  title="Alle Bilder herunterladen"
-                  :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
-                  @click="downloadAllUploadArchive"
-                />
-                <v-list-item
-                  prepend-icon="mdi-delete-sweep-outline"
-                  title="Alle Bilder löschen"
-                  class="upload-bulk-menu__delete"
-                  :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
-                  @click="openDeleteAllUploadsDialog"
-                />
-              </v-list>
-            </v-menu>
-          </div>
-          <v-alert v-if="uploadError" type="error" variant="tonal" class="mb-4">
-            {{ uploadError }}
-          </v-alert>
-
-          <TransitionGroup
+                  <v-list class="upload-bulk-menu" bg-color="surface">
+                    <v-list-item
+                      prepend-icon="mdi-download-box-outline"
+                      title="Alle Bilder herunterladen"
+                      :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                      @click="downloadAllUploadArchive"
+                    />
+                    <v-list-item
+                      prepend-icon="mdi-delete-sweep-outline"
+                      title="Alle Bilder löschen"
+                      class="upload-bulk-menu__delete"
+                      :disabled="!canManageAllUploads || isDeletingAllUploads || isDownloadingUploadArchive"
+                      @click="openDeleteAllUploadsDialog"
+                    />
+                  </v-list>
+                </v-menu>
+              </div>
+          <div
             v-if="filteredUploadGallery.length"
-            name="upload-card-list"
-            tag="div"
             class="v-row upload-gallery-grid"
           >
             <v-col v-for="upload in filteredUploadGallery" :key="upload.id" cols="12" sm="6" md="4" xl="3">
-              <v-card class="upload-card" variant="flat">
-                <div class="upload-card__media">
-                  <div v-if="isNewUpload(upload)" class="upload-card__new-badge">
-                    Neu
-                  </div>
-                  <div
-                    v-if="upload.moderation_status === 'approved' && upload.status === 'processed'"
-                    class="upload-card__stamp upload-card__stamp--approved"
-                  >
-                    Genehmigt
-                  </div>
-                  <div
-                    v-else-if="upload.moderation_status === 'rejected' && upload.status === 'processed'"
-                    class="upload-card__stamp upload-card__stamp--rejected"
-                  >
-                    Abgelehnt
-                  </div>
-                  <div class="upload-card__image-wrapper">
-                    <v-img
-                      v-if="thumbnailUrls[upload.id]"
-                      class="upload-preview"
-                      :src="thumbnailUrls[upload.id]"
-                      height="220"
-                      cover
+              <div
+                :ref="(element) => setUploadCardObserverRef(upload.id, element)"
+                :data-upload-id="upload.id"
+                class="upload-card-observer"
+              >
+                <v-card class="upload-card" variant="flat">
+                  <div class="upload-card__media">
+                    <div v-if="isNewUpload(upload)" class="upload-card__new-badge">
+                      Neu
+                    </div>
+                    <div
+                      v-if="upload.moderation_status === 'approved' && upload.status === 'processed'"
+                      class="upload-card__stamp upload-card__stamp--approved"
                     >
-                      <template #placeholder>
+                      Genehmigt
+                    </div>
+                    <div
+                      v-else-if="upload.moderation_status === 'rejected' && upload.status === 'processed'"
+                      class="upload-card__stamp upload-card__stamp--rejected"
+                    >
+                      Abgelehnt
+                    </div>
+                    <div class="upload-card__image-wrapper">
+                      <img
+                        v-if="thumbnailUrls[upload.id]"
+                        class="upload-preview"
+                        :src="thumbnailUrls[upload.id]"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      >
+                      <div
+                        v-else
+                        class="upload-card__fallback upload-card__fallback--loading"
+                      >
                         <div class="upload-card__loading-surface" aria-hidden="true">
                           <div class="upload-card__loading-shimmer" />
                           <div class="upload-card__loading-glow" />
                         </div>
-                      </template>
-                    </v-img>
-                    <v-sheet
-                      v-else
-                      height="220"
-                      class="upload-card__fallback"
-                    >
-                      <div
-                        v-if="upload.status === 'processed'"
-                        class="upload-card__loading-surface"
-                        aria-hidden="true"
-                      >
-                        <div class="upload-card__loading-shimmer" />
-                        <div class="upload-card__loading-glow" />
                       </div>
-                      <div class="upload-card__fallback-inner">
-                        <v-icon icon="mdi-image-outline" size="34" />
-                        <span>{{ upload.status === 'processed' ? 'Preview wird geladen' : 'Kein Preview' }}</span>
-                      </div>
-                    </v-sheet>
-                  </div>
-                </div>
-                <div class="upload-card__body">
-                  <div class="upload-card__meta-top">
-                    <div class="upload-card__timestamp">{{ formatCompactDate(upload.created_at) }}</div>
-                    <v-btn
-                      size="small"
-                      variant="text"
-                      class="upload-card__delete-action"
-                      prepend-icon="mdi-trash-can-outline"
-                      :loading="isBusy(`delete:${upload.id}`)"
-                      :disabled="isBusy(`approve:${upload.id}`) || isBusy(`reject:${upload.id}`)"
-                      @click="runUploadAction(upload, 'delete')"
-                    >
-                      Löschen
-                    </v-btn>
-                  </div>
-                  <div class="upload-card__meta">
-                    <span class="upload-card__meta-item">
-                      <v-icon icon="mdi-file-image-outline" size="15" />
-                      {{ formatImageMimeLabel(upload.mime_type) }}
-                    </span>
-                    <span class="upload-card__meta-separator">·</span>
-                    <span class="upload-card__meta-item">
-                      <v-icon icon="mdi-database-outline" size="15" />
-                      {{ formatBytes(upload.size) }}
-                    </span>
-                  </div>
-                  <div
-                    v-if="showUploadModerationActions && upload.status === 'processed' && moderationActionCount(upload) > 0"
-                    class="upload-card__actions-block"
-                  >
-                    <div
-                      class="upload-card__primary-actions"
-                      :class="{ 'upload-card__primary-actions--single': moderationActionCount(upload) === 1 }"
-                    >
-                      <v-btn
-                        v-if="canApprove(upload)"
-                        size="small"
-                        color="success"
-                        variant="tonal"
-                        class="upload-card__primary-action"
-                        :loading="isBusy(`approve:${upload.id}`)"
-                        :disabled="!canApprove(upload) || isBusy(`reject:${upload.id}`) || isBusy(`delete:${upload.id}`)"
-                        @click="runUploadAction(upload, 'approve')"
-                      >
-                        {{ approveLabel(upload) }}
-                      </v-btn>
-                      <v-btn
-                        v-if="canReject(upload)"
-                        size="small"
-                        color="error"
-                        variant="tonal"
-                        class="upload-card__primary-action"
-                        :loading="isBusy(`reject:${upload.id}`)"
-                        :disabled="!canReject(upload) || isBusy(`approve:${upload.id}`) || isBusy(`delete:${upload.id}`)"
-                        @click="runUploadAction(upload, 'reject')"
-                      >
-                        Ablehnen
-                      </v-btn>
                     </div>
                   </div>
-                </div>
-              </v-card>
+                  <div class="upload-card__body">
+                    <div class="upload-card__meta-top">
+                      <div class="upload-card__timestamp">{{ formatCompactDate(upload.created_at) }}</div>
+                      <v-btn
+                        size="small"
+                        variant="text"
+                        class="upload-card__delete-action"
+                        prepend-icon="mdi-trash-can-outline"
+                        :loading="isBusy(`delete:${upload.id}`)"
+                        :disabled="isBusy(`approve:${upload.id}`) || isBusy(`reject:${upload.id}`)"
+                        @click="runUploadAction(upload, 'delete')"
+                      >
+                        Löschen
+                      </v-btn>
+                    </div>
+                    <div class="upload-card__meta">
+                      <span class="upload-card__meta-item">
+                        <v-icon icon="mdi-file-image-outline" size="15" />
+                        {{ formatImageMimeLabel(upload.mime_type) }}
+                      </span>
+                      <span class="upload-card__meta-separator">·</span>
+                      <span class="upload-card__meta-item">
+                        <v-icon icon="mdi-database-outline" size="15" />
+                        {{ formatBytes(upload.size) }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="showUploadModerationActions && upload.status === 'processed' && moderationActionCount(upload) > 0"
+                      class="upload-card__actions-block"
+                    >
+                      <div
+                        class="upload-card__primary-actions"
+                        :class="{ 'upload-card__primary-actions--single': moderationActionCount(upload) === 1 }"
+                      >
+                        <v-btn
+                          v-if="canApprove(upload)"
+                          size="small"
+                          color="success"
+                          variant="tonal"
+                          class="upload-card__primary-action"
+                          :loading="isBusy(`approve:${upload.id}`)"
+                          :disabled="!canApprove(upload) || isBusy(`reject:${upload.id}`) || isBusy(`delete:${upload.id}`)"
+                          @click="runUploadAction(upload, 'approve')"
+                        >
+                          {{ approveLabel(upload) }}
+                        </v-btn>
+                        <v-btn
+                          v-if="canReject(upload)"
+                          size="small"
+                          color="error"
+                          variant="tonal"
+                          class="upload-card__primary-action"
+                          :loading="isBusy(`reject:${upload.id}`)"
+                          :disabled="!canReject(upload) || isBusy(`approve:${upload.id}`) || isBusy(`delete:${upload.id}`)"
+                          @click="runUploadAction(upload, 'reject')"
+                        >
+                          Ablehnen
+                        </v-btn>
+                      </div>
+                    </div>
+                  </div>
+                </v-card>
+              </div>
             </v-col>
-          </TransitionGroup>
+          </div>
+
+          <div v-if="filteredUploadGallery.length" class="upload-gallery-load-more">
+            <div
+              :ref="setUploadListSentinel"
+              class="upload-gallery-sentinel"
+              aria-hidden="true"
+            />
+
+            <div v-if="isLoadingMoreUploads" class="upload-gallery-loading">
+              <v-progress-circular
+                indeterminate
+                size="18"
+                width="2"
+                color="primary"
+              />
+              <span>Weitere Uploads werden geladen ...</span>
+            </div>
+
+            <div v-else-if="uploadListError" class="upload-gallery-loading upload-gallery-loading--error">
+              <span>{{ uploadListError }}</span>
+              <button type="button" class="upload-gallery-loading__retry" @click="loadMoreUploads">
+                Erneut versuchen
+              </button>
+            </div>
+          </div>
 
           <div v-else class="upload-empty-state">
             <div class="upload-empty-state__icon-shell" aria-hidden="true">
-              <v-icon :icon="uploadEmptyState.icon" size="34" class="upload-empty-state__icon" />
+                  <v-icon :icon="uploadEmptyState.icon" size="34" class="upload-empty-state__icon" />
+                </div>
+                <div class="upload-empty-state__title">{{ uploadEmptyState.title }}</div>
+                <div class="upload-empty-state__copy">{{ uploadEmptyState.description }}</div>
+              </div>
             </div>
-            <div class="upload-empty-state__title">{{ uploadEmptyState.title }}</div>
-            <div class="upload-empty-state__copy">{{ uploadEmptyState.description }}</div>
-          </div>
+          </Transition>
         </section>
       </v-col>
         </template>
-      </v-row>
+          </v-row>
+        </div>
+      </Transition>
     </div>
 
     <v-dialog
@@ -3721,75 +3924,6 @@ function overlayModeLabel(mode: OverlayMode) {
   overflow-x: hidden;
 }
 
-.admin-system-banner-wrap {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 4.75rem);
-  left: 0.75rem;
-  right: 0.75rem;
-  z-index: 40;
-  pointer-events: none;
-}
-
-.admin-system-banner {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.85rem;
-  padding: 0.9rem 1rem;
-  border-radius: 1.1rem;
-  border: 1px solid rgba(138, 226, 177, 0.18);
-  background:
-    linear-gradient(180deg, rgba(24, 34, 43, 0.92), rgba(12, 18, 24, 0.96)),
-    rgba(11, 17, 23, 0.94);
-  box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(154, 235, 193, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-}
-
-.admin-system-banner__icon {
-  width: 2.25rem;
-  height: 2.25rem;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: rgba(166, 244, 199, 0.98);
-  background: radial-gradient(circle at 30% 30%, rgba(124, 236, 176, 0.22), rgba(50, 115, 78, 0.12));
-}
-
-.admin-system-banner__copy {
-  min-width: 0;
-}
-
-.admin-system-banner__title {
-  font-size: 0.98rem;
-  font-weight: 600;
-  line-height: 1.2;
-  color: rgba(244, 249, 246, 0.96);
-}
-
-.admin-system-banner__text {
-  margin-top: 0.18rem;
-  font-size: 0.855rem;
-  line-height: 1.35;
-  color: rgba(219, 231, 223, 0.8);
-}
-
-.admin-system-banner-enter-active,
-.admin-system-banner-leave-active {
-  transition:
-    opacity 220ms ease,
-    transform 240ms cubic-bezier(0.2, 0.76, 0.24, 1);
-}
-
-.admin-system-banner-enter-from,
-.admin-system-banner-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
-}
-
 .admin-workspace-scroll {
   min-height: 100%;
   overflow: visible;
@@ -3800,14 +3934,6 @@ function overlayModeLabel(mode: OverlayMode) {
   padding-right: 0.625rem;
 }
 
-@media (max-width: 700px) {
-  .admin-system-banner-wrap {
-    top: calc(env(safe-area-inset-top, 0px) + 4.4rem);
-    left: 0.625rem;
-    right: 0.625rem;
-  }
-}
-
 .admin-workspace {
   width: 100%;
   box-sizing: border-box;
@@ -3816,11 +3942,8 @@ function overlayModeLabel(mode: OverlayMode) {
   min-width: 0;
 }
 
-.admin-workspace--tab-enter {
-  animation: adminWorkspaceTabEnter 170ms cubic-bezier(0.22, 0.72, 0.2, 1);
-  will-change: opacity, transform;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+.admin-workspace-tab {
+  min-width: 0;
 }
 
 .admin-workspace > :first-child {
@@ -3834,12 +3957,31 @@ function overlayModeLabel(mode: OverlayMode) {
   min-width: 0;
 }
 
-.admin-global-display-col {
-  padding-bottom: 1rem !important;
+.workspace-tab-content-enter-active,
+.workspace-tab-content-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 240ms ease,
+    filter 240ms ease;
 }
 
-.admin-global-display-col--expanded {
-  padding-bottom: 1.4rem !important;
+.workspace-tab-content-enter-from,
+.workspace-tab-content-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+  filter: blur(6px);
+}
+
+.workspace-tab-content-leave-active {
+  pointer-events: none;
+}
+
+.admin-global-settings-col {
+  padding-bottom: 0.8rem !important;
+}
+
+.admin-global-settings-col--expanded {
+  padding-bottom: 1rem !important;
 }
 
 .admin-mode-sticky-col {
@@ -3849,21 +3991,10 @@ function overlayModeLabel(mode: OverlayMode) {
   isolation: isolate;
 }
 
-@keyframes adminWorkspaceTabEnter {
-  0% {
-    opacity: 0.78;
-    transform: translate3d(0, 4px, 0);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .admin-workspace--tab-enter {
-    animation: none;
+  .workspace-tab-content-enter-active,
+  .workspace-tab-content-leave-active {
+    transition: none;
   }
 }
 
@@ -3878,6 +4009,25 @@ function overlayModeLabel(mode: OverlayMode) {
 .mode-panel-stage {
   width: 100%;
   min-width: 0;
+}
+
+.mode-panel-content-enter-active,
+.mode-panel-content-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 200ms ease,
+    filter 200ms ease;
+}
+
+.mode-panel-content-enter-from,
+.mode-panel-content-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(4px);
+}
+
+.mode-panel-content-leave-active {
+  pointer-events: none;
 }
 
 .workspace-overview-card,
@@ -3914,12 +4064,15 @@ function overlayModeLabel(mode: OverlayMode) {
 .upload-filter-card {
   position: relative;
   overflow: hidden;
-  border-color: rgba(176, 210, 240, 0.1);
-  background: rgba(8, 14, 22, 0.5) !important;
+  border-radius: 24px !important;
+  border-color: rgba(153, 191, 223, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(74, 202, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(14, 23, 35, 0.94), rgba(9, 17, 27, 0.92)) !important;
   box-shadow:
-    0 8px 18px rgba(4, 10, 18, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    inset 0 0 0 1px rgba(166, 205, 235, 0.05) !important;
+    0 18px 44px rgba(3, 9, 17, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(120, 165, 206, 0.03) !important;
 }
 
 .upload-filter-card::after {
@@ -3932,19 +4085,6 @@ function overlayModeLabel(mode: OverlayMode) {
   transition: opacity 160ms ease;
 }
 
-.workspace-overview-card--kpi:hover {
-  border-color: rgba(98, 214, 231, 0.2);
-  background: rgba(12, 21, 32, 0.84) !important;
-}
-
-.upload-filter-card:hover {
-  border-color: rgba(98, 214, 231, 0.14);
-  background: rgba(10, 18, 28, 0.68) !important;
-  box-shadow:
-    0 12px 24px rgba(4, 10, 18, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
-}
-
 .workspace-overview-card--active {
   border-color: rgba(98, 214, 231, 0.28);
   background: rgba(14, 25, 38, 0.92) !important;
@@ -3954,18 +4094,131 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .upload-filter-card--active {
-  border-color: rgba(94, 211, 244, 0.28);
+  border-color: rgba(94, 211, 244, 0.24);
   background:
-    radial-gradient(circle at top right, rgba(94, 211, 244, 0.12), transparent 54%),
+    radial-gradient(circle at top right, rgba(94, 211, 244, 0.12), transparent 40%),
     rgba(12, 22, 34, 0.94) !important;
   box-shadow:
-    0 14px 28px rgba(4, 10, 18, 0.2),
+    0 18px 44px rgba(3, 9, 17, 0.28),
     0 0 0 1px rgba(94, 211, 244, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
 }
 
 .upload-filter-card--active::after {
   opacity: 1;
+}
+
+.upload-control-panel {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.18rem 0.15rem 0.28rem;
+}
+
+.upload-control-panel--hidden {
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+}
+
+.upload-control-header {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.upload-control-eyebrow {
+  color: rgba(194, 211, 228, 0.5);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.upload-control-copy {
+  color: rgba(208, 220, 232, 0.58);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.upload-control-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.upload-control-row {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0.78rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(156, 189, 218, 0.08);
+  background: rgba(10, 17, 26, 0.54);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 150ms ease;
+}
+
+.upload-control-row:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.upload-control-row--active {
+  border-color: rgba(74, 213, 187, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(63, 204, 165, 0.12), transparent 60%),
+    rgba(12, 26, 28, 0.76);
+}
+
+.upload-control-row--warning {
+  border-color: rgba(255, 183, 77, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(255, 176, 77, 0.08), transparent 60%),
+    rgba(28, 23, 16, 0.66);
+}
+
+.upload-control-row__label {
+  min-width: 0;
+  color: rgba(236, 242, 249, 0.92);
+  font-size: 0.92rem;
+  font-weight: 670;
+  line-height: 1.2;
+}
+
+.upload-control-row__value,
+.upload-control-row__select-value {
+  flex-shrink: 0;
+  color: rgba(194, 209, 223, 0.68);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.upload-control-row__select-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.upload-control-row__value--active {
+  color: rgba(133, 236, 182, 0.96);
+}
+
+.upload-control-row__value--warning {
+  color: rgba(255, 202, 132, 0.92);
+}
+
+.upload-control-alert {
+  margin-top: 0.1rem;
 }
 
 .workspace-overview-label {
@@ -3998,6 +4251,11 @@ function overlayModeLabel(mode: OverlayMode) {
 .workspace-overview-value--timestamp {
   font-size: 1rem;
   line-height: 1.4;
+}
+
+.workspace-overview-value--counter {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
 .status-live-panel {
@@ -4113,10 +4371,17 @@ function overlayModeLabel(mode: OverlayMode) {
   justify-content: space-between;
   gap: 0.7rem;
   flex-wrap: wrap;
+  padding-inline: 6px;
 }
 
 .upload-gallery-header__title {
   margin-bottom: 0;
+  color: rgba(215, 228, 241, 0.52);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .upload-gallery-header__action {
@@ -4163,6 +4428,20 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .upload-gallery-panel {
   min-height: 16rem;
+}
+
+.upload-gallery-content {
+  display: grid;
+  gap: 0.7rem;
+  width: 100%;
+  min-width: 0;
+  min-height: inherit;
+}
+
+.upload-gallery-grid {
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
 }
 
 .upload-empty-state {
@@ -4468,6 +4747,14 @@ function overlayModeLabel(mode: OverlayMode) {
   gap: 1.65rem;
 }
 
+.settings-group--menu-stack {
+  gap: 1.18rem;
+}
+
+.settings-group--video-section {
+  margin-top: 1rem;
+}
+
 .settings-subsection {
   display: grid;
   min-width: 0;
@@ -4481,8 +4768,8 @@ function overlayModeLabel(mode: OverlayMode) {
   margin-bottom: 0.55rem;
 }
 
-.settings-group--sliders {
-  gap: 0.72rem;
+.settings-section--field-stack > .settings-group + .settings-group {
+  margin-top: 0.92rem;
 }
 
 .settings-group__label {
@@ -5054,6 +5341,21 @@ function overlayModeLabel(mode: OverlayMode) {
     0 0 16px rgba(239, 68, 68, 0.18);
 }
 
+.upload-card-observer {
+  height: 100%;
+  contain: layout paint style;
+  content-visibility: auto;
+  contain-intrinsic-size: 420px;
+}
+
+.upload-preview {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .upload-card__fallback {
   position: relative;
   display: flex;
@@ -5063,6 +5365,10 @@ function overlayModeLabel(mode: OverlayMode) {
   background:
     radial-gradient(circle at top, rgba(108, 198, 255, 0.12), transparent 52%),
     linear-gradient(180deg, rgba(12, 24, 38, 0.98), rgba(7, 14, 24, 0.94));
+}
+
+.upload-card__fallback--loading {
+  height: 220px;
 }
 
 .upload-card__loading-surface {
@@ -5099,19 +5405,6 @@ function overlayModeLabel(mode: OverlayMode) {
     radial-gradient(circle at 72% 74%, rgba(76, 148, 255, 0.08), transparent 26%);
   opacity: 0.85;
   animation: uploadCardPulse 2.4s ease-in-out infinite;
-}
-
-.upload-card__fallback-inner {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 1rem;
-  color: rgba(194, 208, 223, 0.66);
-  font-size: 0.8rem;
-  text-align: center;
 }
 
 .upload-card__status {
@@ -5245,25 +5538,6 @@ function overlayModeLabel(mode: OverlayMode) {
   background: transparent;
 }
 
-:deep(.upload-preview .v-img__img) {
-  opacity: 1 !important;
-  filter: none !important;
-}
-
-:deep(.upload-preview),
-:deep(.upload-preview .v-responsive),
-:deep(.upload-preview .v-responsive__content),
-:deep(.upload-preview .v-img__img),
-:deep(.upload-preview .v-img__picture),
-:deep(.upload-preview .v-img__gradient) {
-  border-radius: inherit;
-}
-
-:deep(.upload-preview .v-responsive__content) {
-  position: relative;
-  z-index: 1;
-}
-
 :deep(.settings-section .v-btn),
 :deep(.workspace-panel .v-btn),
 :deep(.workspace-overview-card .v-btn),
@@ -5289,6 +5563,44 @@ function overlayModeLabel(mode: OverlayMode) {
   border-color: rgba(120, 200, 255, 0.17);
 }
 
+.upload-gallery-load-more {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding-top: 0.45rem;
+  padding-inline: 6px;
+}
+
+.upload-gallery-sentinel {
+  width: 100%;
+  height: 1px;
+}
+
+.upload-gallery-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2rem;
+  color: rgba(203, 217, 231, 0.66);
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.upload-gallery-loading--error {
+  gap: 0.7rem;
+  color: rgba(255, 190, 190, 0.88);
+}
+
+.upload-gallery-loading__retry {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(144, 214, 255, 0.96);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .upload-card-list-move,
 .upload-card-list-enter-active,
 .upload-card-list-leave-active {
@@ -5304,6 +5616,25 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .upload-card-list-leave-active {
+  pointer-events: none;
+}
+
+.upload-filter-content-enter-active,
+.upload-filter-content-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 200ms ease,
+    filter 200ms ease;
+}
+
+.upload-filter-content-enter-from,
+.upload-filter-content-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(4px);
+}
+
+.upload-filter-content-leave-active {
   pointer-events: none;
 }
 
@@ -5396,10 +5727,6 @@ function overlayModeLabel(mode: OverlayMode) {
 :deep(.settings-section .v-switch.v-selection-control--dirty .v-switch__thumb),
 :deep(.workspace-panel .v-switch.v-selection-control--dirty .v-switch__thumb) {
   background: #fbfeff;
-}
-
-:deep(.settings-group--sliders .v-input) {
-  margin: 0;
 }
 
 :deep(.settings-section .v-selection-control) {
@@ -5521,6 +5848,11 @@ function overlayModeLabel(mode: OverlayMode) {
 
 :deep(.settings-section .v-slider) {
   margin: 0;
+  touch-action: pan-y;
+  --settings-slider-accent-start: rgba(74, 218, 238, 0.96);
+  --settings-slider-accent-end: rgba(56, 151, 247, 0.94);
+  --v-slider-thumb-size: 1.875rem;
+  --v-slider-track-size: 0.5rem;
 }
 
 :deep(.settings-section .v-slider + .v-slider) {
@@ -5532,77 +5864,52 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 :deep(.settings-section .v-slider .v-input__control) {
-  min-height: auto;
-}
-
-:deep(.settings-section .v-slider-track__container) {
-  height: 0.28rem;
+  min-height: 2.75rem;
 }
 
 :deep(.settings-section .v-slider-track__background),
 :deep(.workspace-panel .v-slider-track__background) {
   opacity: 1;
-  background: rgba(103, 124, 147, 0.22);
+  background:
+    linear-gradient(180deg, rgba(22, 33, 47, 0.96), rgba(16, 25, 37, 0.96));
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.03),
+    inset 0 -1px 1px rgba(3, 8, 14, 0.34);
 }
 
 :deep(.settings-section .v-slider-track__fill),
 :deep(.workspace-panel .v-slider-track__fill) {
-  background: linear-gradient(90deg, rgba(66, 207, 226, 0.78), rgba(47, 149, 245, 0.76));
+  background: linear-gradient(90deg, var(--settings-slider-accent-start), var(--settings-slider-accent-end));
+  box-shadow:
+    0 0 0 1px rgba(94, 216, 255, 0.08),
+    0 0 16px rgba(45, 148, 245, 0.16);
 }
 
 :deep(.settings-section .v-slider-thumb__surface),
 :deep(.workspace-panel .v-slider-thumb__surface) {
   background: #f7fbff;
-  transform: scale(0.9);
+  border: 1px solid rgba(200, 228, 247, 0.96);
+  box-shadow:
+    0 8px 18px rgba(4, 10, 18, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition:
+    box-shadow 160ms ease,
+    border-color 140ms ease;
 }
 
-.settings-slider-row {
-  display: grid;
-  gap: 0.32rem;
-  padding: 0.52rem 0.02rem 0.18rem;
+:deep(.settings-section .v-slider-thumb__surface::before),
+:deep(.workspace-panel .v-slider-thumb__surface::before) {
+  display: none;
 }
 
-.settings-slider-row--wide {
-  gap: 0.24rem;
-}
-
-.settings-slider-row--spaced {
-  margin-top: 0.32rem;
-}
-
-.settings-slider-row__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.settings-slider-row__label {
-  color: rgba(229, 237, 245, 0.84);
-  font-size: 0.82rem;
-  font-weight: 640;
-  line-height: 1.2;
-}
-
-.settings-slider-row__meta {
-  color: rgba(184, 203, 222, 0.52);
-  font-size: 0.7rem;
-  line-height: 1.2;
-}
-
-.settings-slider-row__value {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.25rem;
-  min-height: 1.45rem;
-  padding: 0.08rem 0.42rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(244, 249, 255, 0.92);
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
+:deep(.settings-section .v-slider-thumb--focused .v-slider-thumb__surface),
+:deep(.workspace-panel .v-slider-thumb--focused .v-slider-thumb__surface),
+:deep(.settings-section .v-slider-thumb--pressed .v-slider-thumb__surface),
+:deep(.workspace-panel .v-slider-thumb--pressed .v-slider-thumb__surface) {
+  border-color: rgba(232, 245, 255, 1);
+  box-shadow:
+    0 10px 22px rgba(4, 10, 18, 0.28),
+    0 0 0 2px rgba(94, 216, 255, 0.12);
 }
 
 .settings-control--spaced {
@@ -5794,26 +6101,27 @@ function overlayModeLabel(mode: OverlayMode) {
 
 .display-color-presets {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .display-color-preset {
   appearance: none;
-  border: 1px solid rgba(167, 196, 224, 0.12);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.025);
-  min-height: 4rem;
-  padding: 0.55rem 0.45rem 0.5rem;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 0.35rem;
+  border: 1px solid rgba(167, 196, 224, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  min-height: 2.85rem;
+  padding: 0.56rem 0.72rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
   transition:
     border-color 150ms ease,
     box-shadow 180ms ease,
     background-color 150ms ease,
     transform 150ms ease;
+  text-align: left;
 }
 
 .display-color-preset:disabled {
@@ -5821,35 +6129,39 @@ function overlayModeLabel(mode: OverlayMode) {
 }
 
 .display-color-preset__swatch {
-  width: 2rem;
-  height: 2rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 8px 18px rgba(4, 10, 18, 0.22);
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 3px 8px rgba(4, 10, 18, 0.16);
 }
 
 .display-color-preset__icon {
   color: rgba(247, 251, 255, 0.96);
-  filter: drop-shadow(0 1px 4px rgba(6, 12, 20, 0.24));
+  filter: drop-shadow(0 1px 3px rgba(6, 12, 20, 0.2));
 }
 
 .display-color-preset__label {
   color: rgba(221, 232, 243, 0.74);
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 650;
   line-height: 1.1;
-  text-align: center;
+  text-align: left;
 }
 
 .display-color-preset--active {
-  border-color: rgba(101, 215, 255, 0.4);
-  background: rgba(79, 198, 255, 0.08);
+  border-color: rgba(101, 215, 255, 0.28);
+  background:
+    linear-gradient(180deg, rgba(18, 30, 43, 0.94), rgba(12, 20, 30, 0.96)),
+    rgba(79, 198, 255, 0.05);
   box-shadow:
-    0 0 0 1px rgba(94, 216, 255, 0.18),
-    0 10px 22px rgba(8, 18, 30, 0.16);
+    0 0 0 1px rgba(94, 216, 255, 0.12),
+    0 6px 16px rgba(8, 18, 30, 0.12);
 }
 
 .display-color-preset--active .display-color-preset__label {
@@ -5859,8 +6171,8 @@ function overlayModeLabel(mode: OverlayMode) {
 .display-color-custom-slider {
   display: grid;
   gap: 0.35rem;
-  margin-top: 0.22rem;
-  padding: 0.48rem 0.1rem 0.04rem;
+  margin-top: 0.14rem;
+  padding: 0.28rem 0.05rem 0.02rem;
 }
 
 .display-color-custom-slider__header {
@@ -5874,6 +6186,49 @@ function overlayModeLabel(mode: OverlayMode) {
   font-size: 0.74rem;
   font-weight: 650;
   line-height: 1.2;
+}
+
+.system-display-card {
+  position: relative;
+  overflow: hidden;
+  padding: 1.15rem !important;
+  border-radius: 24px !important;
+  border: 1px solid rgba(153, 191, 223, 0.12) !important;
+  background:
+    radial-gradient(circle at top right, rgba(74, 202, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(14, 23, 35, 0.94), rgba(9, 17, 27, 0.92)) !important;
+  box-shadow:
+    0 18px 44px rgba(3, 9, 17, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(120, 165, 206, 0.03) !important;
+}
+
+.system-display-card::after {
+  display: none;
+}
+
+.system-display-card__section {
+  gap: 0.55rem;
+}
+
+.system-display-card__header {
+  display: grid;
+  gap: 0.22rem;
+  margin-bottom: 0.2rem;
+}
+
+.system-display-card__eyebrow {
+  color: rgba(215, 228, 241, 0.52);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.system-display-card__description {
+  color: rgba(206, 219, 232, 0.58);
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .sr-only {
@@ -6108,12 +6463,24 @@ function overlayModeLabel(mode: OverlayMode) {
     gap: 1.55rem;
   }
 
+  .settings-group--menu-stack {
+    gap: 1.05rem;
+  }
+
+  .settings-group--video-section {
+    margin-top: 0.88rem;
+  }
+
   .settings-subsection--fields {
     gap: 0.68rem;
   }
 
   .settings-group--spaced {
     margin-bottom: 0.5rem;
+  }
+
+  .settings-section--field-stack > .settings-group + .settings-group {
+    margin-top: 0.82rem;
   }
 
   .standby-screen-options {
@@ -6138,21 +6505,43 @@ function overlayModeLabel(mode: OverlayMode) {
   }
 
   .display-color-presets {
-    gap: 0.55rem;
+    gap: 0.45rem;
   }
 
   .display-color-preset {
-    min-height: 3.7rem;
-    padding-inline: 0.35rem;
+    min-height: 2.7rem;
+    padding-inline: 0.62rem;
   }
 
   .display-color-preset__swatch {
-    width: 1.8rem;
-    height: 1.8rem;
+    width: 0.98rem;
+    height: 0.98rem;
   }
 
   .display-color-custom-slider {
-    margin-top: 0.18rem;
+    margin-top: 0.1rem;
+  }
+
+  :deep(.settings-section .v-slider) {
+    --v-slider-thumb-size: 2rem;
+    --v-slider-track-size: 0.625rem;
+    padding-block: 0.08rem;
+  }
+
+  :deep(.settings-section .v-slider .v-input__control) {
+    min-height: 3rem;
+  }
+
+  :deep(.settings-section .v-slider-track__background),
+  :deep(.workspace-panel .v-slider-track__background) {
+    background: rgba(103, 124, 147, 0.3);
+  }
+
+  :deep(.settings-section .v-slider-thumb__surface),
+  :deep(.workspace-panel .v-slider-thumb__surface) {
+    box-shadow:
+      0 9px 20px rgba(4, 10, 18, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 
   .upload-card__status-row {

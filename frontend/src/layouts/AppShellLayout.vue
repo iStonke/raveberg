@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AdminAlertHost from '../components/admin/alerts/AdminAlertHost.vue'
 import { useAuthStore } from '../stores/auth'
 import { useAdminUploadsBadgeStore } from '../stores/adminUploadsBadge'
 import { usePublicRuntimeStore } from '../stores/publicRuntime'
@@ -22,12 +23,18 @@ const isLoggingOut = ref(false)
 const adminWorkspaceItems = [
   { label: 'Modus', hash: '#modus' },
   { label: 'Uploads', hash: '#uploads' },
-  { label: 'Status', hash: '#status' },
+  { label: 'System', hash: '#system' },
 ] as const
 
 const activeAdminSection = computed(() => {
   const hash = route.hash.replace('#', '')
-  return hash === 'status' || hash === 'uploads' ? hash : 'modus'
+  if (hash === 'uploads') {
+    return 'uploads'
+  }
+  if (hash === 'status' || hash === 'system') {
+    return 'system'
+  }
+  return 'modus'
 })
 
 onMounted(async () => {
@@ -82,7 +89,6 @@ function showUploadsBadge(hash: string) {
     >
       <div class="utility-bar">
         <div class="utility-bar__title" aria-hidden="true">
-          <span class="utility-dot" />
           <span class="utility-title-text">Einstellungen</span>
         </div>
         <div v-if="isAdminDashboard" class="utility-bar__user">
@@ -144,6 +150,8 @@ function showUploadsBadge(hash: string) {
         <router-view />
       </v-container>
     </v-main>
+
+    <AdminAlertHost v-if="isAdminRoute" />
 
     <v-dialog
       v-model="isLogoutDialogOpen"
@@ -260,7 +268,7 @@ function showUploadsBadge(hash: string) {
 }
 
 .utility-bar__title {
-  gap: 0.45rem;
+  gap: 0;
 }
 
 .utility-title-text {
@@ -268,14 +276,6 @@ function showUploadsBadge(hash: string) {
   font-size: 0.79rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-}
-
-.utility-dot {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  background: rgba(74, 213, 229, 0.96);
-  box-shadow: 0 0 0 0.18rem rgba(74, 213, 229, 0.16);
 }
 
 .utility-bar__user {

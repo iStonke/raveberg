@@ -5,6 +5,9 @@ export interface StageSize {
   height: number
 }
 
+export type SlideshowEngineState = 'READY' | 'INSERTING' | 'REMOVING'
+export type PolaroidStagePhase = 'build' | 'rotation' | 'steady'
+
 export interface PolaroidLayout {
   x: number
   y: number
@@ -17,8 +20,15 @@ export interface PolaroidLayout {
   normalizedY: number
 }
 
-export type PolaroidLifecycle = 'pre_enter' | 'entering' | 'active' | 'aging' | 'exiting' | 'removed'
+export type PolaroidLifecycle =
+  | 'pre_enter'
+  | 'entering'
+  | 'visible_fresh'
+  | 'visible_aging'
+  | 'fading_out'
+  | 'removed'
 export type PolaroidToneStage = 'fresh' | 'soft' | 'deep' | 'final'
+export type PolaroidFreshnessProfile = 'fresh-top' | 'aged-soft' | 'aged-medium' | 'aged-deep'
 
 export interface PolaroidFlash {
   id: string
@@ -26,6 +36,15 @@ export interface PolaroidFlash {
   y: number
   width: number
   height: number
+}
+
+export interface PolaroidEntryMotion {
+  spawnX: number
+  spawnY: number
+  spawnRotationDeg: number
+  spawnScaleMultiplier: number
+  spawnOpacity: number
+  durationMs: number
 }
 
 export interface ActivePolaroid {
@@ -40,6 +59,18 @@ export interface ActivePolaroid {
   order: number
   motionSeed: number
   layout: PolaroidLayout
+  entryMotion: PolaroidEntryMotion
+  agingElapsedMs: number
+  agingResumedAt: number | null
+  visibleSince: number | null
+  ageStartedAt: number | null
+  fadeStartedAt: number | null
   lifecycleStatus: PolaroidLifecycle
   toneStage: PolaroidToneStage
+}
+
+export interface RenderablePolaroid extends ActivePolaroid {
+  freshnessRank: number
+  freshnessProfile: PolaroidFreshnessProfile
+  isTopFresh: boolean
 }

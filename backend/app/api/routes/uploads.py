@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.auth.dependencies import require_admin_user
 from app.schemas.auth import SessionUser
-from app.schemas.upload import UploadDeletedEvent
-from app.schemas.upload import UploadRead
+from app.schemas.upload import AdminUploadListResponse, UploadDeletedEvent, UploadModerationStatus, UploadRead
 from app.services.event_service import event_service
 from app.services.upload_service import UploadService
 
@@ -24,6 +23,7 @@ async def create_upload(
 ) -> UploadRead:
     client_ip = _client_ip_from_request(request)
     upload_service = UploadService(db)
+    upload_service.ensure_guest_upload_allowed()
     upload_service.enforce_rate_limit(
         client_ip,
         publish_callback=lambda event: asyncio.create_task(event_service.publish_rate_limit_triggered(event)),
@@ -45,13 +45,21 @@ def list_uploads(
     return UploadService(db).list_public_uploads(limit=limit)
 
 
-@router.get("/uploads/admin", response_model=list[UploadRead])
+@router.get("/uploads/admin", response_model=AdminUploadListResponse)
 def list_admin_uploads(
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=12, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    moderation_status: UploadModerationStatus | None = Query(default=None),
+    ids: list[int] = Query(default=[]),
     db: Session = Depends(get_db),
     _: SessionUser = Depends(require_admin_user),
-) -> list[UploadRead]:
-    return UploadService(db).list_admin_uploads(limit=limit)
+) -> AdminUploadListResponse:
+    return UploadService(db).list_admin_uploads(
+        limit=limit,
+        offset=offset,
+        moderation_status=moderation_status,
+        upload_ids=ids,
+    )
 
 
 @router.get("/uploads/admin/archive")

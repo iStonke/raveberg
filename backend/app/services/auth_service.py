@@ -10,7 +10,13 @@ from app.core.config import settings
 from app.core.security import generate_session_token, hash_password, hash_session_token, verify_password
 from app.models.admin_session import AdminSession
 from app.models.admin_user import AdminUser
-from app.schemas.auth import LoginRequest, LoginResponse, SessionUser
+from app.schemas.auth import (
+    AdminAccessUpdateRequest,
+    AdminAccessUpdateResponse,
+    LoginRequest,
+    LoginResponse,
+    SessionUser,
+)
 
 
 class AuthService:
@@ -18,9 +24,7 @@ class AuthService:
         self.db = db
 
     def ensure_initial_admin(self) -> None:
-        user = self.db.scalar(
-            select(AdminUser).where(AdminUser.username == settings.default_admin_username),
-        )
+        user = self.db.scalar(select(AdminUser).limit(1))
         if user is not None:
             return
 
@@ -70,6 +74,82 @@ class AuthService:
         if user.role != "admin":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
         return SessionUser(id=user.id, username=user.username, role=user.role)
+
+    def update_credentials(
+        self,
+        user_id: int,
+        payload: AdminAccessUpdateRequest,
+    ) -> AdminAccessUpdateResponse:
+        user = self.db.get(AdminUser, user_id)
+        if user is None or not user.active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive")
+
+        if not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Aktuelles Passwort ist nicht korrekt.",
+            )
+
+        normalized_username = payload.username.strip()
+        new_password = payload.new_password.strip()
+        username_changed = normalized_username != user.username
+        password_changed = bool(new_password)
+
+        if not normalized_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Benutzername darf nicht leer sein.",
+            )
+
+        if len(normalized_username) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Benutzername muss mindestens 3 Zeichen lang sein.",
+            )
+
+        if not username_changed and not password_changed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Es wurden keine Änderungen erkannt.",
+            )
+
+        if username_changed:
+            username_taken = self.db.scalar(
+                select(AdminUser).where(
+                    AdminUser.username == normalized_username,
+                    AdminUser.id != user.id,
+                ),
+            )
+            if username_taken is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Dieser Benutzername ist bereits vergeben.",
+                )
+            user.username = normalized_username
+
+        if password_changed:
+            if len(new_password) < 8:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Das neue Passwort muss mindestens 8 Zeichen lang sein.",
+                )
+            user.password_hash = hash_password(new_password)
+
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        if username_changed and password_changed:
+            message = "Benutzername und Passwort wurden aktualisiert."
+        elif username_changed:
+            message = "Benutzername wurde aktualisiert."
+        else:
+            message = "Passwort wurde aktualisiert."
+
+        return AdminAccessUpdateResponse(
+            message=message,
+            user=SessionUser(id=user.id, username=user.username, role=user.role),
+        )
 
     def _load_session(self, token: str) -> tuple[AdminUser, AdminSession]:
         token_hash = hash_session_token(token)

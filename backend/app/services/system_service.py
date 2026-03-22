@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.upload import Upload
 from app.services.display_status_service import DisplayStatusService
+from app.services.guest_upload_config_service import GuestUploadConfigService
 from app.services.network_setup_service import NetworkSetupService
 from app.services.network_status_service import NetworkStatusService
 from app.services.runtime_config_service import RuntimeConfigService
@@ -58,6 +59,7 @@ class SystemService:
 
         current_mode = ModeService(self.db).get_mode().mode
         selfie_state = SelfieService(self.db).get_state()
+        guest_upload_config = GuestUploadConfigService(self.db).get_config()
         video_state = VideoService(self.db).get_state()
         visualizer_state = VisualizerService(self.db).get_state()
         display_status = DisplayStatusService(self.db).get_status()
@@ -85,7 +87,9 @@ class SystemService:
                 internet_reachable=network_status.online,
                 upload_count=upload_count,
                 current_mode=current_mode,
-                moderation_mode=selfie_state.moderation_mode,
+                moderation_mode=GuestUploadConfigService.moderation_mode_from_requires_approval(
+                    guest_upload_config.guest_upload_requires_approval,
+                ),
                 display_target=display_target,
                 display_live_connected=display_live_connected,
                 display_state_stale=display_state_stale,
@@ -145,7 +149,7 @@ class SystemService:
         )
 
     def get_public_info(self) -> PublicRuntimeInfoResponse:
-        selfie_state = SelfieService(self.db).get_state()
+        guest_upload_config = GuestUploadConfigService(self.db).get_config()
         runtime_config = RuntimeConfigService(self.db).get_remote_visualizer_config()
         return PublicRuntimeInfoResponse(
             app_name=settings.app_name,
@@ -164,7 +168,14 @@ class SystemService:
             remote_renderer_health_url=runtime_config.remote_renderer_health_url,
             remote_renderer_reconnect_ms=runtime_config.remote_renderer_reconnect_ms,
             remote_renderer_fallback=runtime_config.remote_renderer_fallback,
-            moderation_mode=selfie_state.moderation_mode,
+            moderation_mode=GuestUploadConfigService.moderation_mode_from_requires_approval(
+                guest_upload_config.guest_upload_requires_approval,
+            ),
+            guest_upload_enabled=guest_upload_config.guest_upload_enabled,
+            guest_upload_requires_approval=guest_upload_config.guest_upload_requires_approval,
+            guest_upload_session_timeout_hours=guest_upload_config.guest_upload_session_timeout_hours,
+            session_expires_at=guest_upload_config.session_expires_at,
+            session_is_expired=guest_upload_config.session_is_expired,
             upload_max_bytes=settings.upload_max_bytes,
             video_upload_max_bytes=settings.video_upload_max_bytes,
             urls=ApplianceUrls(

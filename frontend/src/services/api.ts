@@ -127,6 +127,11 @@ export interface PublicRuntimeInfoResponse {
   remote_renderer_reconnect_ms: number
   remote_renderer_fallback: RemoteRendererFallback
   moderation_mode: ModerationMode
+  guest_upload_enabled: boolean
+  guest_upload_requires_approval: boolean
+  guest_upload_session_timeout_hours: number
+  session_expires_at: string
+  session_is_expired: boolean
   upload_max_bytes: number
   video_upload_max_bytes: number
   urls: {
@@ -150,6 +155,22 @@ export interface SystemActionResponse {
   pending: boolean
   network_status: NetworkStatus | null
   setup_mode_status: SetupModeStatus | null
+}
+
+export interface GuestUploadConfig {
+  guest_upload_enabled: boolean
+  guest_upload_requires_approval: boolean
+  guest_upload_session_timeout_hours: number
+  session_started_at: string
+  session_expires_at: string
+  session_is_expired: boolean
+  updated_at: string | null
+}
+
+export interface GuestUploadConfigUpdatePayload {
+  guest_upload_enabled: boolean
+  guest_upload_requires_approval: boolean
+  guest_upload_session_timeout_hours: number
 }
 
 export interface WifiConnectPayload {
@@ -213,6 +234,17 @@ export interface LoginResponse {
   user: SessionUser
 }
 
+export interface AdminAccessUpdatePayload {
+  username: string
+  current_password: string
+  new_password: string
+}
+
+export interface AdminAccessUpdateResponse {
+  message: string
+  user: SessionUser
+}
+
 export interface UploadItem {
   id: number
   filename_original: string
@@ -226,6 +258,21 @@ export interface UploadItem {
   approved: boolean
   display_url: string | null
   admin_display_url: string | null
+}
+
+export interface AdminUploadListSummary {
+  total: number
+  pending: number
+  rejected: number
+}
+
+export interface AdminUploadListResponse {
+  items: UploadItem[]
+  total: number
+  has_more: boolean
+  offset: number
+  limit: number
+  summary: AdminUploadListSummary
 }
 
 export interface SelfieState {
@@ -349,10 +396,21 @@ function parseErrorMessage(message: string, status: number) {
 
   try {
     const parsed = JSON.parse(message) as { detail?: unknown }
-    return formatApiErrorDetail(parsed.detail) ?? message
+    return humanizeApiErrorMessage(formatApiErrorDetail(parsed.detail) ?? message, status)
   } catch {
-    return looksLikeHtml(message) ? fallbackMessageForStatus(status) : message
+    return humanizeApiErrorMessage(looksLikeHtml(message) ? fallbackMessageForStatus(status) : message, status)
   }
+}
+
+function humanizeApiErrorMessage(message: string, status: number) {
+  if (/No restart command available/i.test(message)) {
+    return 'Neustart ist auf diesem Gerät derzeit nicht verfügbar.'
+  }
+  if (/No shutdown command available/i.test(message)) {
+    return 'Ausschalten ist auf diesem Gerät derzeit nicht verfügbar.'
+  }
+
+  return message || fallbackMessageForStatus(status)
 }
 
 function looksLikeHtml(message: string) {
@@ -526,6 +584,20 @@ export function fetchPublicRuntimeInfo() {
   return request<PublicRuntimeInfoResponse>('/api/public-info')
 }
 
+export function fetchGuestUploadConfig(token: string) {
+  return request<GuestUploadConfig>('/api/system/guest-upload-config', {
+    headers: withAuth(token),
+  })
+}
+
+export function updateGuestUploadConfig(payload: GuestUploadConfigUpdatePayload, token: string) {
+  return request<GuestUploadConfig>('/api/system/guest-upload-config', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchRuntimeConfig(token: string) {
   return request<RuntimeConfig>('/api/system/runtime-config', {
     headers: withAuth(token),
@@ -560,12 +632,38 @@ export function logoutAdmin(token: string) {
   })
 }
 
+export function updateAdminAccess(payload: AdminAccessUpdatePayload, token: string) {
+  return request<AdminAccessUpdateResponse>('/api/auth/account', {
+    method: 'PUT',
+    headers: withAuth(token),
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchPublicUploads(limit = 100) {
   return request<UploadItem[]>(`/api/uploads?limit=${limit}`)
 }
 
-export function fetchAdminUploads(token: string, limit = 20) {
-  return request<UploadItem[]>(`/api/uploads/admin?limit=${limit}`, {
+export function fetchAdminUploads(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+    moderationStatus?: UploadModerationStatus
+    ids?: number[]
+  } = {},
+) {
+  const params = new URLSearchParams()
+  params.set('limit', String(options.limit ?? 12))
+  params.set('offset', String(options.offset ?? 0))
+  if (options.moderationStatus) {
+    params.set('moderation_status', options.moderationStatus)
+  }
+  for (const id of options.ids ?? []) {
+    params.append('ids', String(id))
+  }
+
+  return request<AdminUploadListResponse>(`/api/uploads/admin?${params.toString()}`, {
     headers: withAuth(token),
   })
 }

@@ -19,6 +19,11 @@ const {
     commentLimit,
     commentLength,
     uploadMetaText,
+    selectSubheadline,
+    confirmSubheadline,
+    uploadUiDisabled,
+    blockingNoticeTitle,
+    blockingNoticeText,
     handleFileSelection,
     confirmUpload,
     cancelConfirmation,
@@ -39,19 +44,35 @@ const {
       <div class="guest-upload-background-layer guest-upload-background-glow" />
     </div>
 
-    <Transition name="guest-success-banner">
-      <div v-if="successNotice" class="guest-success-banner-wrap" aria-live="polite" aria-atomic="true">
-        <div class="guest-success-banner" role="status">
-          <div class="guest-success-banner__icon">
-            <v-icon icon="mdi-check-circle" size="20" />
-          </div>
-          <div class="guest-success-banner__copy">
-            <div class="guest-success-banner__title">Bild hochgeladen</div>
-            <div class="guest-success-banner__text">{{ successNotice }}</div>
+    <div class="guest-banner-stack" aria-live="polite" aria-atomic="true">
+      <Transition name="guest-success-banner">
+        <div v-if="blockingNoticeText" class="guest-banner-wrap">
+          <div class="guest-success-banner guest-success-banner--warning" role="status">
+            <div class="guest-success-banner__icon guest-success-banner__icon--warning">
+              <v-icon :icon="blockingNoticeTitle.includes('abgelaufen') ? 'mdi-timer-off-outline' : 'mdi-pause-circle-outline'" size="20" />
+            </div>
+            <div class="guest-success-banner__copy">
+              <div class="guest-success-banner__title">{{ blockingNoticeTitle }}</div>
+              <div class="guest-success-banner__text">{{ blockingNoticeText }}</div>
+            </div>
           </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+
+      <Transition name="guest-success-banner">
+        <div v-if="successNotice" class="guest-banner-wrap">
+          <div class="guest-success-banner" role="status">
+            <div class="guest-success-banner__icon">
+              <v-icon icon="mdi-check-circle" size="20" />
+            </div>
+            <div class="guest-success-banner__copy">
+              <div class="guest-success-banner__title">Bild hochgeladen</div>
+              <div class="guest-success-banner__text">{{ successNotice }}</div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </div>
 
     <div class="guest-upload-panel">
       <div class="guest-panel-stage">
@@ -61,7 +82,7 @@ const {
             <RavebergLogo mode="compact" class="guest-logo" />
             <div class="guest-confirm-copy guest-confirm-copy--select">
               <h1 class="guest-headline">Selfie auf dem Screen anzeigen</h1>
-              <p class="guest-subheadline">Foto machen oder auswählen</p>
+              <p class="guest-subheadline">{{ selectSubheadline }}</p>
             </div>
           </div>
 
@@ -73,7 +94,8 @@ const {
               class="guest-submit guest-submit--primary"
               size="x-large"
               prepend-icon="mdi-camera"
-              :disabled="isUploading"
+              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+              :disabled="uploadUiDisabled"
               @click="openCamera"
             >
               Kamera öffnen
@@ -86,7 +108,8 @@ const {
               class="guest-submit guest-submit--secondary"
               size="x-large"
               prepend-icon="mdi-image-outline"
-              :disabled="isUploading"
+              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+              :disabled="uploadUiDisabled"
               @click="openLibrary"
             >
               Bild auswählen
@@ -118,7 +141,7 @@ const {
 
             <div class="guest-confirm-copy">
               <h1 class="guest-headline guest-headline--confirm">Bild wirklich hochladen?</h1>
-              <p class="guest-subheadline">Das Bild wird direkt auf dem Screen angezeigt</p>
+              <p class="guest-subheadline">{{ confirmSubheadline }}</p>
             </div>
 
             <v-text-field
@@ -129,6 +152,7 @@ const {
               variant="solo-filled"
               hide-details
               class="guest-field"
+              :disabled="uploadUiDisabled"
               @update:model-value="updateCommentDraft"
               @keydown.enter.prevent
               @focusin="isCommentFieldFocused = true"
@@ -162,6 +186,8 @@ const {
               color="primary"
               rounded="xl"
               class="guest-submit guest-submit--primary"
+              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+              :disabled="uploadUiDisabled"
               :loading="isUploading"
               @click="confirmUpload"
             >
@@ -188,6 +214,7 @@ const {
       type="file"
       accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
       capture="environment"
+      :disabled="uploadUiDisabled"
       @change="handleFileSelection"
     />
     <input
@@ -195,6 +222,7 @@ const {
       class="hidden-input"
       type="file"
       accept=".jpg,.jpeg,.png,.webp,.heic,image/*"
+      :disabled="uploadUiDisabled"
       @change="handleFileSelection"
     />
   </section>
@@ -530,6 +558,15 @@ const {
   margin-top: 0.1rem;
 }
 
+.guest-submit--disabled {
+  box-shadow: none !important;
+}
+
+.guest-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .guest-submit--primary {
   box-shadow: 0 16px 36px rgba(0, 146, 255, 0.24);
 }
@@ -555,13 +592,19 @@ const {
   display: none;
 }
 
-.guest-success-banner-wrap {
+.guest-banner-stack {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 0.8rem);
   left: 0.75rem;
   right: 0.75rem;
+  display: grid;
+  gap: 0.65rem;
   z-index: 30;
   pointer-events: none;
+}
+
+.guest-banner-wrap {
+  min-width: 0;
 }
 
 .guest-success-banner {
@@ -583,6 +626,13 @@ const {
   -webkit-backdrop-filter: blur(18px) saturate(135%);
 }
 
+.guest-success-banner--warning {
+  border-color: rgba(255, 201, 112, 0.22);
+  background:
+    linear-gradient(180deg, rgba(42, 33, 20, 0.92), rgba(21, 17, 11, 0.96)),
+    rgba(16, 13, 9, 0.94);
+}
+
 .guest-success-banner__icon {
   width: 2.25rem;
   height: 2.25rem;
@@ -591,6 +641,11 @@ const {
   border-radius: 999px;
   color: rgba(166, 244, 199, 0.98);
   background: radial-gradient(circle at 30% 30%, rgba(124, 236, 176, 0.22), rgba(50, 115, 78, 0.12));
+}
+
+.guest-success-banner__icon--warning {
+  color: rgba(255, 220, 154, 0.98);
+  background: radial-gradient(circle at 30% 30%, rgba(255, 209, 104, 0.28), rgba(106, 68, 15, 0.16));
 }
 
 .guest-success-banner__copy {

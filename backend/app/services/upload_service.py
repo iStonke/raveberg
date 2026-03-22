@@ -15,9 +15,16 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.upload import Upload
 from app.schemas.runtime import CleanupCompletedEvent
-from app.schemas.upload import UploadDeletedEvent, UploadEvent, UploadRead
+from app.schemas.upload import (
+    AdminUploadListResponse,
+    AdminUploadListSummary,
+    UploadDeletedEvent,
+    UploadEvent,
+    UploadModerationStatus,
+    UploadRead,
+)
+from app.services.guest_upload_config_service import GuestUploadConfigService
 from app.services.runtime_service import runtime_service
-from app.services.selfie_service import SelfieService
 
 register_heif_opener()
 
@@ -51,8 +58,11 @@ class UploadService:
         await file.close()
         normalized_comment = self._normalize_comment(comment)
 
+        guest_upload_config = GuestUploadConfigService(self.db).ensure_upload_allowed()
         self._validate_basic(filename, extension, mime_type, payload)
-        moderation_mode = SelfieService(self.db).ensure_state().moderation_mode
+        moderation_mode = GuestUploadConfigService.moderation_mode_from_requires_approval(
+            guest_upload_config.guest_upload_requires_approval,
+        )
 
         stored_original = self._build_original_name(filename, extension)
         original_path = self.original_dir / stored_original
@@ -111,6 +121,9 @@ class UploadService:
             cleanup_event,
         )
 
+    def ensure_guest_upload_allowed(self) -> None:
+        GuestUploadConfigService(self.db).ensure_upload_allowed()
+
     def list_public_uploads(self, limit: int = 100) -> list[UploadRead]:
         rows = self.db.scalars(
             select(Upload)
@@ -120,13 +133,60 @@ class UploadService:
         ).all()
         return [self._to_read(row) for row in rows]
 
-    def list_admin_uploads(self, limit: int = 20) -> list[UploadRead]:
+    def list_admin_uploads(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        moderation_status: UploadModerationStatus | None = None,
+        upload_ids: list[int] | None = None,
+    ) -> AdminUploadListResponse:
+        normalized_limit = max(1, min(limit, 100))
+        normalized_offset = max(0, offset)
+        normalized_ids = [upload_id for upload_id in (upload_ids or []) if upload_id > 0]
+
+        filters = []
+        if moderation_status is not None:
+            filters.append(Upload.moderation_status == moderation_status)
+        if normalized_ids:
+            filters.append(Upload.id.in_(normalized_ids))
+
+        items_query = select(Upload)
+        count_query = select(func.count(Upload.id))
+        if filters:
+            items_query = items_query.where(*filters)
+            count_query = count_query.where(*filters)
+
         rows = self.db.scalars(
-            select(Upload)
+            items_query
             .order_by(Upload.created_at.desc())
-            .limit(limit),
+            .offset(normalized_offset)
+            .limit(normalized_limit),
         ).all()
-        return [self._to_read(row) for row in rows]
+        total = int(self.db.scalar(count_query) or 0)
+
+        return AdminUploadListResponse(
+            items=[self._to_read(row) for row in rows],
+            total=total,
+            has_more=normalized_offset + len(rows) < total,
+            offset=normalized_offset,
+            limit=normalized_limit,
+            summary=AdminUploadListSummary(
+                total=int(self.db.scalar(select(func.count(Upload.id))) or 0),
+                pending=int(
+                    self.db.scalar(
+                        select(func.count(Upload.id)).where(Upload.moderation_status == "pending"),
+                    )
+                    or 0
+                ),
+                rejected=int(
+                    self.db.scalar(
+                        select(func.count(Upload.id)).where(Upload.moderation_status == "rejected"),
+                    )
+                    or 0
+                ),
+            ),
+        )
 
     def get_display_path(self, upload_id: int) -> Path:
         upload = self.db.get(Upload, upload_id)

@@ -12,6 +12,7 @@ interface SpawnSelectionOptions {
   blockedIdentities: Set<ImageIdentity>
   recentHistory: ImageIdentity[]
   removedAtByIdentity: Map<ImageIdentity, number>
+  shownAtByIdentity: Map<ImageIdentity, number>
   now: number
   maxVisiblePhotos: number
 }
@@ -21,10 +22,19 @@ interface SelectionStage {
   allowCooldown: boolean
 }
 
+export interface PolaroidQueueState {
+  availableCount: number
+  unseenCount: number
+  recycleCount: number
+  unseenQueue: UploadWithDisplay[]
+  recycleQueue: UploadWithDisplay[]
+}
+
 export interface SpawnSelectionResult {
   upload: UploadWithDisplay | null
   nextCursor: number
   nextPriorityQueue: ImageIdentity[]
+  queueState: PolaroidQueueState
 }
 
 export function getImageIdentity(upload: Pick<UploadItem, 'id'> | Pick<ActivePolaroid, 'uploadId'>): ImageIdentity {
@@ -48,6 +58,13 @@ export function pickNextImage(options: SpawnSelectionOptions): SpawnSelectionRes
       upload: null,
       nextCursor: options.nextCursor,
       nextPriorityQueue: [],
+      queueState: {
+        availableCount: 0,
+        unseenCount: 0,
+        recycleCount: 0,
+        unseenQueue: [],
+        recycleQueue: [],
+      },
     }
   }
 
@@ -60,6 +77,12 @@ export function pickNextImage(options: SpawnSelectionOptions): SpawnSelectionRes
   const queuedPool = nextPriorityQueue
     .map((identity) => byIdentity.get(identity))
     .filter((upload): upload is UploadWithDisplay => Boolean(upload))
+  const queueState = buildQueueState({
+    orderedPool,
+    queuedPool,
+    shownAtByIdentity: options.shownAtByIdentity,
+    blockedIdentities: options.blockedIdentities,
+  })
   const selectionStages: SelectionStage[] = POLAROID_CONFIG.queue.fallbackRelaxRecent
     ? [
         { allowRecent: false, allowCooldown: false },
@@ -72,35 +95,71 @@ export function pickNextImage(options: SpawnSelectionOptions): SpawnSelectionRes
       ]
 
   for (const stage of selectionStages) {
-    const queuedCandidate = findCandidate(
-      queuedPool,
+    const queuedUnseenCandidate = findCandidate(
+      queueState.unseenQueue.filter((upload) => nextPriorityQueue.includes(getImageIdentity(upload))),
       stage,
       options.blockedIdentities,
       recentBlocked,
       options.removedAtByIdentity,
       options.now,
     )
-    if (queuedCandidate) {
+    if (queuedUnseenCandidate) {
       return {
-        upload: queuedCandidate,
-        nextCursor: getAdvancedCursor(pool, options.nextCursor, queuedCandidate),
-        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(queuedCandidate)),
+        upload: queuedUnseenCandidate,
+        nextCursor: getAdvancedCursor(pool, options.nextCursor, queuedUnseenCandidate),
+        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(queuedUnseenCandidate)),
+        queueState,
       }
     }
 
-    const poolCandidate = findCandidate(
-      orderedPool,
+    const poolUnseenCandidate = findCandidate(
+      queueState.unseenQueue,
       stage,
       options.blockedIdentities,
       recentBlocked,
       options.removedAtByIdentity,
       options.now,
     )
-    if (poolCandidate) {
+    if (poolUnseenCandidate) {
       return {
-        upload: poolCandidate,
-        nextCursor: getAdvancedCursor(pool, options.nextCursor, poolCandidate),
-        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(poolCandidate)),
+        upload: poolUnseenCandidate,
+        nextCursor: getAdvancedCursor(pool, options.nextCursor, poolUnseenCandidate),
+        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(poolUnseenCandidate)),
+        queueState,
+      }
+    }
+
+    const queuedRecycleCandidate = findCandidate(
+      queueState.recycleQueue.filter((upload) => nextPriorityQueue.includes(getImageIdentity(upload))),
+      stage,
+      options.blockedIdentities,
+      recentBlocked,
+      options.removedAtByIdentity,
+      options.now,
+    )
+    if (queuedRecycleCandidate) {
+      return {
+        upload: queuedRecycleCandidate,
+        nextCursor: getAdvancedCursor(pool, options.nextCursor, queuedRecycleCandidate),
+        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(queuedRecycleCandidate)),
+        queueState,
+      }
+    }
+
+    const poolRecycleCandidate = findCandidate(
+      queueState.recycleQueue,
+      stage,
+      options.blockedIdentities,
+      recentBlocked,
+      options.removedAtByIdentity,
+      options.now,
+    )
+    if (poolRecycleCandidate) {
+      return {
+        upload: poolRecycleCandidate,
+        nextCursor: getAdvancedCursor(pool, options.nextCursor, poolRecycleCandidate),
+        nextPriorityQueue: nextPriorityQueue.filter((identity) => identity !== getImageIdentity(poolRecycleCandidate)),
+        queueState,
       }
     }
   }
@@ -109,6 +168,35 @@ export function pickNextImage(options: SpawnSelectionOptions): SpawnSelectionRes
     upload: null,
     nextCursor: options.nextCursor,
     nextPriorityQueue,
+    queueState,
+  }
+}
+
+function buildQueueState(options: {
+  orderedPool: UploadWithDisplay[]
+  queuedPool: UploadWithDisplay[]
+  shownAtByIdentity: Map<ImageIdentity, number>
+  blockedIdentities: Set<ImageIdentity>
+}): PolaroidQueueState {
+  const orderedUnique = dedupeUploads([...options.queuedPool, ...options.orderedPool])
+  const unseenQueue = orderedUnique.filter((upload) => {
+    const identity = getImageIdentity(upload)
+    return !options.blockedIdentities.has(identity) && !options.shownAtByIdentity.has(identity)
+  })
+  const recycleQueue = sortUploadsByDisplayPriority(
+    orderedUnique.filter((upload) => {
+      const identity = getImageIdentity(upload)
+      return !options.blockedIdentities.has(identity) && options.shownAtByIdentity.has(identity)
+    }),
+    options.shownAtByIdentity,
+  )
+
+  return {
+    availableCount: options.orderedPool.length,
+    unseenCount: unseenQueue.length,
+    recycleCount: recycleQueue.length,
+    unseenQueue,
+    recycleQueue,
   }
 }
 
@@ -174,14 +262,58 @@ function getRecentHistoryLimit(poolSize: number, maxVisiblePhotos: number) {
   )
 }
 
+function sortUploadsByDisplayPriority(
+  uploads: UploadWithDisplay[],
+  shownAtByIdentity: Map<ImageIdentity, number>,
+) {
+  return [...uploads].sort((left, right) => {
+    const leftIdentity = getImageIdentity(left)
+    const rightIdentity = getImageIdentity(right)
+    const leftShownAt = shownAtByIdentity.get(leftIdentity)
+    const rightShownAt = shownAtByIdentity.get(rightIdentity)
+    const leftNeverShown = leftShownAt == null
+    const rightNeverShown = rightShownAt == null
+
+    if (leftNeverShown !== rightNeverShown) {
+      return leftNeverShown ? -1 : 1
+    }
+
+    if (leftShownAt != null && rightShownAt != null && leftShownAt !== rightShownAt) {
+      return leftShownAt - rightShownAt
+    }
+
+    return leftIdentity - rightIdentity
+  })
+}
+
 function isInCooldown(identity: ImageIdentity, removedAtByIdentity: Map<ImageIdentity, number>, now: number) {
   const removedAt = removedAtByIdentity.get(identity)
   return removedAt != null && now - removedAt < POLAROID_CONFIG.queue.imageCooldownMs
 }
 
+export function isImageInCooldown(
+  identity: ImageIdentity,
+  removedAtByIdentity: Map<ImageIdentity, number>,
+  now: number,
+) {
+  return isInCooldown(identity, removedAtByIdentity, now)
+}
+
 function dedupeQueue(queue: ImageIdentity[]) {
   const seen = new Set<ImageIdentity>()
   return queue.filter((identity) => {
+    if (seen.has(identity)) {
+      return false
+    }
+    seen.add(identity)
+    return true
+  })
+}
+
+function dedupeUploads(uploads: UploadWithDisplay[]) {
+  const seen = new Set<ImageIdentity>()
+  return uploads.filter((upload) => {
+    const identity = getImageIdentity(upload)
     if (seen.has(identity)) {
       return false
     }

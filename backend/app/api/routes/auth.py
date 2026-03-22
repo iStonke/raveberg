@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.auth import LoginRequest, LoginResponse
+from app.auth.dependencies import require_admin_user
+from app.schemas.auth import (
+    AdminAccessUpdateRequest,
+    AdminAccessUpdateResponse,
+    LoginRequest,
+    LoginResponse,
+    SessionUser,
+)
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -34,3 +41,12 @@ def logout(
 
     AuthService(db).logout(authorization)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/account", response_model=AdminAccessUpdateResponse)
+def update_account(
+    payload: AdminAccessUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: SessionUser = Depends(require_admin_user),
+) -> AdminAccessUpdateResponse:
+    return AuthService(db).update_credentials(current_user.id, payload)

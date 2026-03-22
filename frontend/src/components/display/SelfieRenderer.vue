@@ -81,12 +81,22 @@ async function reloadUploads() {
   isLoading.value = true
   try {
     const latestUploads = await fetchPublicUploads(100)
-    uploads.value = props.settings.slideshow_shuffle ? shuffle(latestUploads) : latestUploads
+    uploads.value = props.settings.slideshow_shuffle ? shuffle(latestUploads) : sortUploadsOldestFirst(latestUploads)
   } catch {
     // Keep the current feed when a transient reload fails.
   } finally {
     isLoading.value = false
   }
+}
+
+function sortUploadsOldestFirst(items: UploadItem[]) {
+  return [...items].sort((left, right) => {
+    const createdDelta = Date.parse(left.created_at) - Date.parse(right.created_at)
+    if (createdDelta !== 0) {
+      return createdDelta
+    }
+    return left.id - right.id
+  })
 }
 
 function shuffle(items: UploadItem[]) {

@@ -110,6 +110,11 @@ class PublicRuntimeInfoResponse(BaseModel):
     remote_renderer_reconnect_ms: int
     remote_renderer_fallback: RemoteRendererFallback
     moderation_mode: ModerationMode
+    guest_upload_enabled: bool
+    guest_upload_requires_approval: bool
+    guest_upload_session_timeout_hours: int
+    session_expires_at: datetime
+    session_is_expired: bool
     upload_max_bytes: int
     video_upload_max_bytes: int
     urls: ApplianceUrls
