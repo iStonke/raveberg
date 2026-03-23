@@ -19,8 +19,7 @@ const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
 const isAdminVideoManager = computed(() => route.name === 'admin-videos')
 const isAdminVisualizerManager = computed(() => route.name === 'admin-visualizers')
-const isAdminSubmenuRoute = computed(() => isAdminVideoManager.value || isAdminVisualizerManager.value)
-const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminVideoManager.value)
+const showAdminSubnav = computed(() => isAdminDashboard.value)
 const isLogoutDialogOpen = ref(false)
 const isLoggingOut = ref(false)
 
@@ -118,38 +117,25 @@ function showUploadsBadge(hash: string) {
       v-if="showAdminSubnav"
       class="admin-nav-strip"
       role="navigation"
-      :aria-label="isAdminDashboard ? 'Admin Bereiche' : 'Admin Untermenü'"
+      aria-label="Admin Bereiche"
     >
       <div
         class="admin-nav-strip__inner app-shell app-shell--safe-area"
-        :class="{ 'admin-nav-strip__inner--single': isAdminSubmenuRoute }"
       >
-        <template v-if="isAdminDashboard">
-          <router-link
-            v-for="item in adminWorkspaceItems"
-            :key="item.hash"
-            :to="{ name: 'admin-dashboard', hash: item.hash }"
-            class="admin-nav-link"
-            :class="{ 'admin-nav-link--active': activeAdminSection === item.hash.replace('#', '') }"
-          >
-            <span class="admin-nav-link__label">
-              <span>{{ item.label }}</span>
-              <span
-                v-if="showUploadsBadge(item.hash)"
-                class="admin-nav-link__badge"
-                aria-label="Neue Uploads"
-              />
-            </span>
-          </router-link>
-        </template>
         <router-link
-          v-else
-          :to="{ name: 'admin-dashboard', hash: '#modus' }"
-          class="admin-nav-link admin-nav-link--back"
+          v-for="item in adminWorkspaceItems"
+          :key="item.hash"
+          :to="{ name: 'admin-dashboard', hash: item.hash }"
+          class="admin-nav-link"
+          :class="{ 'admin-nav-link--active': activeAdminSection === item.hash.replace('#', '') }"
         >
-          <span class="admin-nav-link__label admin-nav-link__label--back">
-            <v-icon icon="mdi-arrow-left" size="18" class="admin-nav-link__icon" />
-            <span>Zurück zu Modus</span>
+          <span class="admin-nav-link__label">
+            <span>{{ item.label }}</span>
+            <span
+              v-if="showUploadsBadge(item.hash)"
+              class="admin-nav-link__badge"
+              aria-label="Neue Uploads"
+            />
           </span>
         </router-link>
       </div>
@@ -378,16 +364,19 @@ function showUploadsBadge(hash: string) {
 }
 
 .admin-nav-link {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 1.95rem;
+  min-height: 2.12rem;
   padding: 0 0.55rem;
   border-radius: 0;
+  overflow: hidden;
   color: rgba(217, 229, 240, 0.66);
   text-decoration: none;
   font-size: 0.84rem;
   font-weight: 600;
+  background: rgba(7, 13, 21, 0.18);
   transition:
     background-color 160ms ease,
     color 160ms ease,
@@ -417,6 +406,7 @@ function showUploadsBadge(hash: string) {
 
 .admin-nav-link__label {
   position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -445,11 +435,53 @@ function showUploadsBadge(hash: string) {
 }
 
 .admin-nav-link--active {
-  background: rgba(66, 207, 226, 0.08);
-  color: #f8fbff;
+  background:
+    linear-gradient(180deg, rgba(10, 28, 40, 0.82) 0%, rgba(8, 20, 32, 0.92) 100%);
+  color: rgba(245, 250, 255, 0.96);
   box-shadow:
-    inset 0 -2px 0 rgba(91, 228, 242, 0.88),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 0 rgba(90, 220, 255, 0.05),
     0 8px 18px rgba(10, 23, 37, 0.14);
+}
+
+.admin-nav-link--active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 50% 38%,
+      rgba(90, 220, 255, 0.16) 0%,
+      rgba(90, 220, 255, 0.08) 22%,
+      rgba(90, 220, 255, 0.03) 42%,
+      rgba(90, 220, 255, 0) 68%
+    );
+}
+
+.admin-nav-link--active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(90, 220, 255, 0.72) 0%,
+      rgba(120, 240, 255, 0.98) 50%,
+      rgba(90, 220, 255, 0.72) 100%
+    );
+  box-shadow:
+    0 0 10px rgba(90, 220, 255, 0.18),
+    0 -1px 8px rgba(90, 220, 255, 0.08);
+}
+
+.admin-nav-link--active .admin-nav-link__label {
+  color: rgba(245, 250, 255, 0.96);
+  text-shadow: 0 0 10px rgba(140, 230, 255, 0.08);
 }
 
 .shell-container {
@@ -477,7 +509,8 @@ function showUploadsBadge(hash: string) {
 }
 
 .admin-video-manager-container {
-  padding: 0 0 0.5rem;
+  padding: 0 0 0.5rem !important;
+  padding-top: 0 !important;
 }
 
 .admin-visualizer-manager-container {

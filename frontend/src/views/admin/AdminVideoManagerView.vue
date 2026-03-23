@@ -2,6 +2,11 @@
 import { computed, onMounted } from 'vue'
 
 import AdminVideoLibraryList from '../../components/admin/AdminVideoLibraryList.vue'
+import PrimaryHeaderAction from '../../components/settings/subpage/PrimaryHeaderAction.vue'
+import SubpageContent from '../../components/settings/subpage/SubpageContent.vue'
+import SubpageHeader from '../../components/settings/subpage/SubpageHeader.vue'
+import SubpageHero from '../../components/settings/subpage/SubpageHero.vue'
+import SubpageLayout from '../../components/settings/subpage/SubpageLayout.vue'
 import { useAdminVideoLibrary } from '../../composables/useAdminVideoLibrary'
 import { useAdminAlert } from '../../stores/adminAlert'
 import { useVideoStore } from '../../stores/video'
@@ -99,72 +104,71 @@ function formatCompactDuration(value: number) {
       @change="handleVideoFileSelection"
     >
 
-    <section class="video-manager-shell app-section">
-      <div class="app-shell">
-        <div class="video-manager-stack">
-          <section class="video-manager-heading">
-            <div class="video-manager-heading__topline">
-              <div class="video-manager-heading__copy">
-                <div class="video-manager-heading__title">Videos</div>
-                <div class="video-manager-heading__meta">{{ libraryMetaLabel }}</div>
-              </div>
-              <div class="video-manager-heading__actions">
-                <v-btn
-                  color="primary"
-                  variant="outlined"
-                  class="video-manager-heading__upload"
-                  prepend-icon="mdi-upload"
-                  :loading="isUploadingVideos"
-                  @click="openVideoPicker"
-                >
-                  Video hochladen
-                </v-btn>
-              </div>
-            </div>
+    <SubpageLayout>
+      <template #header>
+        <SubpageHeader
+          :back-to="{ name: 'admin-dashboard', hash: '#modus' }"
+          title="Videos"
+          :meta="libraryMetaLabel"
+          variant="hero"
+        >
+          <template #hero>
+            <SubpageHero />
+          </template>
 
+          <template #action>
+            <PrimaryHeaderAction
+              icon="mdi-upload"
+              label="Video hochladen"
+              :loading="isUploadingVideos"
+              @click="openVideoPicker"
+            />
+          </template>
+
+          <template #below>
             <div v-if="isUploadingVideos" class="video-manager-upload-status">
               <v-progress-linear indeterminate color="primary" rounded />
               <div class="video-manager-upload-status__label">
                 {{ videoUploadLabel || 'Videos werden hochgeladen …' }}
               </div>
             </div>
-          </section>
+          </template>
+        </SubpageHeader>
+      </template>
 
-          <section class="video-manager-library">
-            <AdminVideoLibraryList
-              v-if="orderedVideoAssets.length"
-              :assets="orderedVideoAssets"
-              :active-video-id="videoStore.activeVideoId"
-              :durations="videoDurations"
-              :metadata-loading="videoMetadataLoading"
-              :busy-actions="busyActions"
-              @select="setActiveVideo"
-              @move="moveVideo"
-              @remove="removeVideo"
-            />
+      <SubpageContent class="video-manager-content">
+        <AdminVideoLibraryList
+          v-if="orderedVideoAssets.length"
+          :assets="orderedVideoAssets"
+          :active-video-id="videoStore.activeVideoId"
+          :durations="videoDurations"
+          :metadata-loading="videoMetadataLoading"
+          :busy-actions="busyActions"
+          @select="setActiveVideo"
+          @move="moveVideo"
+          @remove="removeVideo"
+        />
 
-            <div v-else class="video-manager-empty-state">
-              <div class="video-manager-empty-state__icon-shell" aria-hidden="true">
-                <v-icon icon="mdi-play-box-outline" size="32" class="video-manager-empty-state__icon" />
-              </div>
-              <div class="video-manager-empty-state__title">Noch keine Videos vorhanden</div>
-              <div class="video-manager-empty-state__copy">
-                Lade dein erstes Video hoch, damit es hier sortiert, ausgewählt und gelöscht werden kann.
-              </div>
-              <v-btn
-                color="primary"
-                variant="flat"
-                class="video-manager-empty-state__action"
-                prepend-icon="mdi-upload"
-                @click="openVideoPicker"
-              >
-                Erstes Video hochladen
-              </v-btn>
-            </div>
-          </section>
+        <div v-else class="video-manager-empty-state">
+          <div class="video-manager-empty-state__icon-shell" aria-hidden="true">
+            <v-icon icon="mdi-play-box-outline" size="32" class="video-manager-empty-state__icon" />
+          </div>
+          <div class="video-manager-empty-state__title">Noch keine Videos vorhanden</div>
+          <div class="video-manager-empty-state__copy">
+            Lade dein erstes Video hoch, damit es hier sortiert, ausgewählt und gelöscht werden kann.
+          </div>
+          <v-btn
+            color="primary"
+            variant="flat"
+            class="video-manager-empty-state__action"
+            prepend-icon="mdi-upload"
+            @click="openVideoPicker"
+          >
+            Erstes Video hochladen
+          </v-btn>
         </div>
-      </div>
-    </section>
+      </SubpageContent>
+    </SubpageLayout>
   </section>
 </template>
 
@@ -174,92 +178,8 @@ function formatCompactDuration(value: number) {
   min-width: 0;
 }
 
-.video-manager-shell {
-  width: 100%;
-  min-width: 0;
-}
-
-.video-manager-stack {
-  display: grid;
-  gap: 1rem;
-}
-
-.video-manager-library {
-  display: grid;
+.video-manager-content {
   gap: 0.7rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid rgba(153, 191, 223, 0.08);
-}
-
-.video-manager-empty-state__action {
-  min-height: 2.3rem;
-  border-radius: 12px;
-  text-transform: none;
-  letter-spacing: 0.01em;
-  font-weight: 700;
-}
-
-.video-manager-heading {
-  display: grid;
-  gap: 0.34rem;
-  padding: 0;
-}
-
-.video-manager-heading__topline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem 1rem;
-}
-
-.video-manager-heading__copy {
-  min-width: 0;
-  display: grid;
-  gap: 0.28rem;
-}
-
-.video-manager-heading__title {
-  color: rgba(245, 249, 255, 0.98);
-  font-size: 1.24rem;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.video-manager-heading__meta {
-  color: rgba(208, 220, 232, 0.6);
-  font-size: 0.82rem;
-  font-weight: 600;
-  line-height: 1.28;
-}
-
-.video-manager-heading__actions {
-  display: flex;
-  flex-shrink: 0;
-  align-self: center;
-}
-
-.video-manager-heading__upload {
-  min-height: 2.05rem;
-  padding-inline: 0.82rem;
-  border-radius: 12px;
-  border-color: rgba(101, 215, 255, 0.28);
-  color: rgba(228, 246, 255, 0.96) !important;
-  background: rgba(42, 74, 104, 0.42);
-  text-transform: none;
-  font-weight: 650;
-  box-shadow: none;
-  letter-spacing: 0.01em;
-  transition:
-    filter 140ms ease,
-    background-color 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
-}
-
-.video-manager-heading__upload:hover {
-  filter: brightness(1.03);
-  background: rgba(49, 87, 121, 0.5);
-  border-color: rgba(101, 215, 255, 0.36);
 }
 
 .video-manager-upload-status {
@@ -281,7 +201,6 @@ function formatCompactDuration(value: number) {
   gap: 0.7rem;
   padding: 1.2rem 0.2rem 0.3rem;
   text-align: center;
-  border-top: 1px solid rgba(153, 191, 223, 0.08);
 }
 
 .video-manager-empty-state__icon-shell {
@@ -314,6 +233,14 @@ function formatCompactDuration(value: number) {
   line-height: 1.45;
 }
 
+.video-manager-empty-state__action {
+  min-height: 2.3rem;
+  border-radius: 12px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -324,26 +251,5 @@ function formatCompactDuration(value: number) {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-@media (max-width: 959px) {
-  .video-manager-stack {
-    gap: 0.9rem;
-  }
-}
-
-@media (max-width: 460px) {
-  .video-manager-heading__topline {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .video-manager-heading__actions {
-    flex-shrink: 1;
-  }
-
-  .video-manager-heading__upload {
-    width: auto;
-  }
 }
 </style>
