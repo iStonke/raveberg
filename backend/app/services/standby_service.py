@@ -71,6 +71,6 @@ class StandbyService:
 
     @staticmethod
     def _normalize_screen_variant(value: str) -> str:
-        if value in {"new", "nebel_pulse"}:
-            return "spotlight_reveal"
-        return value
+        if value in {"blackout", "spotlight_reveal", "new", "nebel_pulse"}:
+            return "blackout"
+        return "standard"

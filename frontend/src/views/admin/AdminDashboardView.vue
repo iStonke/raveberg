@@ -206,7 +206,7 @@ const selfieDraft = reactive<{
 })
 
 const standbyDraft = reactive<{
-  screen_variant: 'standard' | 'spotlight_reveal'
+  screen_variant: 'standard' | 'blackout'
   headline: string
   subheadline: string
 }>({
@@ -247,10 +247,10 @@ const standbyScreenOptions = [
     disabled: false,
   },
   {
-    id: 'spotlight_reveal',
-    title: 'Spotlight Reveal',
-    note: 'Derzeit deaktiviert',
-    disabled: true,
+    id: 'blackout',
+    title: 'Blackout',
+    note: 'Bildschirm schwarz',
+    disabled: false,
   },
 ] as const
 
@@ -324,7 +324,19 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
-function getStandbyScreenPreviewStyle(dimmed = false) {
+function getStandbyScreenPreviewStyle(optionId: 'standard' | 'blackout', dimmed = false) {
+  if (optionId === 'blackout') {
+    return {
+      '--standby-preview-color-a': 'rgba(0, 0, 0, 0)',
+      '--standby-preview-color-a-strong': 'rgba(0, 0, 0, 0)',
+      '--standby-preview-color-b': 'rgba(0, 0, 0, 0)',
+      '--standby-preview-color-b-strong': 'rgba(0, 0, 0, 0)',
+      '--standby-preview-saturation': '0',
+      '--standby-preview-brightness': dimmed ? '0.7' : '0.82',
+      '--standby-preview-opacity': '1',
+    }
+  }
+
   const previewPresetId = ambientColorPresetDraft.value === 'custom' ? 'violet' : ambientColorPresetDraft.value
   const preset = ambientColorPresets.find((entry) => entry.id === previewPresetId)
   const [startColor = '#55c8ff', endColor = '#2d6dff'] = preset?.swatch.match(/#(?:[0-9a-fA-F]{3}){1,2}/g) ?? []
@@ -404,10 +416,9 @@ const remoteRendererDraft = reactive<{
 
 const modeButtons: Array<{ label: string; value: AppMode }> = [
   { label: 'Visualizer', value: 'visualizer' },
-  { label: 'Slideshow', value: 'selfie' },
   { label: 'Video', value: 'video' },
+  { label: 'Slideshow', value: 'selfie' },
   { label: 'Standby', value: 'idle' },
-  { label: 'Blackout', value: 'blackout' },
 ]
 
 const videoFitItems = [
@@ -1418,7 +1429,7 @@ function handleAmbientCustomHueInput(value: number) {
   scheduleAmbientColorPersist()
 }
 
-function selectStandbyScreenVariant(value: 'standard' | 'spotlight_reveal') {
+function selectStandbyScreenVariant(value: 'standard' | 'blackout') {
   standbyDraft.screen_variant = value
 }
 
@@ -2704,8 +2715,8 @@ function formatModeLabel(mode: AppMode) {
     <div class="admin-workspace-scroll">
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
-          <div class="admin-tab-content-inner settings-content-shell">
-            <v-row class="admin-workspace settings-content-grid">
+          <div class="admin-tab-content-inner app-shell">
+            <v-row class="admin-workspace app-content-grid">
               <template v-if="activeWorkspaceSection === 'modus'">
                 <v-col cols="12" class="admin-mode-sticky-col">
                   <AdminShowControlHeader
@@ -2763,18 +2774,11 @@ function formatModeLabel(mode: AppMode) {
                         class="standby-screen-card__preview"
                         :class="{
                           'standby-screen-card__preview--standard': option.id === 'standard',
-                          'standby-screen-card__preview--spotlight-reveal': option.id === 'spotlight_reveal',
+                          'standby-screen-card__preview--blackout': option.id === 'blackout',
                         }"
-                        :style="getStandbyScreenPreviewStyle()"
+                        :style="getStandbyScreenPreviewStyle(option.id)"
                         aria-hidden="true"
-                      >
-                        <div
-                          v-if="option.id === 'spotlight_reveal'"
-                          class="standby-screen-card__preview-spotlight"
-                        >
-                          <span class="standby-screen-card__preview-spot" />
-                        </div>
-                      </div>
+                      />
                       <div class="standby-screen-card__body">
                         <span class="standby-screen-card__title">{{ option.title }}</span>
                         <div class="standby-screen-card__note">{{ option.note }}</div>
@@ -3504,7 +3508,6 @@ function formatModeLabel(mode: AppMode) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding-inline: 0;
 }
 
 .admin-workspace > :first-child {
@@ -5598,46 +5601,26 @@ function formatModeLabel(mode: AppMode) {
   opacity: 0.82;
 }
 
-.standby-screen-card__preview--spotlight-reveal {
+.standby-screen-card__preview--blackout {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.02),
-    0 8px 18px rgba(4, 10, 18, 0.14);
-}
-
-.standby-screen-card__preview--spotlight-reveal::before {
+    inset 0 1px 0 rgba(255, 255, 255, 0.015),
+    0 8px 18px rgba(0, 0, 0, 0.22);
   background:
-    radial-gradient(circle at 50% 78%, rgba(16, 28, 42, 0.2), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent 30%, rgba(0, 0, 0, 0.18) 100%);
-  filter: blur(16px);
-  opacity: 0.66;
+    linear-gradient(180deg, rgba(3, 6, 10, 0.98), rgba(0, 0, 0, 1));
 }
 
-.standby-screen-card__preview--spotlight-reveal::after {
+.standby-screen-card__preview--blackout::before {
   background:
-    radial-gradient(circle at 50% 44%, rgba(255, 255, 255, 0.025), transparent 18%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 30%, rgba(0, 0, 0, 0.22) 100%);
-  filter: blur(16px);
-  opacity: 0.54;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 30%, rgba(0, 0, 0, 0.16) 100%);
+  filter: blur(12px);
+  opacity: 0.48;
 }
 
-.standby-screen-card__preview-spotlight {
-  position: absolute;
-  inset: 0;
-}
-
-.standby-screen-card__preview-spot {
-  position: absolute;
-  top: 22%;
-  left: 22%;
-  width: 44%;
-  height: 42%;
-  border-radius: 58% 42% 54% 46% / 44% 56% 46% 54%;
-  transform: rotate(-8deg);
-  filter: blur(6px);
-  mix-blend-mode: screen;
+.standby-screen-card__preview--blackout::after {
   background:
-    radial-gradient(ellipse at 48% 50%, rgba(248, 252, 255, 0.44) 0%, rgba(194, 230, 255, 0.2) 20%, rgba(92, 174, 255, 0.08) 38%, transparent 72%);
-  opacity: 0.9;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%, rgba(0, 0, 0, 0.22) 100%);
+  filter: blur(14px);
+  opacity: 0.4;
 }
 
 .standby-screen-card__body {
@@ -5901,10 +5884,6 @@ function formatModeLabel(mode: AppMode) {
 }
 
 @media (max-width: 959px) {
-  .admin-tab-content-inner {
-    padding-inline: 0;
-  }
-
   .admin-workspace-scroll {
     padding-left: 0;
     padding-right: 0;

@@ -80,7 +80,7 @@ async function handleAction() {
   justify-content: center;
   padding:
     max(1rem, calc(env(safe-area-inset-top) + 1rem))
-    1rem
+    var(--app-content-x)
     0;
   pointer-events: none;
 }
@@ -119,17 +119,11 @@ async function handleAction() {
   transform: translate3d(0, -1rem, 0) scale(0.992);
 }
 
-@media (max-width: 960px) {
-  .admin-alert-host {
-    padding-inline: 0.75rem;
-  }
-}
-
 @media (max-width: 640px) {
   .admin-alert-host {
     padding:
       max(0.75rem, calc(env(safe-area-inset-top) + 0.75rem))
-      0.5rem
+      var(--app-content-x)
       0;
   }
 

@@ -97,7 +97,7 @@ function showUploadsBadge(hash: string) {
       flat
       height="44"
     >
-      <div class="utility-bar">
+      <div class="utility-bar app-shell app-shell--safe-area">
         <div class="utility-bar__title" aria-hidden="true">
           <span class="utility-title-text">Einstellungen</span>
         </div>
@@ -121,7 +121,7 @@ function showUploadsBadge(hash: string) {
       :aria-label="isAdminDashboard ? 'Admin Bereiche' : 'Admin Untermenü'"
     >
       <div
-        class="admin-nav-strip__inner"
+        class="admin-nav-strip__inner app-shell app-shell--safe-area"
         :class="{ 'admin-nav-strip__inner--single': isAdminSubmenuRoute }"
       >
         <template v-if="isAdminDashboard">
@@ -303,9 +303,6 @@ function showUploadsBadge(hash: string) {
   justify-content: space-between;
   gap: 0.8rem;
   min-height: 44px;
-  padding:
-    0 calc(0.8rem + var(--safe-area-right))
-    0 calc(0.8rem + var(--safe-area-left));
 }
 
 .utility-bar__title,
@@ -362,9 +359,7 @@ function showUploadsBadge(hash: string) {
   left: 0;
   right: 0;
   z-index: 1005;
-  padding:
-    0.25rem calc(0.75rem + var(--safe-area-right))
-    0.25rem calc(0.75rem + var(--safe-area-left));
+  padding-block: 0.25rem;
   background: rgba(7, 13, 21, 0.8);
   border-bottom: 1px solid rgba(164, 195, 223, 0.08);
   backdrop-filter: blur(18px);
@@ -375,15 +370,11 @@ function showUploadsBadge(hash: string) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.25rem;
-  max-width: 31rem;
-  margin: 0 auto;
-  padding: 0;
   min-width: 0;
 }
 
 .admin-nav-strip__inner--single {
   grid-template-columns: minmax(0, 1fr);
-  max-width: none;
 }
 
 .admin-nav-link {
@@ -465,7 +456,7 @@ function showUploadsBadge(hash: string) {
   width: 100%;
   max-width: none !important;
   min-width: 0;
-  padding: 3.4rem var(--settings-content-x) 0.5rem;
+  padding: 3.4rem 0 0.5rem;
   overflow-x: hidden;
   box-sizing: border-box;
 }
@@ -475,10 +466,10 @@ function showUploadsBadge(hash: string) {
 }
 
 .setup-shell-container {
-  max-width: 720px !important;
+  max-width: calc(var(--app-content-max) + (var(--app-content-x) * 2)) !important;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: 1.2rem 1rem 1.5rem;
+  padding: 1.2rem var(--app-content-x) 1.5rem;
 }
 
 .admin-shell-container {
@@ -616,20 +607,12 @@ function showUploadsBadge(hash: string) {
 }
 
 @media (max-width: 760px) {
-  .utility-bar {
-    padding: 0 0.7rem;
-  }
-
-  .admin-nav-strip {
-    padding-inline: 0.5rem;
-  }
-
   .setup-shell-container {
-    padding-inline: 0.75rem;
+    padding-inline: var(--app-content-x);
   }
 
   .shell-container {
-    padding-inline: var(--settings-content-x);
+    padding-inline: 0;
     padding-bottom: 0.5rem;
   }
 

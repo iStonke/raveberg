@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-StandbyScreenVariant = Literal["standard", "spotlight_reveal"]
+StandbyScreenVariant = Literal["standard", "blackout"]
 
 class StandbyStateRead(BaseModel):
     screen_variant: StandbyScreenVariant
@@ -14,7 +14,7 @@ class StandbyStateRead(BaseModel):
 
 
 class StandbyStateUpdate(BaseModel):
-    screen_variant: StandbyScreenVariant = Field(pattern="^(standard|spotlight_reveal)$")
+    screen_variant: StandbyScreenVariant = Field(pattern="^(standard|blackout)$")
     headline: str = Field(min_length=1, max_length=160)
     subheadline: str = Field(min_length=1, max_length=200)
     hue_shift_degrees: int = Field(ge=-180, le=180)

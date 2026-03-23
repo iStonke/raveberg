@@ -89,7 +89,7 @@ function formatCompactDuration(value: number) {
 </script>
 
 <template>
-  <section class="video-manager-shell">
+  <section class="video-manager-page">
     <input
       ref="videoFileInput"
       type="file"
@@ -99,85 +99,89 @@ function formatCompactDuration(value: number) {
       @change="handleVideoFileSelection"
     >
 
-    <div class="video-manager-stack">
-      <section class="video-manager-heading">
-        <div class="video-manager-heading__topline">
-          <div class="video-manager-heading__copy">
-            <div class="video-manager-heading__title">Videos</div>
-            <div class="video-manager-heading__meta">{{ libraryMetaLabel }}</div>
-          </div>
-          <div class="video-manager-heading__actions">
-            <v-btn
-              color="primary"
-              variant="outlined"
-              class="video-manager-heading__upload"
-              prepend-icon="mdi-upload"
-              :loading="isUploadingVideos"
-              @click="openVideoPicker"
-            >
-              Video hochladen
-            </v-btn>
-          </div>
-        </div>
+    <section class="video-manager-shell app-section">
+      <div class="app-shell">
+        <div class="video-manager-stack">
+          <section class="video-manager-heading">
+            <div class="video-manager-heading__topline">
+              <div class="video-manager-heading__copy">
+                <div class="video-manager-heading__title">Videos</div>
+                <div class="video-manager-heading__meta">{{ libraryMetaLabel }}</div>
+              </div>
+              <div class="video-manager-heading__actions">
+                <v-btn
+                  color="primary"
+                  variant="outlined"
+                  class="video-manager-heading__upload"
+                  prepend-icon="mdi-upload"
+                  :loading="isUploadingVideos"
+                  @click="openVideoPicker"
+                >
+                  Video hochladen
+                </v-btn>
+              </div>
+            </div>
 
-        <div v-if="isUploadingVideos" class="video-manager-upload-status">
-          <v-progress-linear indeterminate color="primary" rounded />
-          <div class="video-manager-upload-status__label">
-            {{ videoUploadLabel || 'Videos werden hochgeladen …' }}
-          </div>
-        </div>
-      </section>
+            <div v-if="isUploadingVideos" class="video-manager-upload-status">
+              <v-progress-linear indeterminate color="primary" rounded />
+              <div class="video-manager-upload-status__label">
+                {{ videoUploadLabel || 'Videos werden hochgeladen …' }}
+              </div>
+            </div>
+          </section>
 
-      <section class="video-manager-library">
-        <AdminVideoLibraryList
-          v-if="orderedVideoAssets.length"
-          :assets="orderedVideoAssets"
-          :active-video-id="videoStore.activeVideoId"
-          :durations="videoDurations"
-          :metadata-loading="videoMetadataLoading"
-          :busy-actions="busyActions"
-          @select="setActiveVideo"
-          @move="moveVideo"
-          @remove="removeVideo"
-        />
+          <section class="video-manager-library">
+            <AdminVideoLibraryList
+              v-if="orderedVideoAssets.length"
+              :assets="orderedVideoAssets"
+              :active-video-id="videoStore.activeVideoId"
+              :durations="videoDurations"
+              :metadata-loading="videoMetadataLoading"
+              :busy-actions="busyActions"
+              @select="setActiveVideo"
+              @move="moveVideo"
+              @remove="removeVideo"
+            />
 
-        <div v-else class="video-manager-empty-state">
-          <div class="video-manager-empty-state__icon-shell" aria-hidden="true">
-            <v-icon icon="mdi-play-box-outline" size="32" class="video-manager-empty-state__icon" />
-          </div>
-          <div class="video-manager-empty-state__title">Noch keine Videos vorhanden</div>
-          <div class="video-manager-empty-state__copy">
-            Lade dein erstes Video hoch, damit es hier sortiert, ausgewählt und gelöscht werden kann.
-          </div>
-          <v-btn
-            color="primary"
-            variant="flat"
-            class="video-manager-empty-state__action"
-            prepend-icon="mdi-upload"
-            @click="openVideoPicker"
-          >
-            Erstes Video hochladen
-          </v-btn>
+            <div v-else class="video-manager-empty-state">
+              <div class="video-manager-empty-state__icon-shell" aria-hidden="true">
+                <v-icon icon="mdi-play-box-outline" size="32" class="video-manager-empty-state__icon" />
+              </div>
+              <div class="video-manager-empty-state__title">Noch keine Videos vorhanden</div>
+              <div class="video-manager-empty-state__copy">
+                Lade dein erstes Video hoch, damit es hier sortiert, ausgewählt und gelöscht werden kann.
+              </div>
+              <v-btn
+                color="primary"
+                variant="flat"
+                class="video-manager-empty-state__action"
+                prepend-icon="mdi-upload"
+                @click="openVideoPicker"
+              >
+                Erstes Video hochladen
+              </v-btn>
+            </div>
+          </section>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   </section>
 </template>
 
 <style scoped>
+.video-manager-page {
+  width: 100%;
+  min-width: 0;
+}
+
 .video-manager-shell {
   width: 100%;
   min-width: 0;
-  padding-inline: 0;
 }
 
 .video-manager-stack {
   display: grid;
   gap: 1rem;
-}
-
-.video-manager-stack > * {
-  padding-inline: 1rem;
 }
 
 .video-manager-library {
@@ -325,14 +329,6 @@ function formatCompactDuration(value: number) {
 @media (max-width: 959px) {
   .video-manager-stack {
     gap: 0.9rem;
-  }
-
-  .video-manager-stack > * {
-    padding-inline: 0.75rem;
-  }
-
-  .video-manager-toolbar__inner {
-    padding-inline: 0.75rem;
   }
 }
 

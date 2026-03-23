@@ -153,10 +153,6 @@ function modeIcon(mode: AppMode) {
   gap: 0.82rem;
 }
 
-.mode-grid__btn:first-child {
-  grid-column: 1 / -1;
-}
-
 .mode-grid__btn {
   width: 100%;
   min-width: 0;

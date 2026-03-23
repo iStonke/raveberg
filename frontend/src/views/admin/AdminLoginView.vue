@@ -216,7 +216,7 @@ async function submit() {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: var(--app-content-x);
   overflow: hidden;
   background:
     radial-gradient(circle at 50% -8%, rgba(196, 231, 255, 0.08), transparent 20%),
@@ -307,8 +307,8 @@ async function submit() {
 .guest-success-banner-wrap {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 0.8rem);
-  left: 0.75rem;
-  right: 0.75rem;
+  left: var(--app-content-x);
+  right: var(--app-content-x);
   z-index: 30;
   pointer-events: none;
 }
@@ -445,7 +445,7 @@ async function submit() {
 
 @media (min-width: 640px) {
   .admin-login-page {
-    padding: 1.4rem;
+    padding: max(var(--app-content-x), 1.4rem);
   }
 }
 </style>

@@ -282,7 +282,7 @@ const {
   min-height: calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom));
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: var(--app-content-x);
   transform: translateY(calc((var(--safe-area-bottom) - var(--safe-area-top)) / 2));
 }
 

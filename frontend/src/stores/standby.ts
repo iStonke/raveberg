@@ -5,7 +5,7 @@ import type { StandbyState } from '../services/api'
 import { fetchStandbyState, updateStandbyState } from '../services/api'
 
 export const useStandbyStore = defineStore('standby', () => {
-  const screenVariant = ref<'standard' | 'spotlight_reveal'>('standard')
+  const screenVariant = ref<'standard' | 'blackout'>('standard')
   const headline = ref('Unterm Berg beginnt die Nacht')
   const subheadline = ref('Willkommen im Auberg-Keller')
   const hueShiftDegrees = ref(0)

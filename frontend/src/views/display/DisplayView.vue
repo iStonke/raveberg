@@ -64,6 +64,10 @@ const remoteVisualizerConfigured = computed(
     publicRuntimeStore.remoteVisualizerUrl.trim().length > 0,
 )
 
+const standbyUsesBlackoutRenderer = computed(
+  () => appModeStore.mode === 'idle' && standbyStore.screenVariant === 'blackout',
+)
+
 const showRemoteVisualizerBackground = computed(
   () =>
     (
@@ -71,7 +75,8 @@ const showRemoteVisualizerBackground = computed(
       (!remoteHeadlessAvailable.value && publicRuntimeStore.remoteRendererFallback === 'local')
     ) &&
     remoteVisualizerConfigured.value &&
-    appModeStore.mode !== 'blackout',
+    appModeStore.mode !== 'blackout' &&
+    !standbyUsesBlackoutRenderer.value,
 )
 
 const showPrimaryRenderer = computed(() => {
@@ -101,6 +106,7 @@ const activeRenderer = computed(() => {
   if (appModeStore.mode === 'selfie') return SelfieRenderer
   if (appModeStore.mode === 'video') return VideoRenderer
   if (appModeStore.mode === 'blackout') return BlackoutRenderer
+  if (standbyUsesBlackoutRenderer.value) return BlackoutRenderer
   if (appModeStore.mode === 'idle') return StandbyRenderer
   return VisualizerRenderer
 })
@@ -108,6 +114,9 @@ const activeRenderer = computed(() => {
 const activeRendererKey = computed(() => {
   if (!hasInitialState.value) {
     return 'standby:boot'
+  }
+  if (standbyUsesBlackoutRenderer.value) {
+    return 'mode:idle:blackout'
   }
   return `mode:${appModeStore.mode}`
 })
@@ -179,6 +188,9 @@ const rendererProps = computed(() => {
   }
 
   if (appModeStore.mode === 'idle') {
+    if (standbyUsesBlackoutRenderer.value) {
+      return {}
+    }
     return {
       reactionToken: idleReactionToken.value,
       screenVariant: standbyStore.screenVariant,
@@ -525,6 +537,7 @@ function currentRendererLabel() {
   if (appModeStore.mode === 'selfie') return `Selfie Renderer${remoteLabelSuffix}`
   if (appModeStore.mode === 'video') return `Video Renderer${remoteLabelSuffix}`
   if (appModeStore.mode === 'blackout') return 'Blackout Renderer'
+  if (standbyUsesBlackoutRenderer.value) return `Blackout Renderer${remoteLabelSuffix}`
   if (appModeStore.mode === 'idle') return `Idle Renderer${remoteLabelSuffix}`
   return `Visualizer Renderer${remoteLabelSuffix}`
 }
@@ -533,6 +546,7 @@ function localRendererLabel() {
   if (appModeStore.mode === 'selfie') return 'Selfie Renderer'
   if (appModeStore.mode === 'video') return 'Video Renderer'
   if (appModeStore.mode === 'blackout') return 'Blackout Renderer'
+  if (standbyUsesBlackoutRenderer.value) return 'Blackout Renderer'
   if (appModeStore.mode === 'idle') return 'Idle Renderer'
   return 'Visualizer Renderer'
 }

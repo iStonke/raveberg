@@ -10,8 +10,12 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
-  --settings-content-x: 1.125rem;
-  --settings-content-grid-gutter: 6px;
+  --app-content-x: 24px;
+  --app-content-max: 920px;
+  --app-content-grid-gutter: 6px;
+  --settings-content-x: var(--app-content-x);
+  --settings-content-max: var(--app-content-max);
+  --settings-content-grid-gutter: var(--app-content-grid-gutter);
   --app-page-background-color: #070d15;
   --app-page-background:
     radial-gradient(circle at 18% -4%, rgba(47, 166, 255, 0.08), transparent 24%),
@@ -61,18 +65,36 @@ body {
   box-sizing: border-box;
 }
 
+.app-section,
+.settings-content-section {
+  width: 100%;
+}
+
+.app-shell,
+.app-section__inner,
 .settings-content-shell {
   width: 100%;
+  max-width: var(--app-content-max);
+  margin: 0 auto;
   padding-left: var(--settings-content-x);
   padding-right: var(--settings-content-x);
   box-sizing: border-box;
 }
 
+.app-shell--safe-area {
+  max-width: calc(var(--app-content-max) + var(--safe-area-left) + var(--safe-area-right));
+  padding-left: calc(var(--app-content-x) + var(--safe-area-left));
+  padding-right: calc(var(--app-content-x) + var(--safe-area-right));
+}
+
+.app-content-grid,
 .settings-content-grid {
   width: 100%;
   margin: 0;
 }
 
+.app-content-grid > .v-col,
+.app-content-grid > [class*='v-col-'],
 .settings-content-grid > .v-col,
 .settings-content-grid > [class*='v-col-'] {
   min-width: 0;
@@ -85,9 +107,15 @@ body {
   box-sizing: border-box;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 640px) {
   :root {
-    --settings-content-x: 0.875rem;
+    --app-content-x: 20px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --app-content-max: 980px;
   }
 }
 </style>
