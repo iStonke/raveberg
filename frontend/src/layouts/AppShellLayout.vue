@@ -19,6 +19,7 @@ const isAdminLogin = computed(() => route.name === 'admin-login')
 const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
 const isAdminVideoManager = computed(() => route.name === 'admin-videos')
 const isAdminVisualizerManager = computed(() => route.name === 'admin-visualizers')
+const isAdminStickySubpage = computed(() => isAdminVideoManager.value || isAdminVisualizerManager.value)
 const showAdminSubnav = computed(() => isAdminDashboard.value)
 const isLogoutDialogOpen = ref(false)
 const isLoggingOut = ref(false)
@@ -86,7 +87,7 @@ function showUploadsBadge(hash: string) {
     class="min-height-screen"
     :class="{
       'safe-area-page': isAdminRoute || isAdminLogin || isSetupRoute,
-      'min-height-screen--visualizer': isAdminVisualizerManager,
+      'min-height-screen--visualizer': isAdminStickySubpage,
     }"
   >
     <v-app-bar
@@ -144,7 +145,7 @@ function showUploadsBadge(hash: string) {
     <v-main
       :class="[
         { 'guest-main': isGuestRoute, 'admin-main': isAdminRoute, 'setup-main': isSetupRoute },
-        { 'admin-visualizer-main': isAdminVisualizerManager },
+        { 'admin-visualizer-main': isAdminStickySubpage },
       ]"
     >
       <v-container
@@ -514,6 +515,10 @@ function showUploadsBadge(hash: string) {
 .admin-video-manager-container {
   padding: 0 0 0.5rem !important;
   padding-top: 0 !important;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
 }
 
 .admin-visualizer-manager-container {

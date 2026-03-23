@@ -2714,21 +2714,21 @@ function formatModeLabel(mode: AppMode) {
 <template>
   <section class="admin-workspace-shell">
     <div class="admin-workspace-scroll">
+      <section v-show="activeWorkspaceSection === 'modus'" class="mode-stage mode-stage--sticky">
+        <div class="app-shell mode-stage__shell">
+          <AdminModeStage
+            :current-mode="activeMode"
+            :mode-options="modeButtons"
+            :is-booting="isBooting"
+            :is-switching-mode="isSwitchingMode"
+            @switch-mode="switchMode"
+          />
+        </div>
+      </section>
+
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
           <template v-if="activeWorkspaceSection === 'modus'">
-            <section class="mode-stage mode-stage--sticky">
-              <div class="app-shell mode-stage__shell">
-                <AdminModeStage
-                  :current-mode="activeMode"
-                  :mode-options="modeButtons"
-                  :is-booting="isBooting"
-                  :is-switching-mode="isSwitchingMode"
-                  @switch-mode="switchMode"
-                />
-              </div>
-            </section>
-
             <div class="admin-tab-content-inner admin-tab-content-inner--mode app-shell">
               <v-row class="admin-workspace app-content-grid">
                 <v-col cols="12" class="admin-mode-content-col">
