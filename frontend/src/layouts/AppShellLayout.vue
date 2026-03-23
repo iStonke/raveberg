@@ -226,6 +226,9 @@ function showUploadsBadge(hash: string) {
   min-height: 100dvh;
   position: relative;
   overflow-x: hidden;
+  --settings-topbar-height: calc(44px + var(--safe-area-top));
+  --settings-tabbar-height: calc(2.12rem + 0.5rem + 1px);
+  --settings-sticky-offset: calc(var(--settings-topbar-height) + var(--settings-tabbar-height));
   background: var(--app-page-background);
   background-color: var(--app-page-background-color);
 }

@@ -21,6 +21,8 @@ const props = defineProps<{
   contextActions: ContextAction[]
   isBooting: boolean
   isSwitchingMode: boolean
+  showModes?: boolean
+  showActions?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -64,8 +66,14 @@ function modeIcon(mode: AppMode) {
 </script>
 
 <template>
-  <section class="show-control-header">
-    <div class="mode-block">
+  <section
+    class="show-control-header"
+    :class="{
+      'show-control-header--modes-only': showModes !== false && showActions === false,
+      'show-control-header--actions-only': showModes === false && showActions !== false,
+    }"
+  >
+    <div v-if="showModes !== false" class="mode-block">
       <div class="mode-grid" role="group" aria-label="Modusauswahl">
         <v-btn
           v-for="mode in modeOptions"
@@ -90,7 +98,7 @@ function modeIcon(mode: AppMode) {
     </div>
 
     <div
-      v-show="contextActions.length"
+      v-if="showActions !== false && contextActions.length"
       class="context-actions-row"
       :class="`context-actions-row--${currentMode}`"
     >
@@ -128,6 +136,12 @@ function modeIcon(mode: AppMode) {
   min-width: 0;
   margin-bottom: 0.9rem;
   padding: 0;
+}
+
+.show-control-header--modes-only,
+.show-control-header--actions-only {
+  gap: 0;
+  margin-bottom: 0;
 }
 
 .mode-block {

@@ -36,7 +36,8 @@ import {
   updateGuestUploadConfig,
 } from '../../services/api'
 import QrCodeMatrix from '../../components/branding/QrCodeMatrix.vue'
-import AdminShowControlHeader from '../../components/admin/AdminShowControlHeader.vue'
+import AdminModeStage from '../../components/admin/AdminModeStage.vue'
+import AdminShowControlActions from '../../components/admin/AdminShowControlActions.vue'
 import SystemSettingsPanel from '../../components/admin/SystemSettingsPanel.vue'
 import {
   defaultVisualizerPresetSequence,
@@ -2715,19 +2716,32 @@ function formatModeLabel(mode: AppMode) {
     <div class="admin-workspace-scroll">
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
-          <div class="admin-tab-content-inner app-shell">
-            <v-row class="admin-workspace app-content-grid">
-              <template v-if="activeWorkspaceSection === 'modus'">
-                <v-col cols="12" class="admin-mode-sticky-col">
-                  <AdminShowControlHeader
-                    :current-mode="activeMode"
-                    :mode-options="modeButtons"
-                    :context-actions="contextActions"
-                    :is-booting="isBooting"
-                    :is-switching-mode="isSwitchingMode"
-                    @switch-mode="switchMode"
-                    @run-action="runHeaderAction"
-                  />
+          <template v-if="activeWorkspaceSection === 'modus'">
+            <section class="mode-stage mode-stage--sticky">
+              <div class="app-shell mode-stage__shell">
+                <AdminModeStage
+                  :current-mode="activeMode"
+                  :mode-options="modeButtons"
+                  :is-booting="isBooting"
+                  :is-switching-mode="isSwitchingMode"
+                  @switch-mode="switchMode"
+                />
+              </div>
+            </section>
+
+            <div class="admin-tab-content-inner admin-tab-content-inner--mode app-shell">
+              <v-row class="admin-workspace app-content-grid">
+                <v-col cols="12" class="admin-mode-content-col">
+                  <Transition name="mode-actions-content" mode="out-in">
+                    <AdminShowControlActions
+                      v-if="contextActions.length"
+                      :key="activeMode"
+                      :current-mode="activeMode"
+                      :context-actions="contextActions"
+                      @run-action="runHeaderAction"
+                    />
+                    <div v-else key="mode-actions-empty" class="mode-actions-empty" aria-hidden="true" />
+                  </Transition>
                 </v-col>
 
                 <v-col cols="12">
@@ -2998,9 +3012,13 @@ function formatModeLabel(mode: AppMode) {
                     </Transition>
                   </div>
                 </v-col>
-              </template>
+              </v-row>
+            </div>
+          </template>
 
-              <template v-else-if="activeWorkspaceSection === 'system'">
+          <div v-else class="admin-tab-content-inner app-shell">
+            <v-row class="admin-workspace app-content-grid">
+              <template v-if="activeWorkspaceSection === 'system'">
                 <v-col
                   cols="12"
                   class="admin-global-settings-col"
@@ -3382,11 +3400,12 @@ function formatModeLabel(mode: AppMode) {
             </div>
           </Transition>
         </section>
-      </v-col>
-        </template>
-          </v-row>
+                </v-col>
+              </template>
+
+            </v-row>
+          </div>
         </div>
-      </div>
       </Transition>
     </div>
 
@@ -3475,6 +3494,7 @@ function formatModeLabel(mode: AppMode) {
 
 <style scoped>
 .admin-workspace-shell {
+  --mode-stage-height: calc((3.95rem * 2) + 0.82rem + 1.8rem + 1px);
   position: relative;
   min-height: 100%;
   display: block;
@@ -3510,6 +3530,10 @@ function formatModeLabel(mode: AppMode) {
   box-sizing: border-box;
 }
 
+.admin-tab-content-inner--mode {
+  padding-top: var(--mode-stage-height);
+}
+
 .admin-workspace > :first-child {
   padding-top: 0;
   margin-top: 0;
@@ -3542,11 +3566,56 @@ function formatModeLabel(mode: AppMode) {
   padding-bottom: 1rem !important;
 }
 
-.admin-mode-sticky-col {
-  padding-top: 0 !important;
-  background: transparent;
-  backdrop-filter: none;
-  isolation: isolate;
+.mode-stage {
+  width: 100%;
+  min-width: 0;
+}
+
+.mode-stage--sticky {
+  position: fixed;
+  top: var(--settings-sticky-offset);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(4, 10, 18, 0.99) 0%,
+      rgba(5, 14, 28, 0.975) 72%,
+      rgba(5, 14, 28, 0.95) 100%
+    );
+  border-bottom: 1px solid rgba(120, 170, 220, 0.14);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.mode-stage--sticky::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -12px;
+  height: 12px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0) 100%);
+}
+
+.mode-stage__shell {
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+
+.admin-mode-content-col {
+  padding-top: 0.15rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+@media (max-width: 720px) {
+  .admin-workspace-shell {
+    --mode-stage-height: calc((3.7rem * 2) + 0.72rem + 1.8rem + 1px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3586,6 +3655,29 @@ function formatModeLabel(mode: AppMode) {
 
 .mode-panel-content-leave-active {
   pointer-events: none;
+}
+
+.mode-actions-content-enter-active,
+.mode-actions-content-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 200ms ease,
+    filter 200ms ease;
+}
+
+.mode-actions-content-enter-from,
+.mode-actions-content-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+  filter: blur(4px);
+}
+
+.mode-actions-content-leave-active {
+  pointer-events: none;
+}
+
+.mode-actions-empty {
+  min-height: 0;
 }
 
 .workspace-overview-card,
