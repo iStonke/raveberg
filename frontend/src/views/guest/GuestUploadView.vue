@@ -35,7 +35,7 @@ const {
 </script>
 
 <template>
-  <section class="guest-upload-page">
+  <section class="guest-upload-page safe-area-page">
     <div class="guest-upload-background" aria-hidden="true">
       <div class="guest-upload-background-layer guest-upload-background-base" />
       <div class="guest-upload-background-layer guest-upload-background-orb guest-upload-background-orb-a" />
@@ -74,138 +74,140 @@ const {
       </Transition>
     </div>
 
-    <div class="guest-upload-panel">
-      <div class="guest-panel-stage">
-        <Transition name="guest-panel-switch">
-          <div v-if="step === 'select'" key="select" class="guest-form guest-panel-state">
-          <div class="guest-select-header">
-            <RavebergLogo mode="compact" class="guest-logo" />
-            <div class="guest-confirm-copy guest-confirm-copy--select">
-              <h1 class="guest-headline">Selfie auf dem Screen anzeigen</h1>
-              <p class="guest-subheadline">{{ selectSubheadline }}</p>
+    <div class="guest-upload-content">
+      <div class="guest-upload-panel">
+        <div class="guest-panel-stage">
+          <Transition name="guest-panel-switch">
+            <div v-if="step === 'select'" key="select" class="guest-form guest-panel-state">
+            <div class="guest-select-header">
+              <RavebergLogo mode="compact" class="guest-logo" />
+              <div class="guest-confirm-copy guest-confirm-copy--select">
+                <h1 class="guest-headline">Selfie auf dem Screen anzeigen</h1>
+                <p class="guest-subheadline">{{ selectSubheadline }}</p>
+              </div>
+            </div>
+
+            <div class="guest-actions">
+              <v-btn
+                color="primary"
+                block
+                rounded="xl"
+                class="guest-submit guest-submit--primary"
+                size="x-large"
+                prepend-icon="mdi-camera"
+                :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+                :disabled="uploadUiDisabled"
+                @click="openCamera"
+              >
+                Kamera öffnen
+              </v-btn>
+
+              <v-btn
+                variant="outlined"
+                block
+                rounded="xl"
+                class="guest-submit guest-submit--secondary"
+                size="x-large"
+                prepend-icon="mdi-image-outline"
+                :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+                :disabled="uploadUiDisabled"
+                @click="openLibrary"
+              >
+                Bild auswählen
+              </v-btn>
+            </div>
+
+            <div class="guest-meta">
+              {{ uploadMetaText }}
             </div>
           </div>
 
-          <div class="guest-actions">
-            <v-btn
-              color="primary"
-              block
-              rounded="xl"
-              class="guest-submit guest-submit--primary"
-              size="x-large"
-              prepend-icon="mdi-camera"
-              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
-              :disabled="uploadUiDisabled"
-              @click="openCamera"
-            >
-              Kamera öffnen
-            </v-btn>
+            <div v-else key="confirm" class="guest-form guest-form--confirm guest-panel-state">
+            <div class="guest-confirm-scroll">
+              <Transition name="guest-preview" appear>
+                <div
+                  v-if="pendingPreviewUrl"
+                  class="guest-preview-frame"
+                  :class="{ 'guest-preview-frame--loading': !isPendingPreviewReady }"
+                >
+                  <img
+                    class="guest-preview-image"
+                    :class="{ 'guest-preview-image--ready': isPendingPreviewReady }"
+                    :src="pendingPreviewUrl"
+                    alt="Ausgewähltes Bild"
+                    @load="handlePendingPreviewLoad"
+                  />
+                </div>
+              </Transition>
 
-            <v-btn
-              variant="outlined"
-              block
-              rounded="xl"
-              class="guest-submit guest-submit--secondary"
-              size="x-large"
-              prepend-icon="mdi-image-outline"
-              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
-              :disabled="uploadUiDisabled"
-              @click="openLibrary"
-            >
-              Bild auswählen
-            </v-btn>
-          </div>
+              <div class="guest-confirm-copy">
+                <h1 class="guest-headline guest-headline--confirm">Bild wirklich hochladen?</h1>
+                <p class="guest-subheadline">{{ confirmSubheadline }}</p>
+              </div>
 
-          <div class="guest-meta">
-            {{ uploadMetaText }}
-          </div>
+              <v-text-field
+                :model-value="commentDraft"
+                :placeholder="commentDraft ? '' : 'Kommentar hinzufügen (optional)'"
+                :maxlength="commentLimit"
+                aria-label="Kommentar hinzufügen"
+                variant="solo-filled"
+                hide-details
+                class="guest-field"
+                :disabled="uploadUiDisabled"
+                @update:model-value="updateCommentDraft"
+                @keydown.enter.prevent
+                @focusin="isCommentFieldFocused = true"
+                @focusout="isCommentFieldFocused = false"
+              />
+
+              <Transition name="guest-counter">
+                <div
+                  v-if="isCommentFieldFocused"
+                  class="guest-comment-counter"
+                  aria-live="polite"
+                >
+                  {{ commentLength }} / {{ commentLimit }}
+                </div>
+              </Transition>
+
+            </div>
+
+            <div class="guest-confirm-actions">
+              <v-btn
+                variant="outlined"
+                rounded="xl"
+                class="guest-submit guest-submit--secondary"
+                :disabled="isUploading"
+                @click="cancelConfirmation"
+              >
+                Zurück
+              </v-btn>
+
+              <v-btn
+                color="primary"
+                rounded="xl"
+                class="guest-submit guest-submit--primary"
+                :class="{ 'guest-submit--disabled': uploadUiDisabled }"
+                :disabled="uploadUiDisabled"
+                :loading="isUploading"
+                @click="confirmUpload"
+              >
+                Hochladen
+              </v-btn>
+            </div>
+            </div>
+          </Transition>
         </div>
 
-          <div v-else key="confirm" class="guest-form guest-form--confirm guest-panel-state">
-          <div class="guest-confirm-scroll">
-            <Transition name="guest-preview" appear>
-              <div
-                v-if="pendingPreviewUrl"
-                class="guest-preview-frame"
-                :class="{ 'guest-preview-frame--loading': !isPendingPreviewReady }"
-              >
-                <img
-                  class="guest-preview-image"
-                  :class="{ 'guest-preview-image--ready': isPendingPreviewReady }"
-                  :src="pendingPreviewUrl"
-                  alt="Ausgewähltes Bild"
-                  @load="handlePendingPreviewLoad"
-                />
-              </div>
-            </Transition>
-
-            <div class="guest-confirm-copy">
-              <h1 class="guest-headline guest-headline--confirm">Bild wirklich hochladen?</h1>
-              <p class="guest-subheadline">{{ confirmSubheadline }}</p>
-            </div>
-
-            <v-text-field
-              :model-value="commentDraft"
-              :placeholder="commentDraft ? '' : 'Kommentar hinzufügen (optional)'"
-              :maxlength="commentLimit"
-              aria-label="Kommentar hinzufügen"
-              variant="solo-filled"
-              hide-details
-              class="guest-field"
-              :disabled="uploadUiDisabled"
-              @update:model-value="updateCommentDraft"
-              @keydown.enter.prevent
-              @focusin="isCommentFieldFocused = true"
-              @focusout="isCommentFieldFocused = false"
-            />
-
-            <Transition name="guest-counter">
-              <div
-                v-if="isCommentFieldFocused"
-                class="guest-comment-counter"
-                aria-live="polite"
-              >
-                {{ commentLength }} / {{ commentLimit }}
-              </div>
-            </Transition>
-
-          </div>
-
-          <div class="guest-confirm-actions">
-            <v-btn
-              variant="outlined"
-              rounded="xl"
-              class="guest-submit guest-submit--secondary"
-              :disabled="isUploading"
-              @click="cancelConfirmation"
-            >
-              Zurück
-            </v-btn>
-
-            <v-btn
-              color="primary"
-              rounded="xl"
-              class="guest-submit guest-submit--primary"
-              :class="{ 'guest-submit--disabled': uploadUiDisabled }"
-              :disabled="uploadUiDisabled"
-              :loading="isUploading"
-              @click="confirmUpload"
-            >
-              Hochladen
-            </v-btn>
-          </div>
-          </div>
-        </Transition>
+        <v-alert
+          v-if="errorMessage"
+          type="error"
+          variant="tonal"
+          class="guest-alert"
+        >
+          {{ errorMessage }}
+        </v-alert>
       </div>
-
-      <v-alert
-        v-if="errorMessage"
-        type="error"
-        variant="tonal"
-        class="guest-alert"
-      >
-        {{ errorMessage }}
-      </v-alert>
     </div>
 
     <input
@@ -266,15 +268,19 @@ const {
 .guest-upload-page {
   position: relative;
   isolation: isolate;
-  height: 100%;
-  min-height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
+  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   background:
     radial-gradient(circle at 50% -8%, rgba(196, 231, 255, 0.08), transparent 20%),
     linear-gradient(180deg, #0f233b 0%, #091828 34%, #040c16 68%, #02060b 100%);
+}
+
+.guest-upload-content {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
 }
 
 .guest-upload-background {
@@ -741,13 +747,13 @@ const {
 }
 
 @media (min-width: 640px) {
-  .guest-upload-page {
+  .guest-upload-content {
     padding: 1.4rem;
   }
 }
 
 @media (max-height: 520px) {
-  .guest-upload-page {
+  .guest-upload-content {
     padding: 0.75rem;
   }
 

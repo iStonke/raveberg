@@ -83,7 +83,10 @@ function showUploadsBadge(hash: string) {
 </script>
 
 <template>
-  <v-layout class="min-height-screen">
+  <v-layout
+    class="min-height-screen"
+    :class="{ 'safe-area-page': isAdminRoute || isAdminLogin || isSetupRoute }"
+  >
     <v-app-bar
       v-if="!isGuestRoute && !isAdminLogin && !isSetupRoute"
       color="surface"
@@ -228,11 +231,8 @@ function showUploadsBadge(hash: string) {
   min-height: 100dvh;
   position: relative;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 18% -4%, rgba(47, 166, 255, 0.08), transparent 24%),
-    radial-gradient(circle at 82% 8%, rgba(52, 215, 188, 0.05), transparent 20%),
-    radial-gradient(circle at 50% 100%, rgba(33, 89, 168, 0.04), transparent 26%),
-    linear-gradient(180deg, #070d15 0%, #0a121b 52%, #0d1520 100%);
+  background: var(--app-page-background);
+  background-color: var(--app-page-background-color);
 }
 
 .min-height-screen::before {
@@ -266,6 +266,9 @@ function showUploadsBadge(hash: string) {
   top: 0;
   left: 0;
   right: 0;
+  height: calc(44px + var(--safe-area-top)) !important;
+  min-height: calc(44px + var(--safe-area-top)) !important;
+  padding-top: var(--safe-area-top);
   z-index: 1006;
   border-bottom: 1px solid rgba(164, 195, 223, 0.08);
   backdrop-filter: blur(18px);
@@ -278,7 +281,10 @@ function showUploadsBadge(hash: string) {
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
-  padding: 0 0.8rem;
+  min-height: 44px;
+  padding:
+    0 calc(0.8rem + var(--safe-area-right))
+    0 calc(0.8rem + var(--safe-area-left));
 }
 
 .utility-bar__title,
@@ -331,11 +337,13 @@ function showUploadsBadge(hash: string) {
 
 .admin-nav-strip {
   position: fixed;
-  top: 44px;
+  top: calc(44px + var(--safe-area-top));
   left: 0;
   right: 0;
   z-index: 1005;
-  padding: 0.25rem 0.75rem;
+  padding:
+    0.25rem calc(0.75rem + var(--safe-area-right))
+    0.25rem calc(0.75rem + var(--safe-area-left));
   background: rgba(7, 13, 21, 0.8);
   border-bottom: 1px solid rgba(164, 195, 223, 0.08);
   backdrop-filter: blur(18px);
@@ -469,8 +477,8 @@ function showUploadsBadge(hash: string) {
   max-width: 1280px !important;
   min-width: 0;
   height: auto;
-  min-height: calc(100vh - 76px);
-  min-height: calc(100dvh - 76px);
+  min-height: calc(100vh - 76px - var(--safe-area-top) - var(--safe-area-bottom));
+  min-height: calc(100dvh - 76px - var(--safe-area-top) - var(--safe-area-bottom));
 }
 
 .logout-confirm-dialog {
