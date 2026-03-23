@@ -2704,8 +2704,8 @@ function formatModeLabel(mode: AppMode) {
     <div class="admin-workspace-scroll">
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
-          <div class="admin-tab-content-inner">
-            <v-row class="admin-workspace">
+          <div class="admin-tab-content-inner settings-content-shell">
+            <v-row class="admin-workspace settings-content-grid">
               <template v-if="activeWorkspaceSection === 'modus'">
                 <v-col cols="12" class="admin-mode-sticky-col">
                   <AdminShowControlHeader
@@ -3484,8 +3484,8 @@ function formatModeLabel(mode: AppMode) {
   box-sizing: border-box;
   padding-top: 0;
   padding-bottom: 0.5rem;
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .admin-workspace {
@@ -3504,18 +3504,12 @@ function formatModeLabel(mode: AppMode) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding-inline: 0.375rem;
+  padding-inline: 0;
 }
 
 .admin-workspace > :first-child {
   padding-top: 0;
   margin-top: 0;
-}
-
-.admin-workspace > .v-col,
-.admin-workspace > [class*='v-col-'] {
-  padding: 6px;
-  min-width: 0;
 }
 
 .workspace-tab-content-enter-active,
@@ -5908,12 +5902,12 @@ function formatModeLabel(mode: AppMode) {
 
 @media (max-width: 959px) {
   .admin-tab-content-inner {
-    padding-inline: 0.25rem;
+    padding-inline: 0;
   }
 
   .admin-workspace-scroll {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .status-overview-col {

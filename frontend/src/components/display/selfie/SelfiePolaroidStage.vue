@@ -3245,9 +3245,13 @@ function nowMs() {
   position: relative;
   isolation: isolate;
   width: 100%;
-  min-height: 100dvh;
+  height: 100%;
+  min-height: 100%;
   overflow: hidden;
-  background: #000;
+  background:
+    radial-gradient(circle at 24% 10%, rgba(52, 86, 126, 0.1), transparent 28%),
+    radial-gradient(circle at 72% 72%, rgba(20, 58, 94, 0.08), transparent 34%),
+    linear-gradient(180deg, #09111a 0%, #04090f 50%, #010204 100%);
 }
 
 .polaroid-stage__bg-base,
@@ -3261,18 +3265,26 @@ function nowMs() {
 
 .polaroid-stage__bg-base {
   z-index: 0;
-  background: #000;
+  background:
+    radial-gradient(circle at 22% 12%, rgba(68, 106, 146, 0.13), transparent 26%),
+    radial-gradient(circle at 76% 70%, rgba(24, 70, 110, 0.1), transparent 32%),
+    radial-gradient(circle at 52% 44%, rgba(8, 16, 28, 0.24), transparent 38%),
+    linear-gradient(180deg, #08111a 0%, #04090f 46%, #010204 100%);
+  transform: translate3d(0, 0, 0) scale(1.04);
+  will-change: transform, opacity;
+  animation: polaroid-bg-base-drift 46s cubic-bezier(0.42, 0, 0.24, 1) infinite alternate;
 }
 
 .polaroid-stage__bg-light {
   position: absolute;
-  width: 220%;
-  height: 220%;
-  left: -60%;
-  top: -60%;
+  inset: -72%;
   z-index: 1;
   pointer-events: none;
   overflow: visible;
+  opacity: 0.92;
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  animation: polaroid-bg-light-drift 58s cubic-bezier(0.38, 0, 0.24, 1) infinite alternate;
 }
 
 .polaroid-stage__bg-light--debug {
@@ -3285,7 +3297,6 @@ function nowMs() {
   border-radius: 999px;
   pointer-events: none;
   mix-blend-mode: screen;
-  filter: blur(54px);
   will-change: transform, opacity;
   transform: translate3d(0, 0, 0) scale(1);
 }
@@ -3314,68 +3325,74 @@ function nowMs() {
 }
 
 .polaroid-stage__bg-blob--primary {
-  width: 72%;
-  height: 68%;
-  left: 6%;
-  top: 4%;
+  width: 92%;
+  height: 88%;
+  left: -6%;
+  top: -8%;
   background:
     radial-gradient(
       ellipse at 34% 30%,
       rgba(126, 196, 255, 0.36) 0%,
-      rgba(126, 196, 255, 0.21) 14%,
-      rgba(126, 196, 255, 0.11) 28%,
-      rgba(126, 196, 255, 0.042) 42%,
-      transparent 68%
+      rgba(126, 196, 255, 0.23) 18%,
+      rgba(126, 196, 255, 0.12) 34%,
+      rgba(126, 196, 255, 0.055) 50%,
+      rgba(126, 196, 255, 0.02) 62%,
+      transparent 78%
     ),
     radial-gradient(
       ellipse at 58% 54%,
       rgba(96, 170, 255, 0.12) 0%,
-      rgba(96, 170, 255, 0.05) 22%,
-      transparent 48%
+      rgba(96, 170, 255, 0.06) 26%,
+      rgba(96, 170, 255, 0.02) 42%,
+      transparent 60%
     );
-  animation: polaroid-glow-primary 44s cubic-bezier(0.42, 0, 0.22, 1) infinite alternate;
+  animation: polaroid-glow-primary 34s cubic-bezier(0.42, 0, 0.22, 1) infinite alternate;
 }
 
 .polaroid-stage__bg-blob--secondary {
-  width: 64%;
-  height: 60%;
-  left: 40%;
-  top: 28%;
+  width: 80%;
+  height: 76%;
+  left: 34%;
+  top: 20%;
   background:
     radial-gradient(
       ellipse at 46% 42%,
       rgba(72, 146, 228, 0.2) 0%,
-      rgba(72, 146, 228, 0.11) 16%,
-      rgba(72, 146, 228, 0.048) 32%,
-      transparent 62%
+      rgba(72, 146, 228, 0.12) 18%,
+      rgba(72, 146, 228, 0.058) 36%,
+      rgba(72, 146, 228, 0.02) 52%,
+      transparent 70%
     ),
     radial-gradient(
       ellipse at 62% 58%,
       rgba(114, 188, 255, 0.08) 0%,
-      transparent 42%
+      rgba(114, 188, 255, 0.025) 28%,
+      transparent 50%
     );
-  animation: polaroid-glow-secondary 52s cubic-bezier(0.42, 0, 0.24, 1) infinite alternate;
+  animation: polaroid-glow-secondary 38s cubic-bezier(0.42, 0, 0.24, 1) infinite alternate;
 }
 
 .polaroid-stage__bg-blob--tertiary {
-  width: 58%;
-  height: 54%;
-  left: 24%;
-  top: 56%;
+  width: 72%;
+  height: 68%;
+  left: 16%;
+  top: 50%;
   background:
     radial-gradient(
       ellipse at 44% 44%,
       rgba(94, 162, 236, 0.13) 0%,
-      rgba(94, 162, 236, 0.07) 18%,
-      rgba(94, 162, 236, 0.03) 34%,
-      transparent 64%
+      rgba(94, 162, 236, 0.075) 20%,
+      rgba(94, 162, 236, 0.035) 38%,
+      rgba(94, 162, 236, 0.015) 54%,
+      transparent 72%
     ),
     radial-gradient(
       ellipse at 58% 52%,
       rgba(152, 214, 255, 0.05) 0%,
-      transparent 38%
+      rgba(152, 214, 255, 0.018) 26%,
+      transparent 46%
     );
-  animation: polaroid-glow-tertiary 60s cubic-bezier(0.4, 0, 0.24, 1) infinite alternate;
+  animation: polaroid-glow-tertiary 42s cubic-bezier(0.4, 0, 0.24, 1) infinite alternate;
 }
 
 .polaroid-stage__polaroids {
@@ -3446,64 +3463,98 @@ function nowMs() {
   }
 }
 
-@keyframes polaroid-glow-primary {
+@keyframes polaroid-bg-base-drift {
   0% {
-    transform: translate3d(-9%, -7%, 0) scale(1);
-    opacity: 0.8;
-  }
-  23% {
-    transform: translate3d(4%, -4%, 0) scale(1.04);
+    transform: translate3d(-1.5%, -1%, 0) scale(1.05);
     opacity: 0.94;
   }
-  51% {
-    transform: translate3d(10%, 8%, 0) scale(1.08);
-    opacity: 0.88;
-  }
-  78% {
-    transform: translate3d(-2%, 13%, 0) scale(1.03);
-    opacity: 0.96;
+  50% {
+    transform: translate3d(1.2%, 0.8%, 0) scale(1.08);
+    opacity: 1;
   }
   100% {
-    transform: translate3d(8%, 2%, 0) scale(1.06);
-    opacity: 0.86;
+    transform: translate3d(-0.8%, 1.6%, 0) scale(1.06);
+    opacity: 0.96;
+  }
+}
+
+@keyframes polaroid-bg-light-drift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) rotate(-2deg) scale(1);
+    opacity: 0.84;
+  }
+  34% {
+    transform: translate3d(1%, 1.5%, 0) rotate(1.4deg) scale(1.03);
+    opacity: 0.94;
+  }
+  68% {
+    transform: translate3d(2.2%, -1.8%, 0) rotate(-1deg) scale(1.05);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(-1.2%, 2%, 0) rotate(2.1deg) scale(1.02);
+    opacity: 0.96;
+  }
+}
+
+@keyframes polaroid-glow-primary {
+  0% {
+    transform: translate3d(-12%, -10%, 0) scale(0.98);
+    opacity: 0.72;
+  }
+  23% {
+    transform: translate3d(6%, -6%, 0) scale(1.06);
+    opacity: 0.9;
+  }
+  51% {
+    transform: translate3d(14%, 10%, 0) scale(1.12);
+    opacity: 0.84;
+  }
+  78% {
+    transform: translate3d(-5%, 16%, 0) scale(1.04);
+    opacity: 0.92;
+  }
+  100% {
+    transform: translate3d(10%, 4%, 0) scale(1.08);
+    opacity: 0.82;
   }
 }
 
 @keyframes polaroid-glow-secondary {
   0% {
-    transform: translate3d(7%, -5%, 0) scale(1.02);
-    opacity: 0.5;
+    transform: translate3d(10%, -8%, 0) scale(1);
+    opacity: 0.42;
   }
   28% {
-    transform: translate3d(-5%, 1%, 0) scale(1.06);
-    opacity: 0.7;
+    transform: translate3d(-8%, 2%, 0) scale(1.08);
+    opacity: 0.62;
   }
   56% {
-    transform: translate3d(4%, 12%, 0) scale(1.09);
-    opacity: 0.58;
+    transform: translate3d(7%, 16%, 0) scale(1.12);
+    opacity: 0.5;
   }
   100% {
-    transform: translate3d(-7%, 6%, 0) scale(1.04);
-    opacity: 0.68;
+    transform: translate3d(-10%, 8%, 0) scale(1.06);
+    opacity: 0.6;
   }
 }
 
 @keyframes polaroid-glow-tertiary {
   0% {
-    transform: translate3d(-3%, 4%, 0) scale(1);
-    opacity: 0.36;
+    transform: translate3d(-6%, 6%, 0) scale(0.98);
+    opacity: 0.28;
   }
   33% {
-    transform: translate3d(6%, -2%, 0) scale(1.05);
-    opacity: 0.5;
+    transform: translate3d(9%, -4%, 0) scale(1.08);
+    opacity: 0.42;
   }
   67% {
-    transform: translate3d(-6%, -6%, 0) scale(1.03);
-    opacity: 0.4;
+    transform: translate3d(-10%, -9%, 0) scale(1.04);
+    opacity: 0.34;
   }
   100% {
-    transform: translate3d(4%, 8%, 0) scale(1.07);
-    opacity: 0.48;
+    transform: translate3d(7%, 11%, 0) scale(1.1);
+    opacity: 0.4;
   }
 }
 </style>

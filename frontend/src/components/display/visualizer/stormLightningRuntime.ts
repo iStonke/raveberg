@@ -17,6 +17,8 @@ export type StormLightningPreset = Extract<VisualizerPreset, 'storm_lightning'>
 
 const STORM_LIGHTNING_PRESETS = new Set<StormLightningPreset>(['storm_lightning'])
 const UP_AXIS = new THREE.Vector3(0, 1, 0)
+const FOG_PLANE_DISTANCE = 92
+const FOG_PLANE_OVERSCAN = 1.08
 
 interface StormPalette {
   variant: 'classic_storm' | 'cold_storm' | 'deep_thunder'
@@ -1370,10 +1372,15 @@ export class StormLightningRuntime implements VisualizerRuntimeController {
     if (!this.camera || !this.fogMesh || !this.container || !this.fogUniforms) {
       return
     }
-    const distance = this.camera.position.z - this.fogMesh.position.z
+    const distance = FOG_PLANE_DISTANCE
     const height = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * distance
     const width = height * this.camera.aspect
-    this.fogMesh.scale.set(width, height, 1)
+    const cameraDirection = new THREE.Vector3()
+    this.camera.getWorldDirection(cameraDirection)
+
+    this.fogMesh.position.copy(this.camera.position).addScaledVector(cameraDirection, distance)
+    this.fogMesh.quaternion.copy(this.camera.quaternion)
+    this.fogMesh.scale.set(width * FOG_PLANE_OVERSCAN, height * FOG_PLANE_OVERSCAN, 1)
     this.fogUniforms.uResolution.value.set(
       Math.max(1, this.container.clientWidth),
       Math.max(1, this.container.clientHeight),

@@ -111,7 +111,7 @@ function isSkipped(preset: VisualizerPreset) {
 <style scoped>
 .video-library-list {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.7rem;
 }
 
 .video-library-item {
@@ -121,23 +121,31 @@ function isSkipped(preset: VisualizerPreset) {
   align-items: stretch;
   padding: 0.62rem;
   border-radius: 15px;
-  background: rgba(12, 20, 30, 0.34);
-  border: 1px solid rgba(160, 194, 226, 0.06);
+  background:
+    radial-gradient(circle at top right, rgba(85, 198, 255, 0.1), transparent 42%),
+    linear-gradient(180deg, rgba(20, 31, 44, 0.88), rgba(12, 20, 31, 0.94));
+  border: 1px solid rgba(160, 194, 226, 0.14);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
   min-width: 0;
   cursor: pointer;
   transition:
     border-color 160ms ease,
-    background-color 160ms ease;
-}
-
-.video-library-item:hover {
-  border-color: rgba(102, 215, 231, 0.1);
-  background: rgba(15, 24, 35, 0.44);
+    background-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 150ms ease;
 }
 
 .video-library-item--active {
-  border-color: rgba(102, 215, 231, 0.14);
-  background: rgba(16, 27, 39, 0.5);
+  border-color: rgba(102, 215, 231, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(88, 216, 242, 0.18), transparent 44%),
+    linear-gradient(180deg, rgba(25, 40, 56, 0.98), rgba(15, 27, 40, 0.98));
+  box-shadow:
+    0 16px 30px rgba(4, 12, 20, 0.28),
+    0 0 0 1px rgba(91, 228, 242, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
 .video-library-item--skipped {
@@ -151,8 +159,9 @@ function isSkipped(preset: VisualizerPreset) {
   min-height: 64px;
   border-radius: 12px;
   background:
-    linear-gradient(180deg, rgba(24, 35, 48, 0.56), rgba(16, 25, 37, 0.62));
-  border: 1px solid rgba(255, 255, 255, 0.025);
+    radial-gradient(circle at 30% 24%, rgba(109, 214, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(30, 44, 60, 0.86), rgba(18, 28, 41, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 

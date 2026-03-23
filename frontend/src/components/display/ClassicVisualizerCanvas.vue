@@ -812,8 +812,8 @@ function clamp(value: number, min: number, max: number) {
 <style scoped>
 .visualizer-canvas {
   display: block;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   background: #030407;
 }
 </style>

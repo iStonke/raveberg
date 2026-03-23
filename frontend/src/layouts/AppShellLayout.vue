@@ -20,7 +20,7 @@ const isAdminDashboard = computed(() => route.name === 'admin-dashboard')
 const isAdminVideoManager = computed(() => route.name === 'admin-videos')
 const isAdminVisualizerManager = computed(() => route.name === 'admin-visualizers')
 const isAdminSubmenuRoute = computed(() => isAdminVideoManager.value || isAdminVisualizerManager.value)
-const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminSubmenuRoute.value)
+const showAdminSubnav = computed(() => isAdminDashboard.value || isAdminVideoManager.value)
 const isLogoutDialogOpen = ref(false)
 const isLoggingOut = ref(false)
 
@@ -85,7 +85,10 @@ function showUploadsBadge(hash: string) {
 <template>
   <v-layout
     class="min-height-screen"
-    :class="{ 'safe-area-page': isAdminRoute || isAdminLogin || isSetupRoute }"
+    :class="{
+      'safe-area-page': isAdminRoute || isAdminLogin || isSetupRoute,
+      'min-height-screen--visualizer': isAdminVisualizerManager,
+    }"
   >
     <v-app-bar
       v-if="!isGuestRoute && !isAdminLogin && !isSetupRoute"
@@ -152,7 +155,12 @@ function showUploadsBadge(hash: string) {
       </div>
     </div>
 
-    <v-main :class="[{ 'guest-main': isGuestRoute, 'admin-main': isAdminRoute, 'setup-main': isSetupRoute }]">
+    <v-main
+      :class="[
+        { 'guest-main': isGuestRoute, 'admin-main': isAdminRoute, 'setup-main': isSetupRoute },
+        { 'admin-visualizer-main': isAdminVisualizerManager },
+      ]"
+    >
       <v-container
         v-if="isGuestRoute"
         class="shell-container guest-shell-container"
@@ -165,7 +173,8 @@ function showUploadsBadge(hash: string) {
         :class="{
           'admin-shell-container': isAdminRoute,
           'admin-workspace-container': isAdminDashboard,
-          'admin-video-manager-container': isAdminSubmenuRoute,
+          'admin-video-manager-container': isAdminVideoManager,
+          'admin-visualizer-manager-container': isAdminVisualizerManager,
           'admin-login-shell-container': isAdminLogin,
           'setup-shell-container': isSetupRoute,
         }"
@@ -247,9 +256,21 @@ function showUploadsBadge(hash: string) {
   mix-blend-mode: soft-light;
 }
 
+.min-height-screen--visualizer {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .guest-main {
   padding: 0 !important;
   height: 100%;
+}
+
+.admin-visualizer-main {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .guest-shell-container {
@@ -444,7 +465,7 @@ function showUploadsBadge(hash: string) {
   width: 100%;
   max-width: none !important;
   min-width: 0;
-  padding: 3.4rem 1rem 0.5rem;
+  padding: 3.4rem var(--settings-content-x) 0.5rem;
   overflow-x: hidden;
   box-sizing: border-box;
 }
@@ -468,6 +489,15 @@ function showUploadsBadge(hash: string) {
   padding: 0 0 0.5rem;
 }
 
+.admin-visualizer-manager-container {
+  padding: 0 0 0.5rem !important;
+  padding-top: 0 !important;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+
 .admin-login-shell-container {
   padding: 0;
 }
@@ -477,6 +507,8 @@ function showUploadsBadge(hash: string) {
   max-width: 1280px !important;
   min-width: 0;
   height: auto;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
   min-height: calc(100vh - 76px - var(--safe-area-top) - var(--safe-area-bottom));
   min-height: calc(100dvh - 76px - var(--safe-area-top) - var(--safe-area-bottom));
 }
@@ -597,7 +629,7 @@ function showUploadsBadge(hash: string) {
   }
 
   .shell-container {
-    padding-inline: 0.75rem;
+    padding-inline: var(--settings-content-x);
     padding-bottom: 0.5rem;
   }
 
@@ -607,6 +639,10 @@ function showUploadsBadge(hash: string) {
 
   .admin-login-shell-container {
     padding: 0;
+  }
+
+  .admin-visualizer-manager-container {
+    padding-inline: 0 !important;
   }
 
   .logout-confirm-dialog {

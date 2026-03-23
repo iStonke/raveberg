@@ -622,9 +622,9 @@ async function postHeartbeat(isConnected: boolean) {
 <style scoped>
 .display-surface {
   position: relative;
-  width: 100vw;
-  height: 100dvh;
-  min-height: 100dvh;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   overflow: hidden;
   background: #020304;
 }

@@ -74,7 +74,7 @@ const {
       </Transition>
     </div>
 
-    <div class="guest-upload-content">
+    <div class="guest-upload-stage">
       <div class="guest-upload-panel">
         <div class="guest-panel-stage">
           <Transition name="guest-panel-switch">
@@ -276,11 +276,14 @@ const {
     linear-gradient(180deg, #0f233b 0%, #091828 34%, #040c16 68%, #02060b 100%);
 }
 
-.guest-upload-content {
-  min-height: 100%;
+.guest-upload-stage {
+  width: 100%;
+  min-height: calc(100vh - var(--safe-area-top) - var(--safe-area-bottom));
+  min-height: calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom));
   display: grid;
   place-items: center;
   padding: 1rem;
+  transform: translateY(calc((var(--safe-area-bottom) - var(--safe-area-top)) / 2));
 }
 
 .guest-upload-background {
@@ -747,14 +750,15 @@ const {
 }
 
 @media (min-width: 640px) {
-  .guest-upload-content {
+  .guest-upload-stage {
     padding: 1.4rem;
   }
 }
 
 @media (max-height: 520px) {
-  .guest-upload-content {
+  .guest-upload-stage {
     padding: 0.75rem;
+    transform: translateY(calc((var(--safe-area-bottom) - var(--safe-area-top)) / 3));
   }
 
   .guest-upload-panel {

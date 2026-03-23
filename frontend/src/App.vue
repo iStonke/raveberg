@@ -10,6 +10,8 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
+  --settings-content-x: 1.125rem;
+  --settings-content-grid-gutter: 6px;
   --app-page-background-color: #070d15;
   --app-page-background:
     radial-gradient(circle at 18% -4%, rgba(47, 166, 255, 0.08), transparent 24%),
@@ -59,9 +61,33 @@ body {
   box-sizing: border-box;
 }
 
+.settings-content-shell {
+  width: 100%;
+  padding-left: var(--settings-content-x);
+  padding-right: var(--settings-content-x);
+  box-sizing: border-box;
+}
+
+.settings-content-grid {
+  width: 100%;
+  margin: 0;
+}
+
+.settings-content-grid > .v-col,
+.settings-content-grid > [class*='v-col-'] {
+  min-width: 0;
+  padding: var(--settings-content-grid-gutter);
+}
+
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --settings-content-x: 0.875rem;
+  }
 }
 </style>
