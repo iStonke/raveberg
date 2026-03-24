@@ -2,6 +2,7 @@
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision = "20260324_0014"
@@ -11,8 +12,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("video_state", sa.Column("loop_video_id", sa.Integer(), nullable=True))
+    bind = op.get_bind()
+    columns = {column["name"] for column in inspect(bind).get_columns("video_state")}
+    if "loop_video_id" not in columns:
+        op.add_column("video_state", sa.Column("loop_video_id", sa.Integer(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("video_state", "loop_video_id")
+    bind = op.get_bind()
+    columns = {column["name"] for column in inspect(bind).get_columns("video_state")}
+    if "loop_video_id" in columns:
+        op.drop_column("video_state", "loop_video_id")

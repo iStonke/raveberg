@@ -11,6 +11,7 @@ const props = withDefaults(
     eventName: string
     eventTagline: string
     guestUploadUrl: string
+    guestUploadStatus?: 'active' | 'paused' | 'expired'
     reactionToken?: number
     hueShiftDegrees?: number
   }>(),
@@ -26,6 +27,10 @@ const { stageShellStyle } = useVirtualStageScale({ scaleBoost: STAGE_SCALE_BOOST
 const backgroundStyle = computed(() => ({
   '--idle-hue-shift': `${props.hueShiftDegrees}deg`,
 }))
+const showGuestQrCode = computed(() => props.guestUploadStatus !== 'paused' && props.guestUploadStatus !== 'expired')
+const guestUploadStatusLabel = computed(() =>
+  props.guestUploadStatus === 'expired' ? 'Upload-Session abgelaufen' : 'Gäste-Upload pausiert',
+)
 
 const fogLayers = [
   {
@@ -175,8 +180,16 @@ const particles = [
 
               <div class="idle-qr-module">
                 <div class="idle-qr-haze" aria-hidden="true" />
-                <QrCodeMatrix class="idle-qr-code" :text="guestUploadUrl" :quiet-zone="5" />
-                <div class="idle-qr-label">QR-Code scannen</div>
+                <QrCodeMatrix v-if="showGuestQrCode" class="idle-qr-code" :text="guestUploadUrl" :quiet-zone="5" />
+                <div v-else class="idle-qr-status">
+                  <v-icon
+                    :icon="props.guestUploadStatus === 'expired' ? 'mdi-timer-off-outline' : 'mdi-pause-circle-outline'"
+                    size="30"
+                  />
+                  <div class="idle-qr-status__title">{{ guestUploadStatusLabel }}</div>
+                  <div class="idle-qr-status__copy">QR-Code wieder einblenden, sobald die Session aktiv ist.</div>
+                </div>
+                <div class="idle-qr-label">{{ showGuestQrCode ? 'QR-Code scannen' : 'Upload derzeit nicht verfügbar' }}</div>
               </div>
             </div>
           </div>
@@ -561,6 +574,34 @@ const particles = [
   font-weight: 650;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+.idle-qr-status {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+  width: clamp(14rem, 21vw, 17.6rem);
+  padding: 1.35rem 1.1rem;
+  border-radius: 1.3rem;
+  background: rgba(7, 16, 28, 0.78);
+  border: 1px solid rgba(140, 179, 220, 0.14);
+  color: rgba(237, 244, 252, 0.88);
+  text-align: center;
+}
+
+.idle-qr-status__title {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.idle-qr-status__copy {
+  max-width: 12rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: rgba(205, 220, 237, 0.66);
 }
 
 @keyframes idleBlobDriftA {

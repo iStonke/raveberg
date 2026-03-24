@@ -19,6 +19,7 @@ const props = defineProps<{
   accessResetCounter: number
   accessSaving: boolean
   securitySaving: boolean
+  sessionRestarting: boolean
   isRestartingSystem: boolean
   isShuttingDown: boolean
   isTogglingSetupMode: boolean
@@ -30,6 +31,7 @@ const emit = defineEmits<{
   shutdown: []
   'toggle-setup-mode': []
   'save-session-timeout': [payload: { sessionTimeoutHours: number }]
+  'restart-session': []
 }>()
 
 const accessForm = reactive({
@@ -382,6 +384,19 @@ function updateSessionTimeout(value: number) {
               </v-list-item>
             </v-list>
           </v-menu>
+
+          <v-btn
+            variant="text"
+            class="session-timeout-row session-timeout-row--action"
+            :loading="sessionRestarting"
+            :disabled="securitySaving || sessionRestarting"
+            @click="emit('restart-session')"
+          >
+            <span class="session-timeout-row__label">
+              {{ sessionIsExpired ? 'Session neu starten' : 'Session verlängern' }}
+            </span>
+            <v-icon icon="mdi-refresh" size="18" />
+          </v-btn>
         </div>
       </section>
 

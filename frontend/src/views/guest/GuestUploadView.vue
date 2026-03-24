@@ -49,7 +49,16 @@ const {
         <div v-if="blockingNoticeText" class="guest-banner-wrap">
           <div class="guest-success-banner guest-success-banner--warning" role="status">
             <div class="guest-success-banner__icon guest-success-banner__icon--warning">
-              <v-icon :icon="blockingNoticeTitle.includes('abgelaufen') ? 'mdi-timer-off-outline' : 'mdi-pause-circle-outline'" size="20" />
+              <v-icon
+                :icon="
+                  blockingNoticeTitle.includes('abgelaufen')
+                    ? 'mdi-timer-off-outline'
+                    : blockingNoticeTitle.includes('Link')
+                      ? 'mdi-link-off'
+                      : 'mdi-pause-circle-outline'
+                "
+                size="20"
+              />
             </div>
             <div class="guest-success-banner__copy">
               <div class="guest-success-banner__title">{{ blockingNoticeTitle }}</div>

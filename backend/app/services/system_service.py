@@ -60,6 +60,7 @@ class SystemService:
         current_mode = ModeService(self.db).get_mode().mode
         selfie_state = SelfieService(self.db).get_state()
         guest_upload_config = GuestUploadConfigService(self.db).get_config()
+        guest_upload_url = GuestUploadConfigService(self.db).build_public_guest_upload_url(guest_upload_config)
         video_state = VideoService(self.db).get_state()
         visualizer_state = VisualizerService(self.db).get_state()
         display_status = DisplayStatusService(self.db).get_status()
@@ -129,7 +130,7 @@ class SystemService:
                 remote_renderer_fallback=runtime_config.remote_renderer_fallback,
                 urls=ApplianceUrls(
                     base_url=settings.normalized_public_base_url,
-                    guest_upload_url=settings.guest_upload_url,
+                    guest_upload_url=guest_upload_url,
                     admin_url=settings.admin_url,
                     display_url=settings.display_url,
                     kiosk_start_url=settings.resolved_kiosk_start_url,
@@ -150,6 +151,7 @@ class SystemService:
 
     def get_public_info(self) -> PublicRuntimeInfoResponse:
         guest_upload_config = GuestUploadConfigService(self.db).get_config()
+        guest_upload_url = GuestUploadConfigService(self.db).build_public_guest_upload_url(guest_upload_config)
         runtime_config = RuntimeConfigService(self.db).get_remote_visualizer_config()
         return PublicRuntimeInfoResponse(
             app_name=settings.app_name,
@@ -180,7 +182,7 @@ class SystemService:
             video_upload_max_bytes=settings.video_upload_max_bytes,
             urls=ApplianceUrls(
                 base_url=settings.normalized_public_base_url,
-                guest_upload_url=settings.guest_upload_url,
+                guest_upload_url=guest_upload_url,
                 admin_url=settings.admin_url,
                 display_url=settings.display_url,
                 kiosk_start_url=settings.resolved_kiosk_start_url,

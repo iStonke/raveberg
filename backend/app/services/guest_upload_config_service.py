@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.setting import Setting
 from app.schemas.guest_upload import GuestUploadConfigRead, GuestUploadConfigUpdate
 from app.schemas.selfie import ModerationMode
@@ -19,6 +22,7 @@ class GuestUploadConfigService:
         "requires_approval",
         "session_timeout_hours",
         "session_started_at",
+        "session_token",
         "updated_at",
     )
 
@@ -34,25 +38,31 @@ class GuestUploadConfigService:
         now = datetime.now(timezone.utc)
 
         session_started_at = current["session_started_at"]
+        session_token = current["session_token"]
         should_restart_session = (
-            payload.guest_upload_session_timeout_hours != current["guest_upload_session_timeout_hours"]
+            payload.restart_session
+            or not isinstance(session_token, str)
+            or not session_token.strip()
+            or payload.guest_upload_session_timeout_hours != current["guest_upload_session_timeout_hours"]
             or current["session_is_expired"]
             or (not current["guest_upload_enabled"] and payload.guest_upload_enabled)
         )
         if should_restart_session:
             session_started_at = now
+            session_token = self._generate_session_token()
 
         next_values = {
             "guest_upload_enabled": payload.guest_upload_enabled,
             "guest_upload_requires_approval": payload.guest_upload_requires_approval,
             "guest_upload_session_timeout_hours": payload.guest_upload_session_timeout_hours,
             "session_started_at": session_started_at,
+            "session_token": session_token,
             "updated_at": now,
         }
         self._persist(next_values)
         return self._build_read(self._coerce_with_expiry(next_values))
 
-    def ensure_upload_allowed(self) -> GuestUploadConfigRead:
+    def ensure_upload_allowed(self, *, session_token: str | None = None) -> GuestUploadConfigRead:
         config = self.get_config()
         if config.session_is_expired:
             raise HTTPException(
@@ -64,7 +74,16 @@ class GuestUploadConfigService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Guest upload is currently disabled.",
             )
+        if not self._tokens_match(config.session_token, session_token):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Guest upload session has expired.",
+            )
         return config
+
+    def build_public_guest_upload_url(self, config: GuestUploadConfigRead | None = None) -> str:
+        resolved = config or self.get_config()
+        return self._append_session_token(resolved.session_token)
 
     def get_moderation_mode(self) -> ModerationMode:
         return self.moderation_mode_from_requires_approval(self.get_config().guest_upload_requires_approval)
@@ -79,6 +98,7 @@ class GuestUploadConfigService:
             "guest_upload_requires_approval": False,
             "guest_upload_session_timeout_hours": 24,
             "session_started_at": datetime.now(timezone.utc),
+            "session_token": self._generate_session_token(),
             "updated_at": None,
         }
         existing = {
@@ -96,6 +116,7 @@ class GuestUploadConfigService:
             ("guest_upload_requires_approval", defaults["guest_upload_requires_approval"]),
             ("guest_upload_session_timeout_hours", defaults["guest_upload_session_timeout_hours"]),
             ("session_started_at", defaults["session_started_at"]),
+            ("session_token", defaults["session_token"]),
             ("updated_at", defaults["updated_at"]),
         ):
             setting_key = self._key(self._storage_name(field_name))
@@ -131,7 +152,14 @@ class GuestUploadConfigService:
             ).scalars()
         }
 
-        for field_name in ("guest_upload_enabled", "guest_upload_requires_approval", "guest_upload_session_timeout_hours", "session_started_at", "updated_at"):
+        for field_name in (
+            "guest_upload_enabled",
+            "guest_upload_requires_approval",
+            "guest_upload_session_timeout_hours",
+            "session_started_at",
+            "session_token",
+            "updated_at",
+        ):
             setting_key = self._key(self._storage_name(field_name))
             row = existing.get(setting_key)
             if row is None:
@@ -155,6 +183,7 @@ class GuestUploadConfigService:
             "guest_upload_requires_approval": bool(values["guest_upload_requires_approval"]),
             "guest_upload_session_timeout_hours": timeout_hours,
             "session_started_at": started_at,
+            "session_token": str(values["session_token"]),
             "session_expires_at": expires_at,
             "session_is_expired": now >= expires_at,
             "updated_at": values["updated_at"] if isinstance(values["updated_at"], datetime) else None,
@@ -175,6 +204,7 @@ class GuestUploadConfigService:
             "guest_upload_requires_approval": "requires_approval",
             "guest_upload_session_timeout_hours": "session_timeout_hours",
             "session_started_at": "session_started_at",
+            "session_token": "session_token",
             "updated_at": "updated_at",
         }
         return mapping[field_name]
@@ -201,4 +231,25 @@ class GuestUploadConfigService:
             if isinstance(value, str):
                 return datetime.fromisoformat(value)
             raise ValueError(field_name)
+        if field_name == "session_token":
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            raise ValueError(field_name)
         return value
+
+    @staticmethod
+    def _generate_session_token() -> str:
+        return secrets.token_urlsafe(24)
+
+    @staticmethod
+    def _tokens_match(expected: str | None, provided: str | None) -> bool:
+        if not expected or not provided:
+            return False
+        return secrets.compare_digest(expected, provided)
+
+    @staticmethod
+    def _append_session_token(session_token: str) -> str:
+        parts = urlsplit(settings.guest_upload_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["t"] = session_token
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))

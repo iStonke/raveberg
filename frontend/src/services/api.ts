@@ -171,6 +171,7 @@ export interface GuestUploadConfigUpdatePayload {
   guest_upload_enabled: boolean
   guest_upload_requires_approval: boolean
   guest_upload_session_timeout_hours: number
+  restart_session?: boolean
 }
 
 export interface WifiConnectPayload {
@@ -741,6 +742,7 @@ export function uploadGuestImage(
   file: File,
   comment?: string | null,
   onProgress?: (progress: number) => void,
+  sessionToken?: string | null,
 ) {
   return new Promise<UploadItem>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -750,7 +752,12 @@ export function uploadGuestImage(
       formData.append('comment', comment.trim())
     }
 
-    xhr.open('POST', '/api/uploads')
+    const params = new URLSearchParams()
+    if (sessionToken && sessionToken.trim()) {
+      params.set('t', sessionToken.trim())
+    }
+
+    xhr.open('POST', `/api/uploads${params.toString() ? `?${params.toString()}` : ''}`)
     xhr.responseType = 'text'
 
     xhr.upload.onprogress = (event) => {

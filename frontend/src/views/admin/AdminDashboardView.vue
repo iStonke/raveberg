@@ -870,6 +870,12 @@ const systemHostname = computed(() =>
 )
 
 const guestUploadUrl = computed(() => publicRuntimeStore.urls.guest_upload_url)
+const guestUploadSessionActive = computed(() =>
+  guestUploadEnabled.value && !guestUploadSessionExpired.value,
+)
+const guestUploadQrAvailable = computed(() =>
+  Boolean(guestUploadUrl.value && guestUploadSessionActive.value),
+)
 const uploadControlSessionTimeoutLabel = computed(() => {
   const matched = uploadSessionTimeoutItems.find((item) => item.value === guestUploadSessionTimeoutHours.value)
   return matched?.title ?? `${guestUploadSessionTimeoutHours.value} Stunden`
@@ -1891,6 +1897,7 @@ async function saveSystemSecurity(payload: {
   sessionTimeoutHours: number
 }, options?: {
   silentSuccess?: boolean
+  restartSession?: boolean
 }) {
   if (!authStore.token || isSavingSecurity.value) {
     return
@@ -1905,6 +1912,7 @@ async function saveSystemSecurity(payload: {
         guest_upload_enabled: payload.guestUploadsEnabled,
         guest_upload_requires_approval: payload.approvalRequired,
         guest_upload_session_timeout_hours: payload.sessionTimeoutHours,
+        restart_session: options?.restartSession ?? false,
       },
       authStore.token,
     )
@@ -1937,6 +1945,17 @@ async function saveSystemSecurity(payload: {
   } finally {
     isSavingSecurity.value = false
   }
+}
+
+async function restartGuestUploadSession(options?: { silentSuccess?: boolean }) {
+  await saveSystemSecurity({
+    approvalRequired: guestUploadRequiresApproval.value,
+    guestUploadsEnabled: guestUploadEnabled.value,
+    sessionTimeoutHours: guestUploadSessionTimeoutHours.value,
+  }, {
+    ...options,
+    restartSession: true,
+  })
 }
 
 function updateUploadSettings(payload: Partial<{
@@ -3223,6 +3242,7 @@ function formatModeLabel(mode: AppMode) {
                     :session-timeout-label="uploadControlSessionTimeoutLabel"
                     :session-expires-at-label="systemSessionExpiresAtLabel"
                     :session-is-expired="guestUploadSessionExpired"
+                    :session-restarting="isSavingSecurity"
                     :setup-mode-enabled="systemStatusStore.setupModeStatus.enabled"
                     :storage-free-label="formatOptionalBytes(systemStatusStore.appliance.storage.free_bytes)"
                     :cpu-load-label="cpuLoadLabel"
@@ -3236,6 +3256,7 @@ function formatModeLabel(mode: AppMode) {
                     :is-toggling-setup-mode="isTogglingSetupMode"
                     @save-access="saveSystemAccess"
                     @save-session-timeout="({ sessionTimeoutHours }) => updateUploadSettings({ sessionTimeoutHours })"
+                    @restart-session="restartGuestUploadSession()"
                     @restart="restartSystem"
                     @shutdown="shutdownSystem"
                     @toggle-setup-mode="toggleSetupMode"
@@ -3587,14 +3608,20 @@ function formatModeLabel(mode: AppMode) {
         <div class="guest-qr-dialog__title">Link zum Gäste-Upload</div>
 
         <div class="guest-qr-dialog__body">
-          <div v-if="guestUploadUrl" class="guest-qr-dialog__code-shell">
+          <div v-if="guestUploadQrAvailable" class="guest-qr-dialog__code-shell">
             <div class="guest-qr-dialog__code-card">
               <QrCodeMatrix class="guest-qr-dialog__qr" :text="guestUploadUrl" :quiet-zone="5" />
             </div>
           </div>
 
           <div v-else class="guest-qr-dialog__empty">
-            Die Gäste-Upload-URL ist aktuell nicht verfügbar.
+            {{
+              !guestUploadEnabled
+                ? 'Der Gäste-Upload ist aktuell pausiert. Aktiviere ihn zuerst im Upload-Bereich.'
+                : guestUploadSessionExpired
+                  ? 'Die aktuelle Upload-Session ist abgelaufen. Starte sie neu, bevor du den QR-Code teilst.'
+                  : 'Die Gäste-Upload-URL ist aktuell nicht verfügbar.'
+            }}
           </div>
         </div>
 
@@ -3602,16 +3629,25 @@ function formatModeLabel(mode: AppMode) {
           <v-btn
             variant="outlined"
             class="guest-qr-dialog__button guest-qr-dialog__button--cancel"
-            :disabled="!guestUploadUrl"
             @click="isGuestQrDialogOpen = false"
           >
             Schließen
           </v-btn>
           <v-btn
+            v-if="guestUploadEnabled && guestUploadSessionExpired"
+            variant="outlined"
+            class="guest-qr-dialog__button guest-qr-dialog__button--confirm"
+            prepend-icon="mdi-refresh"
+            :loading="isSavingSecurity"
+            @click="restartGuestUploadSession()"
+          >
+            Session neu starten
+          </v-btn>
+          <v-btn
             variant="flat"
             class="guest-qr-dialog__button guest-qr-dialog__button--confirm"
             prepend-icon="mdi-content-copy"
-            :disabled="!guestUploadUrl"
+            :disabled="!guestUploadQrAvailable"
             @click="copyGuestUploadUrl"
           >
             Link kopieren

@@ -25,6 +25,7 @@ const props = defineProps<{
   playbackCommand: SelfiePlaybackEvent | null
   overlayMode: OverlayMode
   guestUploadUrl?: string
+  guestUploadStatus?: 'active' | 'paused' | 'expired'
 }>()
 
 const publicRuntimeStore = usePublicRuntimeStore()
@@ -38,6 +39,11 @@ const shouldShowStandby = computed(
   () =>
     props.settings.slideshow_enabled &&
     eligibleUploadCount.value < props.settings.slideshow_min_uploads_to_start,
+)
+const effectiveOverlayMode = computed<OverlayMode>(() =>
+  props.overlayMode === 'qr' && props.guestUploadStatus && props.guestUploadStatus !== 'active'
+    ? 'logo'
+    : props.overlayMode,
 )
 
 onMounted(async () => {
@@ -116,6 +122,7 @@ function shuffle(items: UploadItem[]) {
       :event-name="publicRuntimeStore.eventName"
       :event-tagline="publicRuntimeStore.eventTagline"
       :guest-upload-url="publicRuntimeStore.urls.guest_upload_url"
+      :guest-upload-status="props.guestUploadStatus"
       :reaction-token="props.standbyReactionToken"
       :hue-shift-degrees="publicRuntimeStore.ambientHueShiftDegrees"
     />
@@ -132,9 +139,9 @@ function shuffle(items: UploadItem[]) {
     />
     <Transition name="selfie-overlay-fade" appear>
       <DisplayOverlay
-        v-if="props.overlayMode !== 'off' && !shouldShowStandby"
+        v-if="effectiveOverlayMode !== 'off' && !shouldShowStandby"
         class="selfie-renderer__overlay"
-        :mode="props.overlayMode"
+        :mode="effectiveOverlayMode"
         :guest-upload-url="props.guestUploadUrl"
         position="absolute"
       />

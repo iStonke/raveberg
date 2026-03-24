@@ -1,12 +1,15 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { uploadGuestImage } from '../services/api'
 import { usePublicRuntimeStore } from '../stores/publicRuntime'
 
 export type GuestStep = 'select' | 'confirm'
-type UploadBlockReason = 'expired' | 'disabled' | null
+type UploadBlockReason = 'expired' | 'disabled' | 'invalid' | null
 
 export function useGuestUploadFlow() {
+  const route = useRoute()
+  const router = useRouter()
   const publicRuntimeStore = usePublicRuntimeStore()
   const fileInput = ref<HTMLInputElement | null>(null)
   const cameraInput = ref<HTMLInputElement | null>(null)
@@ -49,10 +52,45 @@ export function useGuestUploadFlow() {
   const sessionReachedLocally = computed(() =>
     Boolean(sessionExpiresAt.value && nowTimestamp.value >= sessionExpiresAt.value.getTime()),
   )
+  const routeSessionToken = computed(() => {
+    const rawValue = route.query.t
+    return typeof rawValue === 'string' ? rawValue.trim() : ''
+  })
+  const runtimeSessionToken = computed(() => {
+    const rawValue = publicRuntimeStore.urls.guest_upload_url
+    if (!rawValue) {
+      return ''
+    }
+
+    try {
+      return new URL(rawValue, window.location.origin).searchParams.get('t')?.trim() ?? ''
+    } catch {
+      return ''
+    }
+  })
   const sessionIsExpired = computed(() =>
     publicRuntimeStore.guestUploadSessionExpired || sessionReachedLocally.value,
   )
+  const canRefreshSessionLink = computed(() =>
+    publicRuntimeStore.isLoaded
+    && publicRuntimeStore.guestUploadEnabled
+    && !sessionIsExpired.value
+    && Boolean(runtimeSessionToken.value),
+  )
+  const resolvedSessionToken = computed(() =>
+    runtimeSessionToken.value || routeSessionToken.value,
+  )
+  const sessionTokenInvalid = computed(() => {
+    if (!publicRuntimeStore.isLoaded || canRefreshSessionLink.value) {
+      return false
+    }
+
+    return routeSessionToken.value !== runtimeSessionToken.value
+  })
   const uploadBlockReason = computed<UploadBlockReason>(() => {
+    if (sessionTokenInvalid.value) {
+      return 'invalid'
+    }
     if (sessionIsExpired.value) {
       return 'expired'
     }
@@ -71,11 +109,18 @@ export function useGuestUploadFlow() {
     return formatSessionNotice(sessionExpiresAt.value)
   })
   const blockingNoticeTitle = computed(() =>
-    uploadBlockReason.value === 'expired' ? 'Upload-Session abgelaufen' : 'Gäste-Upload pausiert',
+    uploadBlockReason.value === 'expired'
+      ? 'Upload-Session abgelaufen'
+      : uploadBlockReason.value === 'invalid'
+        ? 'Upload-Link nicht mehr gültig'
+        : 'Gäste-Upload pausiert',
   )
   const blockingNoticeText = computed(() => {
     if (uploadBlockReason.value === 'expired') {
       return 'Diese Upload-Session ist leider abgelaufen. Bitte wende dich an den Veranstalter.'
+    }
+    if (uploadBlockReason.value === 'invalid') {
+      return 'Dieser Upload-Link ist nicht mehr gültig. Bitte scanne den aktuellen QR-Code erneut.'
     }
     if (uploadBlockReason.value === 'disabled') {
       return 'Der Gäste-Upload ist momentan pausiert. Bitte versuche es später erneut.'
@@ -92,6 +137,7 @@ export function useGuestUploadFlow() {
   async function refreshRuntimeInfo(options: { silent?: boolean } = {}) {
     try {
       await publicRuntimeStore.refresh()
+      await syncRouteToCurrentSession()
     } catch {
       if (!options.silent && !publicRuntimeStore.isLoaded) {
         errorMessage.value = 'Upload-Status konnte gerade nicht geladen werden. Bitte versuche es gleich erneut.'
@@ -109,9 +155,27 @@ export function useGuestUploadFlow() {
     try {
       publicRuntimeStore.applyRuntimeInfo(JSON.parse(event.data))
       updateTimestamp()
+      void syncRouteToCurrentSession()
     } catch {
       // Ignore malformed event payloads and continue with polling fallback.
     }
+  }
+
+  async function syncRouteToCurrentSession() {
+    if (
+      !canRefreshSessionLink.value
+      || !runtimeSessionToken.value
+      || routeSessionToken.value === runtimeSessionToken.value
+    ) {
+      return
+    }
+
+    await router.replace({
+      query: {
+        ...route.query,
+        t: runtimeSessionToken.value,
+      },
+    })
   }
 
   function closeRuntimeEvents() {
@@ -207,6 +271,7 @@ export function useGuestUploadFlow() {
         (nextProgress) => {
           progress.value = nextProgress
         },
+        resolvedSessionToken.value,
       )
 
       clearPendingSelection()

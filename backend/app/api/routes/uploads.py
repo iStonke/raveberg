@@ -17,18 +17,23 @@ router = APIRouter()
 @router.post("/uploads", response_model=UploadRead, status_code=201)
 async def create_upload(
     request: Request,
+    session_token: str | None = Query(default=None, alias="t"),
     file: UploadFile = File(...),
     comment: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> UploadRead:
     client_ip = _client_ip_from_request(request)
     upload_service = UploadService(db)
-    upload_service.ensure_guest_upload_allowed()
+    guest_upload_config = upload_service.ensure_guest_upload_allowed(session_token=session_token)
     upload_service.enforce_rate_limit(
         client_ip,
         publish_callback=lambda event: asyncio.create_task(event_service.publish_rate_limit_triggered(event)),
     )
-    upload, upload_event, cleanup_event = await upload_service.create_upload(file, comment=comment)
+    upload, upload_event, cleanup_event = await upload_service.create_upload(
+        file,
+        comment=comment,
+        guest_upload_config=guest_upload_config,
+    )
     await event_service.publish_upload(upload_event)
     if cleanup_event is not None:
         for removed_id in cleanup_event.removed_ids:

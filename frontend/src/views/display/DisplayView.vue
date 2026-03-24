@@ -101,6 +101,16 @@ const showPrimaryRenderer = computed(() => {
   return publicRuntimeStore.remoteVisualizerFallback === 'local'
 })
 
+const guestUploadStatus = computed<'active' | 'paused' | 'expired'>(() => {
+  if (!publicRuntimeStore.guestUploadEnabled) {
+    return 'paused'
+  }
+  if (publicRuntimeStore.guestUploadSessionExpired) {
+    return 'expired'
+  }
+  return 'active'
+})
+
 const activeRenderer = computed(() => {
   if (!hasInitialState.value) return StandbyRenderer
   if (appModeStore.mode === 'selfie') return SelfieRenderer
@@ -134,6 +144,7 @@ const rendererProps = computed(() => {
       playbackCommand: selfiePlaybackCommand.value,
       overlayMode: selfieStore.overlayMode,
       guestUploadUrl: publicRuntimeStore.urls.guest_upload_url,
+      guestUploadStatus: guestUploadStatus.value,
       settings: {
         slideshow_enabled: selfieStore.slideshowEnabled,
         slideshow_interval_seconds: selfieStore.slideshowIntervalSeconds,
@@ -197,6 +208,8 @@ const rendererProps = computed(() => {
       screenVariant: standbyStore.screenVariant,
       headline: standbyStore.headline,
       subheadline: standbyStore.subheadline,
+      guestUploadUrl: publicRuntimeStore.urls.guest_upload_url,
+      guestUploadStatus: guestUploadStatus.value,
       hueShiftDegrees: publicRuntimeStore.ambientHueShiftDegrees,
     }
   }
@@ -217,10 +230,20 @@ const showDisplayOverlay = computed(
       return null
     }
     if (appModeStore.mode === 'visualizer') {
-      return visualizerStore.overlayMode === 'off' ? null : visualizerStore.overlayMode
+      if (visualizerStore.overlayMode === 'off') {
+        return null
+      }
+      return visualizerStore.overlayMode === 'qr' && guestUploadStatus.value !== 'active'
+        ? 'logo'
+        : visualizerStore.overlayMode
     }
     if (appModeStore.mode === 'video') {
-      return videoStore.overlayMode === 'off' ? null : videoStore.overlayMode
+      if (videoStore.overlayMode === 'off') {
+        return null
+      }
+      return videoStore.overlayMode === 'qr' && guestUploadStatus.value !== 'active'
+        ? 'logo'
+        : videoStore.overlayMode
     }
     return null
   },

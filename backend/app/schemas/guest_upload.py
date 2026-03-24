@@ -21,11 +21,12 @@ class GuestUploadConfigBase(BaseModel):
 
 
 class GuestUploadConfigUpdate(GuestUploadConfigBase):
-    pass
+    restart_session: bool = False
 
 
 class GuestUploadConfigRead(GuestUploadConfigBase):
     session_started_at: datetime
+    session_token: str
     session_expires_at: datetime
     session_is_expired: bool
     updated_at: datetime | None = None

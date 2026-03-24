@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.upload import Upload
+from app.schemas.guest_upload import GuestUploadConfigRead
 from app.schemas.runtime import CleanupCompletedEvent
 from app.schemas.upload import (
     AdminUploadListResponse,
@@ -50,6 +51,7 @@ class UploadService:
         file: UploadFile,
         *,
         comment: str | None = None,
+        guest_upload_config: GuestUploadConfigRead | None = None,
     ) -> tuple[UploadRead, UploadEvent, CleanupCompletedEvent | None]:
         filename = file.filename or "upload"
         extension = Path(filename).suffix.lower()
@@ -58,10 +60,10 @@ class UploadService:
         await file.close()
         normalized_comment = self._normalize_comment(comment)
 
-        guest_upload_config = GuestUploadConfigService(self.db).ensure_upload_allowed()
+        resolved_guest_upload_config = guest_upload_config or GuestUploadConfigService(self.db).ensure_upload_allowed()
         self._validate_basic(filename, extension, mime_type, payload)
         moderation_mode = GuestUploadConfigService.moderation_mode_from_requires_approval(
-            guest_upload_config.guest_upload_requires_approval,
+            resolved_guest_upload_config.guest_upload_requires_approval,
         )
 
         stored_original = self._build_original_name(filename, extension)
@@ -121,8 +123,8 @@ class UploadService:
             cleanup_event,
         )
 
-    def ensure_guest_upload_allowed(self) -> None:
-        GuestUploadConfigService(self.db).ensure_upload_allowed()
+    def ensure_guest_upload_allowed(self, *, session_token: str | None = None) -> GuestUploadConfigRead:
+        return GuestUploadConfigService(self.db).ensure_upload_allowed(session_token=session_token)
 
     def list_public_uploads(self, limit: int = 100) -> list[UploadRead]:
         rows = self.db.scalars(
