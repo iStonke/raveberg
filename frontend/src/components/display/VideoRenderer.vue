@@ -1,25 +1,44 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import type { VideoAsset, VideoState } from '../../services/api'
+import DisplaySwitchLayer from './DisplaySwitchLayer.vue'
 
 const props = defineProps<{
   settings: VideoState
   assets: VideoAsset[]
 }>()
 
-const videoRef = ref<HTMLVideoElement | null>(null)
+const CROSSFADE_DURATION_MS = 420
+
+type VideoLayerName = 'a' | 'b'
+type VideoLayerState = {
+  asset: VideoAsset | null
+  active: boolean
+}
+
+const videoARef = ref<HTMLVideoElement | null>(null)
+const videoBRef = ref<HTMLVideoElement | null>(null)
 const isTransitioning = ref(false)
 const queueIds = ref<number[]>([])
 const currentAssetId = ref<number | null>(null)
 const currentToken = ref(0)
+const activeLayerName = ref<VideoLayerName>('a')
+const layerStates = reactive<Record<VideoLayerName, VideoLayerState>>({
+  a: {
+    asset: null,
+    active: false,
+  },
+  b: {
+    asset: null,
+    active: false,
+  },
+})
 
 let fadeTimer: number | undefined
 
 const orderedAssets = computed(() => [...props.assets].sort((left, right) => left.position - right.position))
-const activeAsset = computed(() =>
-  orderedAssets.value.find((asset) => asset.id === currentAssetId.value) ?? null,
-)
+const activeAsset = computed(() => layerStates[activeLayerName.value].asset)
 const filterStyle = computed(() =>
   props.settings.vintage_filter_enabled
     ? 'grayscale(1) contrast(1.24) brightness(0.86) saturate(0.08) sepia(0.18)'
@@ -58,22 +77,30 @@ watch(
   { deep: true, immediate: true },
 )
 
+onMounted(() => {
+  syncLayerSettings()
+  void syncPlaybackState()
+})
+
 onBeforeUnmount(() => {
   if (fadeTimer) {
     window.clearTimeout(fadeTimer)
   }
+  stopLayer('a')
+  stopLayer('b')
 })
 
 async function syncPlaybackState() {
   if (!orderedAssets.value.length) {
-    currentAssetId.value = null
     queueIds.value = []
-    const video = videoRef.value
-    if (video) {
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-    }
+    currentAssetId.value = null
+    isTransitioning.value = false
+    layerStates.a.asset = null
+    layerStates.a.active = false
+    layerStates.b.asset = null
+    layerStates.b.active = false
+    stopLayer('a')
+    stopLayer('b')
     return
   }
 
@@ -93,6 +120,10 @@ async function syncPlaybackState() {
     if (preferredId == null) {
       return
     }
+    if (preferredId === currentAssetId.value && activeAsset.value?.id === preferredId) {
+      syncLayerSettings()
+      return
+    }
     await playAsset(preferredId)
     return
   }
@@ -104,6 +135,10 @@ async function syncPlaybackState() {
       : orderedAssets.value[0]?.id ?? null
 
   if (singleId == null) {
+    return
+  }
+  if (singleId === currentAssetId.value && activeAsset.value?.id === singleId) {
+    syncLayerSettings()
     return
   }
   await playAsset(singleId)
@@ -125,48 +160,62 @@ async function playAsset(assetId: number) {
 
   const token = currentToken.value + 1
   currentToken.value = token
-  currentAssetId.value = asset.id
-  await nextTick()
-  const video = videoRef.value
-  if (!video) {
+  const hasVisibleAsset = !!activeAsset.value
+  const shouldCrossfade =
+    props.settings.transition === 'fade' &&
+    hasVisibleAsset &&
+    activeAsset.value?.id !== asset.id
+
+  if (!shouldCrossfade) {
+    const layerName = activeLayerName.value
+    const inactiveLayerName = getInactiveLayerName(layerName)
+    const prepared = await prepareLayer(layerName, asset, token)
+    if (!prepared || currentToken.value !== token) {
+      return
+    }
+    currentAssetId.value = asset.id
+    layerStates[layerName].active = true
+    layerStates[inactiveLayerName].active = false
+    layerStates[inactiveLayerName].asset = null
+    stopLayer(inactiveLayerName)
+    isTransitioning.value = false
     return
   }
-  video.muted = true
-  video.volume = 0
-  video.defaultMuted = true
-  video.playsInline = true
-  video.loop = !props.settings.playlist_enabled && props.settings.loop_enabled
 
-  if (props.settings.transition === 'fade') {
-    isTransitioning.value = true
-    if (fadeTimer) {
-      window.clearTimeout(fadeTimer)
-    }
-    await wait(180)
+  const previousLayerName = activeLayerName.value
+  const nextLayerName = getInactiveLayerName(previousLayerName)
+  const prepared = await prepareLayer(nextLayerName, asset, token)
+  if (!prepared || currentToken.value !== token) {
+    return
   }
 
-  video.src = asset.stream_url
-  video.load()
-
-  try {
-    await waitForMetadata(video)
+  currentAssetId.value = asset.id
+  isTransitioning.value = true
+  activeLayerName.value = nextLayerName
+  if (fadeTimer) {
+    window.clearTimeout(fadeTimer)
+  }
+  window.requestAnimationFrame(() => {
+    layerStates[nextLayerName].active = true
+    layerStates[previousLayerName].active = false
+  })
+  fadeTimer = window.setTimeout(() => {
     if (currentToken.value !== token) {
       return
     }
-    await video.play()
-  } catch {
-    return
-  } finally {
-    if (props.settings.transition === 'fade') {
-      fadeTimer = window.setTimeout(() => {
-        isTransitioning.value = false
-      }, 30)
-    }
-  }
+    layerStates[previousLayerName].asset = null
+    stopLayer(previousLayerName)
+    isTransitioning.value = false
+    fadeTimer = undefined
+  }, CROSSFADE_DURATION_MS + 40)
 }
 
-function handleEnded() {
-  if (!orderedAssets.value.length || currentAssetId.value == null) {
+function handleEnded(layerName: VideoLayerName) {
+  if (
+    layerName !== activeLayerName.value ||
+    !orderedAssets.value.length ||
+    currentAssetId.value == null
+  ) {
     return
   }
 
@@ -192,6 +241,66 @@ function handleEnded() {
   }
 }
 
+function getVideoElement(layerName: VideoLayerName) {
+  return layerName === 'a' ? videoARef.value : videoBRef.value
+}
+
+function getInactiveLayerName(layerName: VideoLayerName): VideoLayerName {
+  return layerName === 'a' ? 'b' : 'a'
+}
+
+function syncLayerSettings() {
+  applyVideoElementSettings(videoARef.value)
+  applyVideoElementSettings(videoBRef.value)
+}
+
+async function prepareLayer(layerName: VideoLayerName, asset: VideoAsset, token: number) {
+  const video = getVideoElement(layerName)
+  if (!video) {
+    return false
+  }
+
+  layerStates[layerName].asset = asset
+  layerStates[layerName].active = false
+  applyVideoElementSettings(video)
+  video.pause()
+  video.src = asset.stream_url
+  video.load()
+
+  try {
+    await waitForMetadata(video)
+    if (currentToken.value !== token) {
+      return false
+    }
+    applyVideoElementSettings(video)
+    await video.play()
+    return true
+  } catch {
+    return false
+  }
+}
+
+function applyVideoElementSettings(video: HTMLVideoElement | null) {
+  if (!video) {
+    return
+  }
+  video.muted = true
+  video.volume = 0
+  video.defaultMuted = true
+  video.playsInline = true
+  video.loop = !props.settings.playlist_enabled && props.settings.loop_enabled
+}
+
+function stopLayer(layerName: VideoLayerName) {
+  const video = getVideoElement(layerName)
+  if (!video) {
+    return
+  }
+  video.pause()
+  video.removeAttribute('src')
+  video.load()
+}
+
 function waitForMetadata(video: HTMLVideoElement) {
   return new Promise<void>((resolve, reject) => {
     if (video.readyState >= 2) {
@@ -215,12 +324,6 @@ function waitForMetadata(video: HTMLVideoElement) {
   })
 }
 
-function wait(durationMs: number) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, durationMs)
-  })
-}
-
 function shuffle(values: number[]) {
   const copy = [...values]
   for (let index = copy.length - 1; index > 0; index -= 1) {
@@ -241,20 +344,46 @@ function sameQueue(left: number[], right: number[]) {
 <template>
   <section
     class="video-stage"
-    :class="{ 'video-stage--vintage': props.settings.vintage_filter_enabled }"
+    :class="{
+      'video-stage--vintage': props.settings.vintage_filter_enabled,
+      'video-stage--transitioning': isTransitioning,
+    }"
     :style="vintageStyleVars"
   >
-    <video
-      v-if="activeAsset"
-      ref="videoRef"
-      class="video-stage__video"
-      :class="[objectFitClass, { 'video-stage__video--hidden': isTransitioning }]"
-      :style="{ filter: filterStyle }"
-      autoplay
-      muted
-      playsinline
-      @ended="handleEnded"
-    />
+    <DisplaySwitchLayer
+      :active="layerStates.a.active"
+      :visible="!!layerStates.a.asset"
+      :duration-ms="CROSSFADE_DURATION_MS"
+      :z-index="activeLayerName === 'a' ? 2 : 1"
+    >
+      <video
+        ref="videoARef"
+        class="video-stage__video"
+        :class="[objectFitClass, { 'video-stage__video--unused': !layerStates.a.asset }]"
+        :style="{ filter: filterStyle }"
+        autoplay
+        muted
+        playsinline
+        @ended="handleEnded('a')"
+      />
+    </DisplaySwitchLayer>
+    <DisplaySwitchLayer
+      :active="layerStates.b.active"
+      :visible="!!layerStates.b.asset"
+      :duration-ms="CROSSFADE_DURATION_MS"
+      :z-index="activeLayerName === 'b' ? 2 : 1"
+    >
+      <video
+        ref="videoBRef"
+        class="video-stage__video"
+        :class="[objectFitClass, { 'video-stage__video--unused': !layerStates.b.asset }]"
+        :style="{ filter: filterStyle }"
+        autoplay
+        muted
+        playsinline
+        @ended="handleEnded('b')"
+      />
+    </DisplaySwitchLayer>
     <template v-if="activeAsset && props.settings.vintage_filter_enabled">
       <div class="video-stage__vintage video-stage__vintage--grain" />
       <div class="video-stage__vintage video-stage__vintage--dust" />
@@ -282,9 +411,7 @@ function sameQueue(left: number[], right: number[]) {
 .video-stage__video {
   width: 100%;
   height: 100%;
-  opacity: 1;
   transition:
-    opacity 220ms ease,
     transform 280ms ease,
     filter 280ms ease;
   background: #020304;
@@ -303,8 +430,8 @@ function sameQueue(left: number[], right: number[]) {
   object-fit: contain;
 }
 
-.video-stage__video--hidden {
-  opacity: 0;
+.video-stage__video--unused {
+  visibility: hidden;
 }
 
 .video-stage__vintage {

@@ -119,6 +119,7 @@ const busyActions = ref<Record<string, boolean>>({})
 const eventSource = ref<EventSource | null>(null)
 const reconnectTimer = ref<number>()
 const reconnectAttempt = ref(0)
+const dashboardNow = ref(Date.now())
 const isHydratingVisualizerDraft = ref(true)
 const isHydratingSelfieDraft = ref(true)
 const isHydratingStandbyDraft = ref(true)
@@ -458,6 +459,7 @@ let videoPersistTimer: number | undefined
 let remoteVisualizerPersistTimer: number | undefined
 let remoteRendererPersistTimer: number | undefined
 let ambientColorPersistTimer: number | undefined
+let dashboardClockTimer: number | undefined
 let uploadListObserver: IntersectionObserver | null = null
 let uploadThumbnailObserver: IntersectionObserver | null = null
 let uploadListRequestVersion = 0
@@ -669,13 +671,110 @@ const visualizerTelemetryLabel = computed(
     `T ${visualizerStore.speed} / I ${visualizerStore.intensity} / H ${visualizerStore.brightness}`,
 )
 
+const visualizerOrderedPresets = computed(() =>
+  visualizerStore.presetSequence.length ? [...visualizerStore.presetSequence] : [...defaultVisualizerPresetSequence],
+)
+
+const dashboardRotationPresets = computed(() => {
+  const activePresets = visualizerOrderedPresets.value.filter(
+    (preset) => !visualizerStore.skippedPresets.includes(preset),
+  )
+  return activePresets.length ? activePresets : [...visualizerOrderedPresets.value]
+})
+
+function resolveDashboardNextRotatingPreset(startPreset: VisualizerPreset) {
+  if (!visualizerOrderedPresets.value.length) {
+    return visualizerStore.activePreset
+  }
+
+  const startIndex = visualizerOrderedPresets.value.indexOf(startPreset)
+  for (let offset = 1; offset <= visualizerOrderedPresets.value.length; offset += 1) {
+    const candidate =
+      visualizerOrderedPresets.value[(Math.max(startIndex, 0) + offset) % visualizerOrderedPresets.value.length]
+    if (!visualizerStore.skippedPresets.includes(candidate)) {
+      return candidate
+    }
+  }
+
+  return visualizerOrderedPresets.value[0]
+}
+
+const dashboardCycleProgress = computed(() => {
+  const intervalSeconds = Math.max(1, Math.floor(visualizerStore.autoCycleIntervalSeconds))
+  const updatedAt = visualizerStore.updatedAt ? Date.parse(visualizerStore.updatedAt) : Number.NaN
+
+  if (!Number.isFinite(updatedAt)) {
+    return {
+      cyclesElapsed: 0,
+      remainingSeconds: intervalSeconds,
+    }
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((dashboardNow.value - updatedAt) / 1000))
+  return {
+    cyclesElapsed: Math.floor(elapsedSeconds / intervalSeconds),
+    remainingSeconds: intervalSeconds - (elapsedSeconds % intervalSeconds || 0),
+  }
+})
+
+const displayedDashboardVisualizerPreset = computed(() => {
+  const activePreset = visualizerStore.activePreset || visualizerDraft.active_preset
+
+  if (!visualizerStore.autoCycleEnabled || !dashboardRotationPresets.value.length) {
+    return activePreset
+  }
+
+  if (dashboardCycleProgress.value.cyclesElapsed <= 0) {
+    return activePreset
+  }
+
+  if (dashboardRotationPresets.value.includes(activePreset)) {
+    const currentIndex = dashboardRotationPresets.value.indexOf(activePreset)
+    const nextIndex =
+      (currentIndex + dashboardCycleProgress.value.cyclesElapsed) % dashboardRotationPresets.value.length
+    return dashboardRotationPresets.value[nextIndex]
+  }
+
+  const nextPreset = resolveDashboardNextRotatingPreset(activePreset)
+  if (dashboardCycleProgress.value.cyclesElapsed === 1) {
+    return nextPreset
+  }
+
+  const nextIndex = dashboardRotationPresets.value.indexOf(nextPreset)
+  if (nextIndex < 0) {
+    return nextPreset
+  }
+
+  return dashboardRotationPresets.value[
+    (nextIndex + dashboardCycleProgress.value.cyclesElapsed - 1) % dashboardRotationPresets.value.length
+  ]
+})
+
 const activeVisualizerPresetLabel = computed(
-  () => visualizerPresetLabels[visualizerDraft.active_preset] ?? visualizerDraft.active_preset,
+  () =>
+    visualizerPresetLabels[displayedDashboardVisualizerPreset.value] ?? displayedDashboardVisualizerPreset.value,
 )
 
 const visualizerSequenceCountLabel = computed(() => {
-  const count = visualizerStore.presetSequence.length || defaultVisualizerPresetSequence.length
-  return `${count} Stile`
+  const total = visualizerOrderedPresets.value.length
+  if (!total) {
+    return '0/0'
+  }
+
+  const index = visualizerOrderedPresets.value.indexOf(displayedDashboardVisualizerPreset.value)
+  return `${index >= 0 ? index + 1 : 1}/${total}`
+})
+
+const visualizerAutoCycleCountdownLabel = computed(() => {
+  if (!visualizerStore.autoCycleEnabled) {
+    return null
+  }
+
+  if (!Number.isFinite(dashboardCycleProgress.value.remainingSeconds)) {
+    return 'Wechsel läuft'
+  }
+
+  return `Wechsel in ${formatRemainingTime(dashboardCycleProgress.value.remainingSeconds)}`
 })
 
 const isHydraChromaflowPreset = computed(
@@ -1024,6 +1123,10 @@ async function loadMoreUploads() {
 }
 
 onMounted(async () => {
+  dashboardClockTimer = window.setInterval(() => {
+    dashboardNow.value = Date.now()
+  }, 1000)
+
   if (!authStore.token) {
     isBooting.value = false
     return
@@ -1071,6 +1174,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (dashboardClockTimer) {
+    window.clearInterval(dashboardClockTimer)
+  }
   if (visualizerPersistTimer) {
     window.clearTimeout(visualizerPersistTimer)
   }
@@ -2220,6 +2326,19 @@ function formatVideoDurationLabel(value: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function formatRemainingTime(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
 function pushRecentEvent(name: string) {
   recentEvents.value = [
     {
@@ -2714,17 +2833,19 @@ function formatModeLabel(mode: AppMode) {
 <template>
   <section class="admin-workspace-shell">
     <div class="admin-workspace-scroll">
-      <section v-show="activeWorkspaceSection === 'modus'" class="mode-stage mode-stage--sticky">
-        <div class="app-shell mode-stage__shell">
-          <AdminModeStage
-            :current-mode="activeMode"
-            :mode-options="modeButtons"
-            :is-booting="isBooting"
-            :is-switching-mode="isSwitchingMode"
-            @switch-mode="switchMode"
-          />
-        </div>
-      </section>
+      <Transition name="mode-stage-visibility">
+        <section v-if="activeWorkspaceSection === 'modus'" class="mode-stage mode-stage--sticky">
+          <div class="app-shell mode-stage__shell">
+            <AdminModeStage
+              :current-mode="activeMode"
+              :mode-options="modeButtons"
+              :is-booting="isBooting"
+              :is-switching-mode="isSwitchingMode"
+              @switch-mode="switchMode"
+            />
+          </div>
+        </section>
+      </Transition>
 
       <Transition name="workspace-tab-content" mode="out-in">
         <div :key="activeWorkspaceSection" class="admin-workspace-tab">
@@ -2848,7 +2969,7 @@ function formatModeLabel(mode: AppMode) {
                   <div class="video-library-entry__body">
                     <div class="video-library-entry__header">
                       <div class="video-library-entry__title">Videos verwalten</div>
-                      <v-icon icon="mdi-chevron-right" size="20" class="video-library-entry__chevron" />
+                      <v-icon icon="mdi-play" size="14" class="video-library-entry__chevron" />
                     </div>
                     <div class="video-library-entry__meta">
                       <span>{{ videoLibrarySummaryLabel }}</span>
@@ -2953,12 +3074,16 @@ function formatModeLabel(mode: AppMode) {
 	                  <div class="video-library-entry__body">
 	                    <div class="video-library-entry__header">
 	                      <div class="video-library-entry__title">Stil festlegen</div>
-	                      <v-icon icon="mdi-chevron-right" size="20" class="video-library-entry__chevron" />
+	                      <v-icon icon="mdi-play" size="14" class="video-library-entry__chevron" />
 	                    </div>
 	                    <div class="video-library-entry__meta video-library-entry__meta--visualizer">
 	                      <span>{{ activeVisualizerPresetLabel }}</span>
                         <span aria-hidden="true">·</span>
                         <span>{{ visualizerSequenceCountLabel }}</span>
+                        <template v-if="visualizerAutoCycleCountdownLabel">
+                          <span aria-hidden="true">·</span>
+                          <span>{{ visualizerAutoCycleCountdownLabel }}</span>
+                        </template>
 	                    </div>
 	                  </div>
 	                </button>
@@ -3555,6 +3680,25 @@ function formatModeLabel(mode: AppMode) {
 }
 
 .workspace-tab-content-leave-active {
+  pointer-events: none;
+}
+
+.mode-stage-visibility-enter-active,
+.mode-stage-visibility-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease,
+    filter 220ms ease;
+}
+
+.mode-stage-visibility-enter-from,
+.mode-stage-visibility-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(4px);
+}
+
+.mode-stage-visibility-leave-active {
   pointer-events: none;
 }
 
@@ -5930,15 +6074,17 @@ function formatModeLabel(mode: AppMode) {
 }
 
 .video-library-entry__body {
+  position: relative;
   min-width: 0;
   display: grid;
   gap: 0.26rem;
+  padding-right: 2.2rem;
 }
 
 .video-library-entry__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.55rem;
 }
 
@@ -5950,7 +6096,12 @@ function formatModeLabel(mode: AppMode) {
 }
 
 .video-library-entry__chevron {
-  color: rgba(154, 198, 231, 0.62);
+  position: absolute;
+  top: 50%;
+  right: 0.52rem;
+  transform: translateY(-50%);
+  color: rgba(229, 236, 244, 0.76);
+  flex: 0 0 auto;
 }
 
 .video-library-entry__copy {

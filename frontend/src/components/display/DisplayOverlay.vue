@@ -53,7 +53,6 @@ defineProps<{
   border: 1px solid rgba(255, 255, 255, 0.09);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
 }
 
 .overlay-logo-shell {
@@ -64,7 +63,6 @@ defineProps<{
   border: 1px solid rgba(255, 255, 255, 0.09);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
 }
 
 .overlay-qr-card {
@@ -104,7 +102,7 @@ defineProps<{
 }
 
 :deep(.overlay-logo .brandmark-image) {
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
+  filter: none;
 }
 
 .overlay-content-switch-enter-active,
