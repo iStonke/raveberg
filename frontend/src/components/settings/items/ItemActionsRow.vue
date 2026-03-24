@@ -23,6 +23,17 @@
   border-radius: 999px;
 }
 
+:deep(.item-action-btn--wide.v-btn) {
+  width: auto;
+  min-width: 0;
+  padding-inline: 0.55rem 0.68rem;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.71rem;
+  font-weight: 650;
+}
+
 :deep(.item-action-btn:hover) {
   background: rgba(255, 255, 255, 0.045);
   opacity: 1;

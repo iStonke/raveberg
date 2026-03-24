@@ -314,6 +314,7 @@ export interface VideoState {
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
+  loop_video_id: number | null
   updated_at: string | null
 }
 

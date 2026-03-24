@@ -181,6 +181,7 @@ const rendererProps = computed(() => {
         object_fit: videoStore.objectFit,
         transition: videoStore.transition,
         active_video_id: videoStore.activeVideoId,
+        loop_video_id: videoStore.loopVideoId,
         updated_at: videoStore.updatedAt,
       },
       assets: videoStore.assets,

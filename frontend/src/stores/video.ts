@@ -18,6 +18,7 @@ export const useVideoStore = defineStore('video', () => {
   const objectFit = ref<VideoState['object_fit']>('contain')
   const transition = ref<VideoState['transition']>('none')
   const activeVideoId = ref<number | null>(null)
+  const loopVideoId = ref<number | null>(null)
   const updatedAt = ref<string | null>(null)
   const assets = ref<VideoAsset[]>([])
 
@@ -51,6 +52,7 @@ export const useVideoStore = defineStore('video', () => {
     objectFit.value = state.object_fit
     transition.value = state.transition
     activeVideoId.value = state.active_video_id
+    loopVideoId.value = state.loop_video_id
     updatedAt.value = state.updated_at
   }
 
@@ -67,6 +69,7 @@ export const useVideoStore = defineStore('video', () => {
     objectFit,
     transition,
     activeVideoId,
+    loopVideoId,
     updatedAt,
     assets,
     refreshState,

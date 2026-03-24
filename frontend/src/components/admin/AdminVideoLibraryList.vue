@@ -17,6 +17,10 @@ const props = defineProps({
     type: Number as PropType<number | null>,
     default: null,
   },
+  loopVideoId: {
+    type: Number as PropType<number | null>,
+    default: null,
+  },
   durations: {
     type: Object as PropType<Record<number, string>>,
     required: true,
@@ -33,6 +37,7 @@ const props = defineProps({
 
 const emit = defineEmits<{
   select: [asset: VideoAsset]
+  toggleLoop: [asset: VideoAsset]
   move: [asset: VideoAsset, direction: -1 | 1]
   remove: [asset: VideoAsset]
 }>()
@@ -93,7 +98,11 @@ function formatVideoMimeLabel(value: string) {
         >
           <template #badge>
             <StatusBadge
-              v-if="activeVideoId === asset.id"
+              v-if="loopVideoId === asset.id"
+              label="Loop aktiv"
+            />
+            <StatusBadge
+              v-else-if="activeVideoId === asset.id"
               label="Aktiv"
             />
           </template>
@@ -102,6 +111,18 @@ function formatVideoMimeLabel(value: string) {
 
       <template #actions>
         <ItemActionsRow>
+          <v-btn
+            size="small"
+            :variant="loopVideoId === asset.id ? 'tonal' : 'text'"
+            :color="loopVideoId === asset.id ? 'primary' : undefined"
+            class="item-action-btn item-action-btn--wide"
+            :prepend-icon="loopVideoId === asset.id ? 'mdi-repeat' : 'mdi-repeat-off'"
+            :loading="isBusy(`video:loop:${asset.id}`)"
+            :aria-label="loopVideoId === asset.id ? 'Endlosschleife deaktivieren' : 'Endlosschleife aktivieren'"
+            @click.stop="emit('toggleLoop', asset)"
+          >
+            {{ loopVideoId === asset.id ? 'Loop an' : 'Loop aus' }}
+          </v-btn>
           <v-btn
             size="small"
             variant="text"

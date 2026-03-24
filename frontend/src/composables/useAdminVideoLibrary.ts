@@ -226,7 +226,32 @@ export function useAdminVideoLibrary(options: UseAdminVideoLibraryOptions = {}) 
       object_fit: videoStore.objectFit,
       transition: videoStore.transition,
       active_video_id: asset.id,
+      loop_video_id: videoStore.loopVideoId,
     })
+    await options.onVideoStateSynced?.()
+    await options.onSystemRefresh?.()
+  }
+
+  async function toggleLoopVideo(asset: VideoAsset) {
+    const nextLoopVideoId = videoStore.loopVideoId === asset.id ? null : asset.id
+    const key = `video:loop:${asset.id}`
+    setBusy(key, true)
+
+    try {
+      await videoStore.save({
+        playlist_enabled: videoStore.playlistEnabled,
+        loop_enabled: videoStore.loopEnabled,
+        playback_order: videoStore.playbackOrder,
+        vintage_filter_enabled: videoStore.vintageFilterEnabled,
+        overlay_mode: normalizeVideoOverlayMode(videoStore.overlayMode),
+        object_fit: videoStore.objectFit,
+        transition: videoStore.transition,
+        active_video_id: nextLoopVideoId ?? asset.id,
+        loop_video_id: nextLoopVideoId,
+      })
+    } finally {
+      setBusy(key, false)
+    }
     await options.onVideoStateSynced?.()
     await options.onSystemRefresh?.()
   }
@@ -310,6 +335,7 @@ export function useAdminVideoLibrary(options: UseAdminVideoLibraryOptions = {}) 
     isUploadingVideos,
     videoUploadLabel,
     videoDurations,
+    videoDurationSeconds,
     videoMetadataLoading,
     orderedVideoAssets,
     totalVideoDurationSeconds,
@@ -322,6 +348,7 @@ export function useAdminVideoLibrary(options: UseAdminVideoLibraryOptions = {}) 
     moveVideo,
     removeVideo,
     setActiveVideo,
+    toggleLoopVideo,
     isBusy,
   }
 }

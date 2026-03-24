@@ -37,13 +37,15 @@ class VideoService:
                 object_fit="contain",
                 transition="none",
                 active_video_id=None,
+                loop_video_id=None,
             )
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)
 
         normalized = self._normalize_active_video(state)
-        if normalized:
+        normalized_loop = self._normalize_loop_video(state)
+        if normalized or normalized_loop:
             self.db.add(state)
             self.db.commit()
             self.db.refresh(state)
@@ -57,6 +59,8 @@ class VideoService:
         state = self.ensure_state()
         if payload.active_video_id is not None:
             self._get_asset(payload.active_video_id)
+        if payload.loop_video_id is not None:
+            self._get_asset(payload.loop_video_id)
 
         state.playlist_enabled = payload.playlist_enabled
         state.loop_enabled = payload.loop_enabled
@@ -67,7 +71,9 @@ class VideoService:
         state.object_fit = payload.object_fit
         state.transition = payload.transition
         state.active_video_id = payload.active_video_id
+        state.loop_video_id = payload.loop_video_id
         self._normalize_active_video(state, payload_requested=True)
+        self._normalize_loop_video(state)
         state.updated_at = datetime.now(timezone.utc)
         self.db.add(state)
         self.db.commit()
@@ -164,6 +170,13 @@ class VideoService:
         state = self.ensure_state()
         if deleted_was_active:
             self._normalize_active_video(state)
+            if state.loop_video_id == asset_id:
+                state.loop_video_id = None
+            state.updated_at = datetime.now(timezone.utc)
+            self.db.add(state)
+            self.db.commit()
+        elif state.loop_video_id == asset_id:
+            state.loop_video_id = None
             state.updated_at = datetime.now(timezone.utc)
             self.db.add(state)
             self.db.commit()
@@ -219,6 +232,14 @@ class VideoService:
                 )
             )
             changed = True
+        if "loop_video_id" not in columns:
+            self.db.execute(
+                text(
+                    "ALTER TABLE video_state "
+                    "ADD COLUMN loop_video_id INTEGER"
+                )
+            )
+            changed = True
         if changed:
             self.db.commit()
 
@@ -238,6 +259,15 @@ class VideoService:
             return True
 
         state.active_video_id = existing_ids[0]
+        return True
+
+    def _normalize_loop_video(self, state: VideoState) -> bool:
+        existing_ids = [asset.id for asset in self._list_asset_models()]
+        if state.loop_video_id is None:
+            return False
+        if state.loop_video_id in existing_ids:
+            return False
+        state.loop_video_id = None
         return True
 
     def _reindex_positions(self) -> None:

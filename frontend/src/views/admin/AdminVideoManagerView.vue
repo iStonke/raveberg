@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import AdminVideoLibraryList from '../../components/admin/AdminVideoLibraryList.vue'
 import PrimaryHeaderAction from '../../components/settings/subpage/PrimaryHeaderAction.vue'
@@ -13,6 +13,8 @@ import { useVideoStore } from '../../stores/video'
 
 const adminAlert = useAdminAlert()
 const videoStore = useVideoStore()
+const now = ref(Date.now())
+let activeVideoTimer: number | undefined
 
 const {
   videoFileInput,
@@ -20,6 +22,7 @@ const {
   isUploadingVideos,
   videoUploadLabel,
   videoDurations,
+  videoDurationSeconds,
   videoMetadataLoading,
   orderedVideoAssets,
   totalVideoDurationSeconds,
@@ -29,6 +32,7 @@ const {
   moveVideo,
   removeVideo,
   setActiveVideo,
+  toggleLoopVideo,
 } = useAdminVideoLibrary()
 
 const videoCountLabel = computed(() => {
@@ -61,13 +65,80 @@ const libraryMetaLabel = computed(() => {
   return parts.join(' · ')
 })
 
+const displayedActiveVideoId = computed(() => {
+  if (!orderedVideoAssets.value.length) {
+    return videoStore.activeVideoId
+  }
+
+  if (
+    videoStore.loopVideoId != null &&
+    orderedVideoAssets.value.some((asset) => asset.id === videoStore.loopVideoId)
+  ) {
+    return videoStore.loopVideoId
+  }
+
+  const activeVideoId =
+    videoStore.activeVideoId && orderedVideoAssets.value.some((asset) => asset.id === videoStore.activeVideoId)
+      ? videoStore.activeVideoId
+      : orderedVideoAssets.value[0]?.id ?? null
+
+  if (!videoStore.playlistEnabled || activeVideoId == null) {
+    return activeVideoId
+  }
+
+  const updatedAt = videoStore.updatedAt ? Date.parse(videoStore.updatedAt) : Number.NaN
+  if (!Number.isFinite(updatedAt)) {
+    return activeVideoId
+  }
+
+  const startIndex = orderedVideoAssets.value.findIndex((asset) => asset.id === activeVideoId)
+  if (startIndex < 0) {
+    return activeVideoId
+  }
+
+  const rotatedAssets = [
+    ...orderedVideoAssets.value.slice(startIndex),
+    ...orderedVideoAssets.value.slice(0, startIndex),
+  ]
+  const durations = rotatedAssets.map((asset) => videoDurationSeconds.value[asset.id] ?? 0)
+  if (durations.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return activeVideoId
+  }
+
+  const totalDuration = durations.reduce((sum, value) => sum + value, 0)
+  if (totalDuration <= 0) {
+    return activeVideoId
+  }
+
+  let remainingSeconds = Math.max(0, Math.floor((now.value - updatedAt) / 1000)) % totalDuration
+  for (let index = 0; index < rotatedAssets.length; index += 1) {
+    const duration = durations[index]
+    if (remainingSeconds < duration) {
+      return rotatedAssets[index].id
+    }
+    remainingSeconds -= duration
+  }
+
+  return activeVideoId
+})
+
 onMounted(async () => {
+  activeVideoTimer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+
   try {
     await initializeVideoLibrary()
   } catch (error) {
     adminAlert.error(
       error instanceof Error ? error.message : 'Videoverwaltung konnte nicht geladen werden',
     )
+  }
+})
+
+onBeforeUnmount(() => {
+  if (activeVideoTimer) {
+    window.clearInterval(activeVideoTimer)
   }
 })
 
@@ -140,11 +211,13 @@ function formatCompactDuration(value: number) {
         <AdminVideoLibraryList
           v-if="orderedVideoAssets.length"
           :assets="orderedVideoAssets"
-          :active-video-id="videoStore.activeVideoId"
+          :active-video-id="displayedActiveVideoId"
+          :loop-video-id="videoStore.loopVideoId"
           :durations="videoDurations"
           :metadata-loading="videoMetadataLoading"
           :busy-actions="busyActions"
           @select="setActiveVideo"
+          @toggle-loop="toggleLoopVideo"
           @move="moveVideo"
           @remove="removeVideo"
         />

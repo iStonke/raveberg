@@ -19,6 +19,7 @@ class VideoStateRead(BaseModel):
     object_fit: VideoObjectFit
     transition: VideoTransition
     active_video_id: int | None
+    loop_video_id: int | None
     updated_at: datetime | None
 
 
@@ -31,6 +32,7 @@ class VideoStateUpdate(BaseModel):
     object_fit: VideoObjectFit
     transition: VideoTransition
     active_video_id: int | None = None
+    loop_video_id: int | None = None
 
 
 class VideoAssetRead(BaseModel):

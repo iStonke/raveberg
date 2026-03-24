@@ -7,12 +7,14 @@ const props = withDefaults(
     visible?: boolean
     durationMs?: number
     zIndex?: number
+    staggeredIn?: boolean
   }>(),
   {
     active: false,
     visible: true,
     durationMs: 360,
     zIndex: 1,
+    staggeredIn: false,
   },
 )
 
@@ -28,6 +30,7 @@ const layerStyle = computed(() => ({
     :class="{
       'display-switch-layer--active': props.active,
       'display-switch-layer--hidden': !props.visible,
+      'display-switch-layer--staggered-in': props.staggeredIn,
     }"
     :style="layerStyle"
   >
@@ -40,8 +43,8 @@ const layerStyle = computed(() => ({
   position: absolute;
   inset: 0;
   opacity: 0;
-  filter: blur(10px) brightness(0.9);
-  transform: scale(1.01);
+  filter: blur(11px) brightness(0.86) saturate(0.94);
+  transform: scale(1.012);
   transform-origin: center;
   pointer-events: none;
   transition:
@@ -54,8 +57,12 @@ const layerStyle = computed(() => ({
 
 .display-switch-layer--active {
   opacity: 1;
-  filter: blur(0) brightness(1);
+  filter: blur(0) brightness(1) saturate(1);
   transform: scale(1);
+}
+
+.display-switch-layer--active.display-switch-layer--staggered-in {
+  transition-delay: 54ms;
 }
 
 .display-switch-layer--hidden {
@@ -73,6 +80,10 @@ const layerStyle = computed(() => ({
   .display-switch-layer--active {
     filter: none;
     transform: none;
+  }
+
+  .display-switch-layer--active.display-switch-layer--staggered-in {
+    transition-delay: 0ms;
   }
 }
 </style>

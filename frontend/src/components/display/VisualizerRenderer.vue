@@ -25,6 +25,7 @@ const currentRuntimeError = ref('')
 const previousRuntimeError = ref('')
 const currentLayerActive = ref(true)
 const previousLayerActive = ref(false)
+const isTransitioning = ref(false)
 const currentLayerKey = ref(0)
 const previousLayerKey = ref(0)
 
@@ -97,6 +98,7 @@ function resolveVisualizer(visualizer: VisualizerState, runtimeError: string): V
 }
 
 function startCrossfade() {
+  isTransitioning.value = true
   previousLayerActive.value = true
   currentLayerActive.value = false
   if (crossfadeTimer) {
@@ -113,6 +115,7 @@ function startCrossfade() {
     previousVisualizer.value = null
     previousRuntimeError.value = ''
     previousLayerActive.value = false
+    isTransitioning.value = false
     crossfadeTimer = undefined
   }, CROSSFADE_DURATION_MS + 40)
 }
@@ -154,6 +157,7 @@ function handlePreviousRuntimeError(message: string) {
       :active="currentLayerActive"
       :duration-ms="CROSSFADE_DURATION_MS"
       :z-index="2"
+      :staggered-in="isTransitioning"
     >
       <ExternalVisualizerHost
         v-if="isCurrentExternalPreset"

@@ -377,6 +377,7 @@ const videoDraft = reactive<{
   object_fit: VideoObjectFit
   transition: VideoTransition
   active_video_id: number | null
+  loop_video_id: number | null
 }>({
   playlist_enabled: true,
   loop_enabled: true,
@@ -386,6 +387,7 @@ const videoDraft = reactive<{
   object_fit: 'contain',
   transition: 'none',
   active_video_id: null,
+  loop_video_id: null,
 })
 
 const remoteVisualizerDraft = reactive<{
@@ -1318,6 +1320,7 @@ watch(
     videoDraft.object_fit,
     videoDraft.transition,
     videoDraft.active_video_id,
+    videoDraft.loop_video_id,
   ],
   () => {
     if (!isHydratingVideoDraft.value) {
@@ -1435,6 +1438,7 @@ async function syncVideoDraftFromStore() {
   videoDraft.object_fit = videoStore.objectFit
   videoDraft.transition = videoStore.transition
   videoDraft.active_video_id = videoStore.activeVideoId
+  videoDraft.loop_video_id = videoStore.loopVideoId
   await nextTick()
   isHydratingVideoDraft.value = false
 }
@@ -1660,6 +1664,7 @@ async function saveVideoDraft() {
       object_fit: videoDraft.object_fit,
       transition: videoDraft.transition,
       active_video_id: videoDraft.active_video_id,
+      loop_video_id: videoDraft.loop_video_id,
     })
     await refreshSystemOnly()
   } catch (error) {

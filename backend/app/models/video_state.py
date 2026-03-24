@@ -23,6 +23,10 @@ class VideoState(Base):
         ForeignKey("video_assets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    loop_video_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -24,6 +24,7 @@ const queueIds = ref<number[]>([])
 const currentAssetId = ref<number | null>(null)
 const currentToken = ref(0)
 const activeLayerName = ref<VideoLayerName>('a')
+const lastHandledRequestedVideoId = ref<number | null | undefined>(undefined)
 const layerStates = reactive<Record<VideoLayerName, VideoLayerState>>({
   a: {
     asset: null,
@@ -39,6 +40,11 @@ let fadeTimer: number | undefined
 
 const orderedAssets = computed(() => [...props.assets].sort((left, right) => left.position - right.position))
 const activeAsset = computed(() => layerStates[activeLayerName.value].asset)
+const loopAssetId = computed(() =>
+  props.settings.loop_video_id && orderedAssets.value.some((asset) => asset.id === props.settings.loop_video_id)
+    ? props.settings.loop_video_id
+    : null,
+)
 const filterStyle = computed(() =>
   props.settings.vintage_filter_enabled
     ? 'grayscale(1) contrast(1.24) brightness(0.86) saturate(0.08) sepia(0.18)'
@@ -95,6 +101,7 @@ async function syncPlaybackState() {
     queueIds.value = []
     currentAssetId.value = null
     isTransitioning.value = false
+    lastHandledRequestedVideoId.value = props.settings.active_video_id
     layerStates.a.asset = null
     layerStates.a.active = false
     layerStates.b.asset = null
@@ -104,21 +111,43 @@ async function syncPlaybackState() {
     return
   }
 
+  if (loopAssetId.value != null) {
+    queueIds.value = []
+    lastHandledRequestedVideoId.value = props.settings.active_video_id
+    if (loopAssetId.value === currentAssetId.value && activeAsset.value?.id === loopAssetId.value) {
+      syncLayerSettings()
+      return
+    }
+    await playAsset(loopAssetId.value)
+    return
+  }
+
   if (props.settings.playlist_enabled) {
     const nextQueue = buildQueue()
     const queueChanged = !sameQueue(queueIds.value, nextQueue)
+    const requestedId =
+      props.settings.active_video_id && nextQueue.includes(props.settings.active_video_id)
+        ? props.settings.active_video_id
+        : null
+    const hasNewRequestedId =
+      requestedId != null &&
+      requestedId !== currentAssetId.value &&
+      requestedId !== lastHandledRequestedVideoId.value
     const preferredId =
-      queueChanged
-        ? nextQueue[0]
+      hasNewRequestedId
+        ? requestedId
         : currentAssetId.value && nextQueue.includes(currentAssetId.value)
         ? currentAssetId.value
-        : props.settings.active_video_id && nextQueue.includes(props.settings.active_video_id)
-          ? props.settings.active_video_id
-          : nextQueue[0]
+        : queueChanged
+        ? nextQueue[0]
+        : requestedId ?? nextQueue[0]
 
     queueIds.value = nextQueue
     if (preferredId == null) {
       return
+    }
+    if (hasNewRequestedId) {
+      lastHandledRequestedVideoId.value = requestedId
     }
     if (preferredId === currentAssetId.value && activeAsset.value?.id === preferredId) {
       syncLayerSettings()
@@ -133,6 +162,8 @@ async function syncPlaybackState() {
     props.settings.active_video_id && orderedAssets.value.some((asset) => asset.id === props.settings.active_video_id)
       ? props.settings.active_video_id
       : orderedAssets.value[0]?.id ?? null
+
+  lastHandledRequestedVideoId.value = props.settings.active_video_id
 
   if (singleId == null) {
     return
@@ -161,10 +192,7 @@ async function playAsset(assetId: number) {
   const token = currentToken.value + 1
   currentToken.value = token
   const hasVisibleAsset = !!activeAsset.value
-  const shouldCrossfade =
-    props.settings.transition === 'fade' &&
-    hasVisibleAsset &&
-    activeAsset.value?.id !== asset.id
+  const shouldCrossfade = hasVisibleAsset && activeAsset.value?.id !== asset.id
 
   if (!shouldCrossfade) {
     const layerName = activeLayerName.value
@@ -250,8 +278,8 @@ function getInactiveLayerName(layerName: VideoLayerName): VideoLayerName {
 }
 
 function syncLayerSettings() {
-  applyVideoElementSettings(videoARef.value)
-  applyVideoElementSettings(videoBRef.value)
+  applyVideoElementSettings(videoARef.value, layerStates.a.asset?.id ?? null)
+  applyVideoElementSettings(videoBRef.value, layerStates.b.asset?.id ?? null)
 }
 
 async function prepareLayer(layerName: VideoLayerName, asset: VideoAsset, token: number) {
@@ -262,7 +290,7 @@ async function prepareLayer(layerName: VideoLayerName, asset: VideoAsset, token:
 
   layerStates[layerName].asset = asset
   layerStates[layerName].active = false
-  applyVideoElementSettings(video)
+  applyVideoElementSettings(video, asset.id)
   video.pause()
   video.src = asset.stream_url
   video.load()
@@ -272,7 +300,7 @@ async function prepareLayer(layerName: VideoLayerName, asset: VideoAsset, token:
     if (currentToken.value !== token) {
       return false
     }
-    applyVideoElementSettings(video)
+    applyVideoElementSettings(video, asset.id)
     await video.play()
     return true
   } catch {
@@ -280,7 +308,7 @@ async function prepareLayer(layerName: VideoLayerName, asset: VideoAsset, token:
   }
 }
 
-function applyVideoElementSettings(video: HTMLVideoElement | null) {
+function applyVideoElementSettings(video: HTMLVideoElement | null, assetId: number | null) {
   if (!video) {
     return
   }
@@ -288,7 +316,19 @@ function applyVideoElementSettings(video: HTMLVideoElement | null) {
   video.volume = 0
   video.defaultMuted = true
   video.playsInline = true
-  video.loop = !props.settings.playlist_enabled && props.settings.loop_enabled
+  video.loop = shouldLoopAsset(assetId)
+}
+
+function shouldLoopAsset(assetId: number | null) {
+  if (assetId == null) {
+    return false
+  }
+
+  if (loopAssetId.value != null) {
+    return loopAssetId.value === assetId
+  }
+
+  return !props.settings.playlist_enabled && props.settings.loop_enabled
 }
 
 function stopLayer(layerName: VideoLayerName) {
@@ -355,6 +395,7 @@ function sameQueue(left: number[], right: number[]) {
       :visible="!!layerStates.a.asset"
       :duration-ms="CROSSFADE_DURATION_MS"
       :z-index="activeLayerName === 'a' ? 2 : 1"
+      :staggered-in="isTransitioning && activeLayerName === 'a'"
     >
       <video
         ref="videoARef"
@@ -372,6 +413,7 @@ function sameQueue(left: number[], right: number[]) {
       :visible="!!layerStates.b.asset"
       :duration-ms="CROSSFADE_DURATION_MS"
       :z-index="activeLayerName === 'b' ? 2 : 1"
+      :staggered-in="isTransitioning && activeLayerName === 'b'"
     >
       <video
         ref="videoBRef"
